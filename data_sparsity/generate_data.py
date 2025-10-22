@@ -207,13 +207,30 @@ class GenerateData:
             self.sparsity = self.sparsity_zero
             print(f"Input sparsity is zero, imposing minimum value: {self.sparsity_zero}")
         elif self.sparsity < self.sparsity_zero:
-            raise ValueError(f"Provided sparsity value of {self.sparsity} is lower than minimum value of {self.sparsity_zero}. If you want to impose the minimum value possible, set sparsity to 0. as input.")
+            raise ValueError(
+                f"Provided sparsity value of {self.sparsity} is lower than minimum value"
+                f" of {self.sparsity_zero}. If you want to impose the minimum value possible"
+                ", set sparsity to 0. as input."
+            )
 
         # Check that num_obs is consistent with sparsity and dimensions size, else update it
         num_obs_exp = self.sparsity*np.prod(self.nb_coords_per_dim)
         if num_obs_exp != self.num_obs:
-            print(f"Input number of observations num_obs ({self.num_obs}) does not match the number of observations num_obs_exp {num_obs_exp} expected from values of sparsity and the number of elements per dimension. This can happen due to rounding operations and is not necessarily an issue, so we are enforcing num_obs to match num_obs_exp.")
-            self.num_obs = num_obs_exp
+            print(
+                f"Input number of observations num_obs ({self.num_obs}) does not match the "
+                f"number of observations num_obs_exp {num_obs_exp} expected from values of "
+                "sparsity and the number of elements per dimension. This can happen due to"
+                " rounding operations and is not necessarily an issue, so we are enforcing "
+                "num_obs to match num_obs_exp and rounding it."
+            )
+            self.num_obs = np.rint(num_obs_exp).astype(int)
+            print(f"New number of observations is {self.num_obs}")
+            self.sparsity = self.num_obs/np.prod(self.nb_coords_per_dim)
+            print(f"Actual sparsity is then {self.sparsity}")
+            if self.sparsity < self.sparsity_zero or self.sparsity > 1:
+                raise ValueError(
+                    f"Sparsity value {self.sparsity} out of bounds [{self.sparsity_zero},1]"
+                )
 
         # Check that seed is a non-negative integer
         if not isinstance(self.seed, int):
