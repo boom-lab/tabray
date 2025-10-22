@@ -87,19 +87,26 @@ class GenerateData:
     def _validate_parameters(self) -> None:
         """Validate initialization parameters.
 
-        Performs 8 validation checks on input parameters:
-        1. num_obs is a positive integer
-        2. num_dims is a positive integer
-        3. ratio_dims is a tuple
-        4. ratio_dims has exactly num_dims elements
-        5. All elements in ratio_dims are positive numbers
-        6. sparsity is a float between 0.0 and 1.0
-        7. seed is a non-negative integer
-        8. The sparsity level is feasible given num_obs
+        Checks that:
+        * input parameters values are admissible
+        * all dimensions have at least two elements (one element does not make
+          sense, as we can drop that dimension and reduce the system's size)
+        * all dimensions have a natural number of elements (no floats)
+        * sparsity is larger than the minimum theoritcal value and smaller
+          than 1
+        * input number of observations is consistent with input number of
+          dimensions and sparsity
+
+        Some checks are hard check (i.e. an error is raised if the check fails),
+        others are soft (i.e. the expected values is enforced instead of raising
+        an error). The latter is done when the check fail is likely due to
+        rounding. Input and updated configuration are printed to screen to make
+        user aware of changes.
 
         Raises:
             TypeError: If parameters are not of expected types
             ValueError: If parameters fail validation checks
+
         """
 
         # Check that num_obs is int larger than 0
