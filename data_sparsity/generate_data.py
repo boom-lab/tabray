@@ -97,7 +97,7 @@ class GenerateData:
         * input number of observations is consistent with input number of
           dimensions and sparsity
 
-        Some checks are hard check (i.e. an error is raised if the check fails),
+        Some checks are hard checks (i.e. an error is raised if the check fails),
         others are soft (i.e. the expected values is enforced instead of raising
         an error). The latter is done when the check fail is likely due to
         rounding. Input and updated configuration are printed to screen to make
@@ -137,21 +137,21 @@ class GenerateData:
             raise TypeError(f"num_dims must be an integer, got {type(self.num_dims)}")
         if self.num_dims <= 0:
             raise ValueError(f"num_dims must be positive, got {self.num_dims}")
-        self.nb_elements_dim1 = self.num_obs / (self.sparsity*self.ratio_dims_prod)
-        if self.nb_elements_dim1 < 1:
-            raise ValueError(f"number of elements for dimension 1 must be larger than 1, got {self.nb_elements_dim1}")
+        self.nb_coords_dim1 = self.num_obs / (self.sparsity*self.ratio_dims_prod)
+        if self.nb_coords_dim1 < 1:
+            raise ValueError(f"number of elements for dimension 1 must be larger than 1, got {self.nb_coords_dim1}")
 
-        # Enforce nb_elements_dim1 to be an integer
-        print(f"Number of elements in the first dimension is {self.nb_elements_dim1}, rounding to closest integer: {np.rint(self.nb_elements_dim1)}")
-        self.nb_elements_dim1 = np.rint(self.nb_elements_dim1)
+        # Enforce nb_coords_dim1 to be an integer
+        print(f"Number of elements in the first dimension is {self.nb_coords_dim1}, rounding to closest integer: {np.rint(self.nb_coords_dim1)}")
+        self.nb_coords_dim1 = np.rint(self.nb_coords_dim1)
 
         # Check that all other dimensions have at least one element
-        self.nb_elements_all_dims = self.ratio_dims*self.nb_elements_dim1
-        fewer_than_one = self.nb_elements_all_dims<1
+        self.nb_coords_per_dim = self.ratio_dims*self.nb_coords_dim1
+        fewer_than_one = self.nb_coords_per_dim<1
         if np.any(fewer_than_one):
             bad_idxs = np.flatnonzero(fewer_than_one)
             msgs = [
-                f'Error: dimension {idx+1} must have at least one element, got {self.nb_elements_all_dims[idx]}.'
+                f'Error: dimension {idx} must have at least one element, got {self.nb_coords_per_dim[idx]}.'
                 for idx in bad_idxs
             ]
             for m in msgs:
@@ -161,14 +161,14 @@ class GenerateData:
         # Check that all dimensions contain an integer number of elements
         not_integers = np.logical_not(
             np.isclose(
-                self.nb_elements_all_dims,
-                np.rint(self.nb_elements_all_dims)
+                self.nb_coords_per_dim,
+                np.rint(self.nb_coords_per_dim)
                 )
             )
         if np.any(not_integers):
             bad_idxs = np.flatnonzero(not_integers)
             msgs = [
-                f"Error: dimension {i+1} does not have an integer number of elements, got {self.nb_elements_all_dims[idx]}"
+                f"Error: dimension {idx} does not have an integer number of elements, got {self.nb_coords_per_dim[idx]}"
                 for idx in bad_idxs
             ]
             # print or include messages in the exception
@@ -177,11 +177,11 @@ class GenerateData:
             raise ValueError("One or more dimensions contain a decimal number elements.")
         else:
             print("All dimensions contain approximately a natural number of elements, rounding them.")
-            print(f"Old number of elements: {self.nb_elements_all_dims}")
-            self.nb_elements_all_dims = np.rint(self.nb_elements_all_dims).astype(int)
+            print(f"Old number of elements: {self.nb_coords_per_dim}")
+            self.nb_coords_per_dim = np.rint(self.nb_coords_per_dim).astype(int)
 
         # Check that sparsity is larger than minimum allowed for this set of parameters
-        self.sparsity_zero = 1/np.min(self.nb_elements_all_dims)
+        self.sparsity_zero = 1/np.min(self.nb_coords_per_dim)
         print(f"Minimum sparsity value for the current set of dimensions: {self.sparsity_zero}")
         if self.sparsity == 0.:
             self.sparsity = self.sparsity_zero
@@ -189,7 +189,7 @@ class GenerateData:
             raise ValueError(f"Provided sparsity value of {self.sparsity} is lower than minimum value of {self.sparsity_zero}. If you want to impose the minimum value possible, set sparsity to 0. as input.")
 
         # Check that num_obs is consistent with sparsity and dimensions size, else update it
-        num_obs_exp = self.sparsity*np.prod(self.nb_elements_all_dims)
+        num_obs_exp = self.sparsity*np.prod(self.nb_coords_per_dim)
         if num_obs_exp != self.num_obs:
             print(f"Input number of observations num_obs ({self.num_obs}) does not match the number of observations num_obs_exp {num_obs_exp} expected from values of sparsity and the number of elements per dimension. This can happen due to rounding operations and is not necessarily an issue, so we are enforcing num_obs to match num_obs_exp.")
             self.num_obs = num_obs_exp
@@ -211,38 +211,12 @@ class GenerateData:
         Returns:
             Dictionary mapping dimension names to coordinate arrays
         """
-        # Calculate total grid points needed based on sparsity
-        total_points = int(np.ceil(self.num_obs / self.sparsity))
 
-        # Normalize ratios to sum to 1
-        ratio_sum = sum(self.ratio_dims)
-        normalized_ratios = [r / ratio_sum for r in self.ratio_dims]
-
-        # Calculate points per dimension based on normalized ratios
-        # We distribute total_points across dimensions maintaining the ratios
-        # This is an approximation - we calculate the geometric mean approach
-        points_per_dim = []
-        dim_product = 1
-        for ratio in normalized_ratios:
-            # Each dimension gets a size such that product equals total_points
-            dim_size = int(np.ceil((total_points * ratio) ** (1 / self.num_dims)))
-            points_per_dim.append(max(dim_size, 2))  # Minimum 2 points per dimension
-            dim_product *= dim_size
-
-        # Adjust if needed to ensure we have enough total points
-        while dim_product < total_points:
-            # Find dimension with smallest size relative to its ratio
-            ratios_to_size = [r / s for r, s in zip(normalized_ratios, points_per_dim)]
-            dim_to_increase = ratios_to_size.index(max(ratios_to_size))
-            points_per_dim[dim_to_increase] += 1
-            dim_product = np.prod(points_per_dim)
-
-        # Generate coordinate arrays for each dimension
+        # Generate random coordinate arrays for each dimension
         coordinates = {}
-        for i, n_points in enumerate(points_per_dim):
-            dim_name = f"dim_{i}"
-            # Generate evenly spaced coordinates in [0, 1)
-            coordinates[dim_name] = np.linspace(0, 1, n_points, endpoint=False)
+        for idx, n_coords in enumerate(self.nb_coords_per_dim):
+            dim_name = f"x{i}"
+            coordinates[dim_name] = self._rng.uniform(0, 1, size=n_coords)
 
         self._coordinates = coordinates
         return coordinates
