@@ -60,9 +60,7 @@ class GenerateData:
         print(f"  Sparsity: {self.sparsity}")
         print(f"  Random seed: {self.seed}")
 
-        self.ratio_dims_prod = 1
-        for r in self.ratio_dims:
-            self.ratio_dims_prod *= r
+        self.ratio_dims_prod = np.prod(self.ratio_dims)
 
         # Validate all parameters
         self._validate_parameters()
@@ -125,6 +123,18 @@ class GenerateData:
                 f"sparsity must be between positive and less than or equal to 1.0, got {self.sparsity}"
             )
 
+        # Check num_dims and ratio_dims consistency
+        if not isinstance(self.num_dims, int):
+            raise TypeError(
+                f"num_dims must be an int, got {type(self.num_dims)}"
+            )
+        if self.ratio_dims!=1:
+            if self.num_dims != len(self.ratio_dims):
+                raise ValueError(
+                    "num_dims must be equivalent to the number of elements in ratio_dims "
+                    f"(if this is not 1), got {self.num_dims} and {len(self.ratio_dims)}, respectively."
+                )
+
         # Check ratio_dims type and convert to np array
         if isinstance(self.ratio_dims, int):
             if self.ratio_dims == 1:
@@ -141,16 +151,17 @@ class GenerateData:
             raise TypeError(f"num_dims must be an integer, got {type(self.num_dims)}")
         if self.num_dims <= 0:
             raise ValueError(f"num_dims must be positive, got {self.num_dims}")
-        self.nb_coords_dim1 = self.num_obs / (self.sparsity*self.ratio_dims_prod)
+        base = self.num_obs / (self.sparsity*self.ratio_dims_prod)
+        self.nb_coords_dim1 = np.power( base, 1/self.num_dims )
         if self.nb_coords_dim1 < 1:
             raise ValueError(f"number of elements for dimension 1 must be larger than 1, got {self.nb_coords_dim1}")
 
         # Enforce nb_coords_dim1 to be an integer
         print(
             f"Number of elements in the first dimension is {self.nb_coords_dim1}, "
-            f"rounding to closest integer: {np.rint(self.nb_coords_dim1)}"
+            f"rounding to closest integer: {np.rint(self.nb_coords_dim1).astype(int)}"
         )
-        self.nb_coords_dim1 = np.rint(self.nb_coords_dim1)
+        self.nb_coords_dim1 = np.rint(self.nb_coords_dim1).astype(int)
 
         # Check that all other dimensions have at least one element
         self.nb_coords_per_dim = self.ratio_dims*self.nb_coords_dim1
@@ -184,15 +195,17 @@ class GenerateData:
                 print(m)
             raise ValueError("One or more dimensions contain a decimal number elements.")
         else:
-            print("All dimensions contain approximately a natural number of elements, rounding them.")
-            print(f"Old number of elements: {self.nb_coords_per_dim}")
+            print("All dimensions contain approximately a natural number of elements, casting and/or rounding them:")
+            print(f"  Old number of elements: {self.nb_coords_per_dim}")
             self.nb_coords_per_dim = np.rint(self.nb_coords_per_dim).astype(int)
+            print(f"  New number of elements: {self.nb_coords_per_dim}")
 
         # Check that sparsity is larger than minimum allowed for this set of parameters
         self.sparsity_zero = 1/np.min(self.nb_coords_per_dim)
         print(f"Minimum sparsity value for the current set of dimensions: {self.sparsity_zero}")
         if self.sparsity == 0.:
             self.sparsity = self.sparsity_zero
+            print(f"Input sparsity is zero, imposing minimum value: {self.sparsity_zero}")
         elif self.sparsity < self.sparsity_zero:
             raise ValueError(f"Provided sparsity value of {self.sparsity} is lower than minimum value of {self.sparsity_zero}. If you want to impose the minimum value possible, set sparsity to 0. as input.")
 
