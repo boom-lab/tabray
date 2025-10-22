@@ -4,7 +4,7 @@ This module provides the GenerateData class for creating dummy observations
 and storing them in both array (netCDF) and tabular (Parquet) formats.
 """
 
-from typing import Tuple, Optional
+from typing import Tuple, Union
 import numpy as np
 from numpy.typing import ArrayLike
 import pandas as pd
@@ -33,8 +33,8 @@ class GenerateData:
         self,
         num_obs: int,
         num_dims: int,
-        ratio_dims: ArrayLike,
-        sparsity: Optional[int,float],
+        ratio_dims: Union[int,ArrayLike],
+        sparsity: Union[int,float],
         seed: int
     ) -> None:
         """Initialize the data generator with validation.
@@ -126,7 +126,11 @@ class GenerateData:
             )
 
         # Check ratio_dims type and convert to np array
-        if not isinstance(self.ratio_dims, (list, tuple, np.ndarray)):
+        if isinstance(self.ratio_dims, int):
+            if self.ratio_dims == 1:
+                # impose same size along all dimensions
+                self.ratio_dims = self.num_dims*[1]
+        elif not isinstance(self.ratio_dims, (list, tuple, np.ndarray)):
             raise TypeError(
                 f"ratio_dims must be a tuple, list, or numpy array, got {type(self.ratio_dims)}"
             )
@@ -267,7 +271,11 @@ class GenerateData:
         shape = tuple(len(coords) for coords in self._coordinates.values())
         total_points = np.prod(shape)
         if total_points != self.num_obs:
-            raise ValueError(f"Number of points {total_points} determined from number of coordinates differs from number of points {self.num_obs} determined during paramaters validation step.")
+            raise ValueError(
+                f"Number of points {total_points} determined from number "
+                f"of coordinates differs from number of points {self.num_obs} "
+                "determined during paramaters validation step."
+            )
 
         # Initialize record with NaN
         record = np.full(shape, np.nan)
