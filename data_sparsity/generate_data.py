@@ -230,6 +230,7 @@ class GenerateData:
             Array of random observation values
         """
         observations = self._rng.uniform(0, 1, size=self.num_obs)
+
         self._observations = observations
         return observations
 
@@ -261,6 +262,8 @@ class GenerateData:
         # Get shape of the full grid
         shape = tuple(len(coords) for coords in self._coordinates.values())
         total_points = np.prod(shape)
+        if total_points != self.num_obs:
+            raise ValueError(f"Number of points {total_points} determined from number of coordinates differs from number of points {self.num_obs} determined during paramaters validation step.")
 
         # Initialize record with NaN
         record = np.full(shape, np.nan)
@@ -268,12 +271,18 @@ class GenerateData:
         # Generate random indices for observation placement
         # Flatten the multi-dimensional index space
         flat_indices = self._rng.choice(
-            total_points,
+            self.num_obs,
             size=self.num_obs,
             replace=False
         )
 
-        # Convert flat indices to multi-dimensional indices
+        # Convert flat indices to multi-dimensional indices:
+        # it reconstructs where the index idx of the flattened 1D array with
+        # elements np.prod(shape) is in the multidimensional array of dimensions
+        # shape[0], shape[1], ... shape[n]
+        # multi_indices contains a total of len(flat_indices) 1D arrays with each
+        # containing len(shape) elements, and corresponds to the
+        # num_obs=len(flat_indices) number of points where observations are known
         multi_indices = np.unravel_index(flat_indices, shape)
 
         # Assign observation values to selected points
