@@ -142,7 +142,10 @@ class GenerateData:
             raise ValueError(f"number of elements for dimension 1 must be larger than 1, got {self.nb_coords_dim1}")
 
         # Enforce nb_coords_dim1 to be an integer
-        print(f"Number of elements in the first dimension is {self.nb_coords_dim1}, rounding to closest integer: {np.rint(self.nb_coords_dim1)}")
+        print(
+            f"Number of elements in the first dimension is {self.nb_coords_dim1}, "
+            f"rounding to closest integer: {np.rint(self.nb_coords_dim1)}"
+        )
         self.nb_coords_dim1 = np.rint(self.nb_coords_dim1)
 
         # Check that all other dimensions have at least one element
@@ -151,7 +154,8 @@ class GenerateData:
         if np.any(fewer_than_one):
             bad_idxs = np.flatnonzero(fewer_than_one)
             msgs = [
-                f'Error: dimension {idx} must have at least one element, got {self.nb_coords_per_dim[idx]}.'
+                f"Error: dimension {idx} must have at least one element, got "
+                f"{self.nb_coords_per_dim[idx]}."
                 for idx in bad_idxs
             ]
             for m in msgs:
@@ -318,6 +322,8 @@ class GenerateData:
             attrs={
                 "description": "Sparse observation data",
                 "num_obs": self.num_obs,
+                "num_dims": self.num_dims,
+                "ratio_dims": self.ratio_dims,
                 "sparsity": self.sparsity,
                 "seed": self.seed
             }
@@ -349,6 +355,27 @@ class GenerateData:
             raise RuntimeError("Record must be generated first")
 
         # Find non-NaN points in record
+        #
+        # non_nan_mask has the same shape of _record, and contains False where
+        # the corresponding value in _record is nan, True otherwise
+        #
+        # non_nan_indices is a tuple containing num_dims arrays, each containing
+        # num_obs elements, where each element is the index of the coordinate
+        # along that dimension for the corresponding observation value.
+        #
+        # Example:
+        # _record =
+        # array([[ 0.1, 0.2, nan, 0.4],
+        #        [ nan, nan, 0.7, 0.8],
+        #        [ 0.9, 0.2, 0.4, 0.5]])
+        # non_nan_indices =
+        # (array([0, 0, 0, 1, 1, 2, 2, 2, 2]), array([0, 1, 3, 2, 3, 0, 1, 2, 3]))
+        #
+        # so num_obs=9, and the location of the record values along dim0 is at positions
+        # non_nan_indices[0]=array([0, 0, 0, 1, 1, 2, 2, 2, 2]
+        # and along dim1 at positions
+        # non_nan_indices[1]=array([0, 1, 3, 2, 3, 0, 1, 2, 3])
+        # e.g: _record[0,0] = 0.1, _record[1,3] = 0.7, etc.
         non_nan_mask = ~np.isnan(self._record)
         non_nan_indices = np.where(non_nan_mask)
 
