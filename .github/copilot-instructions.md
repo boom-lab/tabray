@@ -16,7 +16,7 @@ This repository is for a Python toolset that generates and compare array and tab
   - The code should compatible with any version of Python 3.12 or newer.
 
 - **Structure & Naming:**  
-  - All code to generate the test datasets is under `FormatAnalyzer/`
+  - All code to generate the test datasets is under `data_sparsity/`
   - Use CamelCase for classes, snake_case for functions/variables.
   - Keep the public API minimal and clean.
   - Keep in mind that this code is used by non-experienced Python users too, so any design solution that is advanced should be justified and well documented and/or commented.
