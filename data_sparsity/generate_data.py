@@ -4,8 +4,9 @@ This module provides the GenerateData class for creating dummy observations
 and storing them in both array (netCDF) and tabular (Parquet) formats.
 """
 
-from typing import Tuple
+from typing import Tuple, Optional
 import numpy as np
+from numpy.typing import ArrayLike
 import pandas as pd
 import xarray as xr
 
@@ -20,28 +21,26 @@ class GenerateData:
     Attributes:
         num_obs: Number of observations to generate
         num_dims: Number of dimensions in the coordinate space
-        ratio_dims: Tuple of relative sizes for each dimension
-        sparsity: Fraction of grid points that contain observations (0.0 to 1.0)
+        ratio_dims: Tuple of relative sizes for each dimension; the first element
+                    is always 1, the following elements express the relative size
+                    of the other dimensions to the first one
+        sparsity: Sparsity of observation (between smin>0. and 1.)
         seed: Random seed for reproducibility
+
     """
 
     def __init__(
         self,
         num_obs: int,
         num_dims: int,
-        ratio_dims: Tuple[float, ...],
-        sparsity: float,
+        ratio_dims: ArrayLike,
+        sparsity: Optional[int,float],
         seed: int
     ) -> None:
         """Initialize the data generator with validation.
 
         Args:
-            num_obs: Number of observations to generate (must be positive)
-            num_dims: Number of dimensions (must be positive)
-            ratio_dims: Tuple containing num_dims elements defining relative
-                       dimension sizes (all elements must be positive)
-            sparsity: Fraction of grid points with observations (0.0 to 1.0)
-            seed: Random seed for reproducibility (non-negative integer)
+            see attributes above
 
         Raises:
             TypeError: If arguments are not of expected types
@@ -53,6 +52,10 @@ class GenerateData:
         self.ratio_dims = ratio_dims
         self.sparsity = sparsity
         self.seed = seed
+
+        self.ratio_dims_prod = 1
+        for r in self.ratio_dims:
+            self.ratio_dims_prod *= r
 
         # Validate all parameters
         self._validate_parameters()
@@ -84,69 +87,96 @@ class GenerateData:
             TypeError: If parameters are not of expected types
             ValueError: If parameters fail validation checks
         """
-        # Check 1: num_obs is a positive integer
+
+        # Check that num_obs is int larger than 0
         if not isinstance(self.num_obs, int):
             raise TypeError(f"num_obs must be an integer, got {type(self.num_obs)}")
         if self.num_obs <= 0:
             raise ValueError(f"num_obs must be positive, got {self.num_obs}")
 
-        # Check 2: num_dims is a positive integer
-        if not isinstance(self.num_dims, int):
-            raise TypeError(f"num_dims must be an integer, got {type(self.num_dims)}")
-        if self.num_dims <= 0:
-            raise ValueError(f"num_dims must be positive, got {self.num_dims}")
-
-        # Check 3: ratio_dims is a tuple
-        if not isinstance(self.ratio_dims, tuple):
-            raise TypeError(
-                f"ratio_dims must be a tuple, got {type(self.ratio_dims)}"
-            )
-
-        # Check 4: ratio_dims has exactly num_dims elements
-        if len(self.ratio_dims) != self.num_dims:
-            raise ValueError(
-                f"ratio_dims must have {self.num_dims} elements, "
-                f"got {len(self.ratio_dims)}"
-            )
-
-        # Check 5: All elements in ratio_dims are positive numbers
-        for i, ratio in enumerate(self.ratio_dims):
-            if not isinstance(ratio, (int, float)):
-                raise TypeError(
-                    f"ratio_dims[{i}] must be a number, got {type(ratio)}"
-                )
-            if ratio <= 0:
-                raise ValueError(
-                    f"ratio_dims[{i}] must be positive, got {ratio}"
-                )
-
-        # Check 6: sparsity is a float between 0.0 and 1.0
+        # Check that sparsity is positive and <= 1
         if not isinstance(self.sparsity, (float, int)):
             raise TypeError(
                 f"sparsity must be a number, got {type(self.sparsity)}"
             )
         if not 0.0 <= self.sparsity <= 1.0:
             raise ValueError(
-                f"sparsity must be between 0.0 and 1.0, got {self.sparsity}"
+                f"sparsity must be between positive and less than or equal to 1.0, got {self.sparsity}"
             )
 
-        # Check 7: seed is a non-negative integer
+        # Check ratio_dims type and convert to np array
+        if not isinstance(self.ratio_dims, (list, tuple, np.ndarray)):
+            raise TypeError(
+                f"ratio_dims must be a tuple, list, or numpy array, got {type(self.ratio_dims)}"
+            )
+        self.ratio_dims = np.asarray(self.ratio_dims)
+
+        # Check that first dimension in coordinate space has at least one element
+        if not isinstance(self.num_dims, int):
+            raise TypeError(f"num_dims must be an integer, got {type(self.num_dims)}")
+        if self.num_dims <= 0:
+            raise ValueError(f"num_dims must be positive, got {self.num_dims}")
+        self.nb_elements_dim1 = self.num_obs / (self.sparsity*self.ratio_dims_prod)
+        if self.nb_elements_dim1 < 1:
+            raise ValueError(f"number of elements for dimension 1 must be larger than 1, got {self.nb_elements_dim1}")
+
+        # Enforce nb_elements_dim1 to be an integer
+        print(f"Number of elements in the first dimension is {self.nb_elements_dim1}, rounding to closest integer: {np.rint(self.nb_elements_dim1)}")
+        self.nb_elements_dim1 = np.rint(self.nb_elements_dim1)
+
+        # Check that all other dimensions have at least one element
+        self.nb_elements_all_dims = self.ratio_dims*self.nb_elements_dim1
+        fewer_than_one = self.nb_elements_all_dims<1
+        if np.any(fewer_than_one):
+            bad_idxs = np.flatnonzero(fewer_than_one)
+            msgs = [
+                f'Error: dimension {idx+1} must have at least one element, got {self.nb_elements_all_dims[idx]}.'
+                for idx in bad_idxs
+            ]
+            for m in msgs:
+                print(m)
+            raise ValueError("One or more dimensions do not contain at least one element.")
+
+        # Check that all dimensions contain an integer number of elements
+        not_integers = np.logical_not(
+            np.isclose(
+                self.nb_elements_all_dims,
+                np.rint(self.nb_elements_all_dims)
+                )
+            )
+        if np.any(not_integers):
+            bad_idxs = np.flatnonzero(not_integers)
+            msgs = [
+                f"Error: dimension {i+1} does not have an integer number of elements, got {self.nb_elements_all_dims[idx]}"
+                for idx in bad_idxs
+            ]
+            # print or include messages in the exception
+            for m in msgs:
+                print(m)
+            raise ValueError("One or more dimensions contain a decimal number elements.")
+        else:
+            print("All dimensions contain approximately a natural number of elements, rounding them.")
+            print(f"Old number of elements: {self.nb_elements_all_dims}")
+            self.nb_elements_all_dims = np.rint(self.nb_elements_all_dims).astype(int)
+
+        # Check that sparsity is larger than minimum allowed for this set of parameters
+        self.sparsity_zero = 1/np.min(self.nb_elements_all_dims)
+        print(f"Minimum sparsity value for the current set of dimensions: {self.sparsity_zero}")
+        if self.sparsity == 0.:
+            self.sparsity = self.sparsity_zero
+        elif self.sparsity < self.sparsity_zero:
+            raise ValueError(f"Provided sparsity value of {self.sparsity} is lower than minimum value of {self.sparsity_zero}. If you want to impose the minimum value possible, set sparsity to 0. as input.")
+
+        # Check that num_obs is consistent with sparsity and dimensions size, else update it
+        num_obs_exp = self.sparsity*np.prod(self.nb_elements_all_dims)
+        if num_obs_exp != self.num_obs:
+            print(f"Input number of observations num_obs ({self.num_obs}) does not match the number of observations num_obs_exp {num_obs_exp} expected from values of sparsity and the number of elements per dimension. This can happen due to rounding operations and is not necessarily an issue, so we are enforcing num_obs to match num_obs_exp.")
+
+        # Check that seed is a non-negative integer
         if not isinstance(self.seed, int):
             raise TypeError(f"seed must be an integer, got {type(self.seed)}")
         if self.seed < 0:
             raise ValueError(f"seed must be non-negative, got {self.seed}")
-
-        # Check 8: Sparsity level is feasible given num_obs
-        # Calculate total grid points (using ratio_dims as relative sizes)
-        # We need at least num_obs grid points to place all observations
-        if self.sparsity > 0:
-            min_total_points = self.num_obs / self.sparsity
-            if min_total_points < self.num_obs:
-                raise ValueError(
-                    f"Infeasible sparsity: with {self.num_obs} observations "
-                    f"and sparsity {self.sparsity}, need at least "
-                    f"{min_total_points:.0f} grid points"
-                )
 
     def _generate_coordinates(self) -> dict:
         """Generate random coordinates for each dimension.
