@@ -53,12 +53,26 @@ class GenerateData:
         self.sparsity = sparsity
         self.seed = seed
 
+        print("Input configuration:")
+        print(f"  Number of observations: {self.num_obs}")
+        print(f"  Number of dimensions: {self.num_dims}")
+        print(f"  Ratio of dimensions: {self.ratio_dims}")
+        print(f"  Sparsity: {self.sparsity}")
+        print(f"  Random seed: {self.seed}")
+
         self.ratio_dims_prod = 1
         for r in self.ratio_dims:
             self.ratio_dims_prod *= r
 
         # Validate all parameters
         self._validate_parameters()
+        print("Updated configuration after validation:")
+        print(f"  Number of observations: {self.num_obs}")
+        print(f"  Number of dimensions: {self.num_dims}")
+        print(f"  Ratio of dimensions: {self.ratio_dims}")
+        print(f"  Sparsity: {self.sparsity}")
+        print(f"  Random seed: {self.seed}")
+
 
         # Initialize random number generator with seed
         self._rng = np.random.default_rng(seed)
@@ -171,6 +185,7 @@ class GenerateData:
         num_obs_exp = self.sparsity*np.prod(self.nb_elements_all_dims)
         if num_obs_exp != self.num_obs:
             print(f"Input number of observations num_obs ({self.num_obs}) does not match the number of observations num_obs_exp {num_obs_exp} expected from values of sparsity and the number of elements per dimension. This can happen due to rounding operations and is not necessarily an issue, so we are enforcing num_obs to match num_obs_exp.")
+            self.num_obs = num_obs_exp
 
         # Check that seed is a non-negative integer
         if not isinstance(self.seed, int):
