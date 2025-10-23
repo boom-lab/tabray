@@ -68,6 +68,7 @@ class GenerateData:
         print(f"  Number of observations: {self.num_obs}")
         print(f"  Number of dimensions: {self.num_dims}")
         print(f"  Ratio of dimensions: {self.ratio_dims}")
+        print(f"  Dimensions sizes: {self.nb_coords_per_dim}")
         print(f"  Sparsity: {self.sparsity}")
         print(f"  Random seed: {self.seed}")
 
@@ -226,7 +227,7 @@ class GenerateData:
             self.num_obs = np.rint(num_obs_exp).astype(int)
             print(f"New number of observations is {self.num_obs}")
             self.sparsity = self.num_obs/np.prod(self.nb_coords_per_dim)
-            print(f"Actual sparsity is then {self.sparsity}")
+            print(f"Actual sparsity is now {self.sparsity}")
             if self.sparsity < self.sparsity_zero or self.sparsity > 1:
                 raise ValueError(
                     f"Sparsity value {self.sparsity} out of bounds [{self.sparsity_zero},1]"
@@ -253,8 +254,10 @@ class GenerateData:
         # Generate random coordinate arrays for each dimension
         coordinates = {}
         for idx, n_coords in enumerate(self.nb_coords_per_dim):
-            dim_name = f"x{i}"
-            coordinates[dim_name] = self._rng.uniform(0, 1, size=n_coords)
+            dim_name = f"x{idx}"
+            coordinates[dim_name] = np.sort(
+                self._rng.uniform(0, 1, size=n_coords)
+            )
 
         self._coordinates = coordinates
         return coordinates
@@ -299,11 +302,12 @@ class GenerateData:
 
         # Get shape of the full grid
         shape = tuple(len(coords) for coords in self._coordinates.values())
-        total_points = np.prod(shape)
-        if total_points != self.num_obs:
+        total_points_in_grid = np.prod(shape)
+        s_estim = self.num_obs/total_points_in_grid
+        if s_estim != self.sparsity:
             raise ValueError(
-                f"Number of points {total_points} determined from number "
-                f"of coordinates differs from number of points {self.num_obs} "
+                f"Sparcity {s_estim} determined from number "
+                f"of coordinates differs from sparsity {self.sparsity} "
                 "determined during paramaters validation step."
             )
 
@@ -313,7 +317,7 @@ class GenerateData:
         # Generate random indices for observation placement
         # Flatten the multi-dimensional index space
         flat_indices = self._rng.choice(
-            self.num_obs,
+            total_points_in_grid,
             size=self.num_obs,
             replace=False
         )
