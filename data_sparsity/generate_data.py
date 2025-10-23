@@ -5,6 +5,7 @@ and storing them in both array (netCDF) and tabular (Parquet) formats.
 """
 
 from typing import Tuple, Union
+import dask
 import dask.array as da
 import dask.dataframe as dd
 import numpy as np
@@ -76,8 +77,11 @@ class GenerateData:
         print(f"  Random seed: {self.seed}")
 
 
-        # Initialize random number generator with seed
+        # Initialize random number generators with seed
+        # NumPy RNG for operations that need numpy (like choice, unravel_index)
         self._rng = np.random.default_rng(seed)
+        # Dask RNG for dask array generation
+        self._dask_rng = da.random.default_rng(seed)
 
         # Storage for generated data
         self._coordinates = None
@@ -258,12 +262,17 @@ class GenerateData:
         coordinates = {}
         for idx, n_coords in enumerate(self.nb_coords_per_dim):
             dim_name = f"x{idx}"
-            # Generate numpy array first, then convert to dask array
-            numpy_coords = np.sort(
-                self._rng.uniform(0, 1, size=n_coords)
+            # Generate using dask random for larger-than-memory support
+            # Use single chunk for 1D coordinate arrays (they're typically small)
+            dask_coords = self._dask_rng.uniform(0, 1, size=n_coords, chunks=-1)
+            # Sort the coordinates (requires computation)
+            # For 1D arrays, this is acceptable as they're typically small
+            sorted_coords = da.from_delayed(
+                dask.delayed(np.sort)(dask_coords),
+                shape=(n_coords,),
+                dtype=float
             )
-            # Convert to dask array with single chunk (1D arrays are small)
-            coordinates[dim_name] = da.from_array(numpy_coords, chunks=-1)
+            coordinates[dim_name] = sorted_coords
 
         self._coordinates = coordinates
         return coordinates
@@ -276,10 +285,10 @@ class GenerateData:
         Returns:
             Dask array of random observation values
         """
-        # Generate numpy array first, then convert to dask array
-        numpy_observations = self._rng.uniform(0, 1, size=self.num_obs)
-        # Convert to dask array with single chunk (1D observation array)
-        observations = da.from_array(numpy_observations, chunks=-1)
+        # Generate directly using dask random for larger-than-memory support
+        # Use reasonable chunk size for 1D array
+        chunk_size = min(self.num_obs, 10000)  # 10k observations per chunk
+        observations = self._dask_rng.uniform(0, 1, size=self.num_obs, chunks=chunk_size)
 
         self._observations = observations
         return observations
@@ -290,6 +299,10 @@ class GenerateData:
         Creates a multi-dimensional dask array with the shape defined by
         coordinates, then randomly selects num_obs points and assigns
         the observation values to those points. All other points are NaN.
+
+        The array is created using dask map_blocks to support larger-than-memory
+        generation by creating chunks independently. Each chunk only materializes
+        the observations that fall within its boundaries.
 
         The dask array is chunked to optimize for access patterns where
         x0 is accessed first, then x1, then x2, etc.
@@ -323,32 +336,7 @@ class GenerateData:
                 "determined during paramaters validation step."
             )
 
-        # Initialize record with NaN as a numpy array first
-        record_np = np.full(shape, np.nan)
-
-        # Generate random indices for observation placement
-        # Flatten the multi-dimensional index space
-        flat_indices = self._rng.choice(
-            total_points_in_grid,
-            size=self.num_obs,
-            replace=False
-        )
-
-        # Convert flat indices to multi-dimensional indices:
-        # it reconstructs where the index idx of the flattened 1D array with
-        # elements np.prod(shape) is in the multidimensional array of dimensions
-        # shape[0], shape[1], ... shape[n]
-        # multi_indices contains a total of len(flat_indices) 1D arrays with each
-        # containing len(shape) elements, and corresponds to the
-        # num_obs=len(flat_indices) number of points where observations are known
-        multi_indices = np.unravel_index(flat_indices, shape)
-
-        # Assign observation values to selected points
-        # Need to compute observations to assign them
-        record_np[multi_indices] = self._observations.compute()
-
         # Define chunks: prioritize x0, then x1, then x2, etc.
-        # Use automatic chunking but ensure chunks are reasonable
         # For optimal access pattern, make x0 chunks smallest, x1 larger, etc.
         chunks = []
         for i, dim_size in enumerate(shape):
@@ -358,8 +346,88 @@ class GenerateData:
             chunks.append(chunk_size)
         chunks = tuple(chunks)
 
-        # Convert to dask array with specified chunking
-        record = da.from_array(record_np, chunks=chunks)
+        # Generate random indices for observation placement using numpy RNG
+        # (this metadata is small - just indices, not the full array)
+        flat_indices = self._rng.choice(
+            total_points_in_grid,
+            size=self.num_obs,
+            replace=False
+        )
+
+        # Convert flat indices to multi-dimensional indices
+        multi_indices = np.unravel_index(flat_indices, shape)
+
+        # Compute observation values once (these are small - just num_obs values)
+        # This is acceptable as it's a 1D array of length num_obs
+        obs_values = self._observations.compute()
+
+        # Create a function that will be applied to each chunk
+        def create_sparse_chunk(block, block_info=None):
+            """Create a chunk of the sparse array.
+
+            This function is called lazily for each chunk.
+            It only processes observations that fall within this chunk's boundaries.
+
+            Args:
+                block: The input block (template, will be ignored)
+                block_info: Dictionary containing chunk location information
+
+            Returns:
+                numpy array with the chunk's data
+            """
+            if block_info is None or not block_info:
+                # Fallback: use block shape directly
+                chunk_shape = block.shape
+                chunk_starts = tuple([0] * len(chunk_shape))
+            else:
+                # Get chunk info from block_info
+                # block_info structure: {input_index: {'shape': ..., 'array-location': ...}}
+                info = block_info[0] if 0 in block_info else block_info[None]
+                chunk_shape = block.shape  # Use actual block shape
+                # Get array location (start indices for each dimension)
+                if 'array-location' in info:
+                    chunk_starts = tuple([loc[0] for loc in info['array-location']])
+                else:
+                    chunk_starts = tuple([0] * len(chunk_shape))
+
+            # Initialize chunk with NaN
+            chunk = np.full(chunk_shape, np.nan)
+
+            # For each observation, check if it falls in this chunk
+            for obs_idx in range(len(flat_indices)):
+                # Get observation's multi-dimensional position
+                obs_pos = tuple(multi_indices[dim][obs_idx] for dim in range(len(shape)))
+
+                # Check if observation is in this chunk and get local position
+                in_chunk = True
+                local_pos = []
+
+                for dim_idx in range(len(shape)):
+                    global_pos = obs_pos[dim_idx]
+                    chunk_start = chunk_starts[dim_idx]
+                    chunk_end = chunk_start + chunk_shape[dim_idx]
+
+                    if chunk_start <= global_pos < chunk_end:
+                        local_pos.append(global_pos - chunk_start)
+                    else:
+                        in_chunk = False
+                        break
+
+                if in_chunk:
+                    chunk[tuple(local_pos)] = obs_values[obs_idx]
+
+            return chunk
+
+        # Create an empty dask array as template with the right shape and chunks
+        template = da.empty(shape, dtype=float, chunks=chunks)
+
+        # Use map_blocks to apply the function to each chunk
+        # The function will be called lazily when chunks are computed
+        record = da.map_blocks(
+            create_sparse_chunk,
+            template,
+            dtype=float,
+        )
 
         self._record = record
         return record
