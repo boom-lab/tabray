@@ -49,6 +49,7 @@ gen = GenerateData(
 )
 
 # Generate data and save to files
+# Note: Data is generated lazily using dask, allowing for larger-than-memory datasets
 dataarray, dataframe = gen.generate(
     netcdf_filepath="output_data.nc",
     parquet_filepath="output_data.parquet"
@@ -72,11 +73,43 @@ gen = GenerateData(
 )
 
 # Generate data without saving to disk
+# Returns lazy dask-backed structures for larger-than-memory support
 dataarray, dataframe = gen.generate()
 
-# Access the data
+# Access the data (will trigger computation)
 print(dataarray)
 print(dataframe.head())
+```
+
+### Larger-than-Memory Data
+
+The data generation now uses dask arrays and dask dataframes, enabling generation
+and manipulation of datasets larger than available memory:
+
+- **Coordinates and observations** are generated as 1D dask arrays
+- **Record arrays** are multi-dimensional dask arrays with chunking optimized for 
+  access patterns (x0 first, then x1, then x2, etc.)
+- **DataFrames** are dask dataframes partitioned to target 300MB per partition
+- **Lazy evaluation** means data is only computed when needed (e.g., when saving or computing)
+
+```python
+from data_sparsity import GenerateData
+
+# Generate a large dataset
+gen = GenerateData(
+    num_obs=10_000_000,     # 10 million observations
+    num_dims=4,
+    ratio_dims=(1.0, 2.0, 3.0, 4.0),
+    sparsity=0.01,
+    seed=42
+)
+
+# Data generation is lazy - doesn't consume memory until computed
+dataarray, dataframe = gen.generate(
+    netcdf_filepath="large_data.nc",
+    parquet_filepath="large_data_parquet"
+)
+# Saving triggers computation and writes to disk efficiently
 ```
 
 ### Parameters

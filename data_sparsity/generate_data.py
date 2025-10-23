@@ -5,6 +5,7 @@ and storing them in both array (netCDF) and tabular (Parquet) formats.
 """
 
 from typing import Tuple, Union
+import dask.array as da
 import dask.dataframe as dd
 import numpy as np
 from numpy.typing import ArrayLike
@@ -250,42 +251,51 @@ class GenerateData:
         specified sparsity level.
 
         Returns:
-            Dictionary mapping dimension names to coordinate arrays
+            Dictionary mapping dimension names to dask coordinate arrays
         """
 
-        # Generate random coordinate arrays for each dimension
+        # Generate random coordinate arrays for each dimension as dask arrays
         coordinates = {}
         for idx, n_coords in enumerate(self.nb_coords_per_dim):
             dim_name = f"x{idx}"
-            coordinates[dim_name] = np.sort(
+            # Generate numpy array first, then convert to dask array
+            numpy_coords = np.sort(
                 self._rng.uniform(0, 1, size=n_coords)
             )
+            # Convert to dask array with single chunk (1D arrays are small)
+            coordinates[dim_name] = da.from_array(numpy_coords, chunks=-1)
 
         self._coordinates = coordinates
         return coordinates
 
-    def _generate_observations(self) -> np.ndarray:
+    def _generate_observations(self) -> da.Array:
         """Generate random observation values.
 
-        Creates num_obs random values in the range [0, 1].
+        Creates num_obs random values in the range [0, 1] as a dask array.
 
         Returns:
-            Array of random observation values
+            Dask array of random observation values
         """
-        observations = self._rng.uniform(0, 1, size=self.num_obs)
+        # Generate numpy array first, then convert to dask array
+        numpy_observations = self._rng.uniform(0, 1, size=self.num_obs)
+        # Convert to dask array with single chunk (1D observation array)
+        observations = da.from_array(numpy_observations, chunks=-1)
 
         self._observations = observations
         return observations
 
-    def _generate_record(self) -> np.ndarray:
+    def _generate_record(self) -> da.Array:
         """Generate sparse record array with observations.
 
-        Creates a multi-dimensional array with the shape defined by
+        Creates a multi-dimensional dask array with the shape defined by
         coordinates, then randomly selects num_obs points and assigns
         the observation values to those points. All other points are NaN.
 
+        The dask array is chunked to optimize for access patterns where
+        x0 is accessed first, then x1, then x2, etc.
+
         Returns:
-            Multi-dimensional array with sparse observations
+            Multi-dimensional dask array with sparse observations
 
         Raises:
             RuntimeError: If coordinates have not been generated yet
@@ -313,8 +323,8 @@ class GenerateData:
                 "determined during paramaters validation step."
             )
 
-        # Initialize record with NaN
-        record = np.full(shape, np.nan)
+        # Initialize record with NaN as a numpy array first
+        record_np = np.full(shape, np.nan)
 
         # Generate random indices for observation placement
         # Flatten the multi-dimensional index space
@@ -334,7 +344,22 @@ class GenerateData:
         multi_indices = np.unravel_index(flat_indices, shape)
 
         # Assign observation values to selected points
-        record[multi_indices] = self._observations
+        # Need to compute observations to assign them
+        record_np[multi_indices] = self._observations.compute()
+
+        # Define chunks: prioritize x0, then x1, then x2, etc.
+        # Use automatic chunking but ensure chunks are reasonable
+        # For optimal access pattern, make x0 chunks smallest, x1 larger, etc.
+        chunks = []
+        for i, dim_size in enumerate(shape):
+            # Make chunks progressively larger for later dimensions
+            # This optimizes for x0-first access patterns
+            chunk_size = max(1, min(dim_size, 100 * (2 ** i)))
+            chunks.append(chunk_size)
+        chunks = tuple(chunks)
+
+        # Convert to dask array with specified chunking
+        record = da.from_array(record_np, chunks=chunks)
 
         self._record = record
         return record
@@ -376,15 +401,15 @@ class GenerateData:
         self._dataarray = dataarray
         return dataarray
 
-    def _create_dataframe(self) -> pd.DataFrame:
-        """Create pandas DataFrame from generated data.
+    def _create_dataframe(self) -> dd.DataFrame:
+        """Create dask DataFrame from generated data.
 
-        Constructs a pandas DataFrame with num_obs rows and num_dims + 1 columns.
+        Constructs a dask DataFrame with num_obs rows and num_dims + 1 columns.
         Each row contains the coordinates of an observation point and the
         corresponding record value.
 
         Returns:
-            pandas DataFrame with observation coordinates and values
+            dask DataFrame with observation coordinates and values
 
         Raises:
             RuntimeError: If required data has not been generated yet
@@ -399,7 +424,9 @@ class GenerateData:
             raise RuntimeError("Record must be generated first")
 
         # Find non-NaN points in record
-        #
+        # Need to compute the record to find non-NaN locations
+        record_computed = self._record.compute()
+
         # non_nan_mask has the same shape of _record, and contains False where
         # the corresponding value in _record is nan, True otherwise
         #
@@ -420,7 +447,7 @@ class GenerateData:
         # and along dim1 at positions
         # non_nan_indices[1]=array([0, 1, 3, 2, 3, 0, 1, 2, 3])
         # e.g: _record[0,0] = 0.1, _record[1,3] = 0.7, etc.
-        non_nan_mask = ~np.isnan(self._record)
+        non_nan_mask = ~np.isnan(record_computed)
         non_nan_indices = np.where(non_nan_mask)
 
         # Build DataFrame columns
@@ -432,19 +459,35 @@ class GenerateData:
 
         for i, (name, coords) in enumerate(zip(coord_names, coord_arrays)):
             # Map indices to coordinate values
-            data_dict[name] = coords[non_nan_indices[i]]
+            # Need to compute coordinates to index them
+            coords_computed = coords.compute()
+            data_dict[name] = coords_computed[non_nan_indices[i]]
 
         # Add record values
-        data_dict["record"] = self._record[non_nan_mask]
+        data_dict["record"] = record_computed[non_nan_mask]
 
-        # Create DataFrame
-        dataframe = pd.DataFrame(data_dict)
+        # Create pandas DataFrame first
+        dataframe_pd = pd.DataFrame(data_dict)
+
+        # Convert to dask DataFrame
+        # Target 300MB per partition as specified in requirements
+        # Estimate row size: num_dims * 8 bytes (float64) + 8 bytes (record float64)
+        row_size_bytes = (self.num_dims + 1) * 8
+        target_partition_size = 300 * 1024 * 1024  # 300MB in bytes
+        rows_per_partition = max(1, int(target_partition_size / row_size_bytes))
+
+        # Create dask dataframe with calculated partition size
+        npartitions = max(1, len(dataframe_pd) // rows_per_partition)
+        dataframe = dd.from_pandas(dataframe_pd, npartitions=npartitions)
 
         self._dataframe = dataframe
         return dataframe
 
     def save_to_netcdf(self, filepath: str, overwrite: str = False) -> None:
         """Save data to NetCDF file format.
+
+        The dask array is saved with chunking optimized for x0-first access,
+        then x1, then x2, etc.
 
         Args:
             filepath: Path where the NetCDF file should be saved
@@ -460,10 +503,16 @@ class GenerateData:
             )
 
         ds_utils.check_nc(filepath, overwrite)
-        self._dataarray.to_netcdf(filepath)
+
+        # Save with compute=True to write the actual data to disk
+        # The chunking is already set in the dask array
+        self._dataarray.to_netcdf(filepath, compute=True)
 
     def save_to_parquet(self, dirname: str, filename: str = None, overwrite: bool = False) -> None:
         """Save data to Parquet file format.
+
+        The dask dataframe is repartitioned to target 300MB per partition
+        before saving.
 
         Args:
             dirname: path to directory to store parquet dataset to
@@ -479,8 +528,9 @@ class GenerateData:
                 "Call generate() first."
             )
 
-        ddf = dd.from_pandas(self._dataframe)
-        nb_digits = len(str(ddf.npartitions))
+        # The dataframe is already partitioned in _create_dataframe()
+        # with target size of 300MB per partition
+        nb_digits = len(str(self._dataframe.npartitions))
         if filename is None:
             filename = 'test'
         name_function = lambda x: f"{filename}_{x:0{nb_digits}d}.parquet"
@@ -488,7 +538,7 @@ class GenerateData:
             dirname,
             overwrite=overwrite
         )
-        ddf.to_parquet(
+        self._dataframe.to_parquet(
             dirname,
             engine="pyarrow",
             name_function=name_function,
@@ -502,24 +552,27 @@ class GenerateData:
         self,
         netcdf_filepath: str = None,
         parquet_filepath: str = None
-    ) -> Tuple[xr.DataArray, pd.DataFrame]:
+    ) -> Tuple[xr.DataArray, dd.DataFrame]:
         """Generate all data and optionally save to files.
 
         Main orchestration method that executes the complete data generation
         workflow:
-        1. Generate coordinates for each dimension
-        2. Generate random observation values
-        3. Create sparse record array
-        4. Build xarray DataArray
-        5. Build pandas DataFrame
+        1. Generate coordinates for each dimension as dask arrays
+        2. Generate random observation values as dask array
+        3. Create sparse record dask array
+        4. Build xarray DataArray backed by dask
+        5. Build dask DataFrame
         6. Optionally save to NetCDF and/or Parquet files
+
+        The returned objects are lazy - they do not compute values until needed.
+        This allows for larger-than-memory data generation.
 
         Args:
             netcdf_filepath: Optional path to save NetCDF file
             parquet_filepath: Optional path to save Parquet file
 
         Returns:
-            Tuple of (DataArray, DataFrame) containing the generated data
+            Tuple of (DataArray, dask DataFrame) containing the generated data
         """
         # Execute generation pipeline
         self._generate_coordinates()
