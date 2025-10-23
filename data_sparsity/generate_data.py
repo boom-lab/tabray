@@ -5,11 +5,13 @@ and storing them in both array (netCDF) and tabular (Parquet) formats.
 """
 
 from typing import Tuple, Union
+import dask.dataframe as dd
 import numpy as np
 from numpy.typing import ArrayLike
 import pandas as pd
 import xarray as xr
 
+import data_sparsity.utils as ds_utils
 
 class GenerateData:
     """Generate synthetic observation data in array and tabular formats.
@@ -441,11 +443,12 @@ class GenerateData:
         self._dataframe = dataframe
         return dataframe
 
-    def save_to_netcdf(self, filepath: str) -> None:
+    def save_to_netcdf(self, filepath: str, overwrite: str = False) -> None:
         """Save data to NetCDF file format.
 
         Args:
             filepath: Path where the NetCDF file should be saved
+            overwrite: overwrites existing file
 
         Raises:
             RuntimeError: If DataArray has not been created yet
@@ -456,13 +459,16 @@ class GenerateData:
                 "Call generate() first."
             )
 
+        ds_utils.check_nc(filepath, overwrite)
         self._dataarray.to_netcdf(filepath)
 
-    def save_to_parquet(self, filepath: str) -> None:
+    def save_to_parquet(self, dirname: str, filename: str = None, overwrite: bool = False) -> None:
         """Save data to Parquet file format.
 
         Args:
-            filepath: Path where the Parquet file should be saved
+            dirname: path to directory to store parquet dataset to
+            filename: basename for all parquet files in the dataset
+            overwrite: overwrites existing datasets
 
         Raises:
             RuntimeError: If DataFrame has not been created yet
@@ -473,7 +479,24 @@ class GenerateData:
                 "Call generate() first."
             )
 
-        self._dataframe.to_parquet(filepath, index=False)
+        ddf = dd.from_pandas(self._dataframe)
+        nb_digits = len(str(ddf.npartitions))
+        if filename is None:
+            filename = 'test'
+        name_function = lambda x: f"{filename}_{x:0{nb_digits}d}.parquet"
+        ds_utils.check_parquet(
+            dirname,
+            overwrite=overwrite
+        )
+        ddf.to_parquet(
+            dirname,
+            engine="pyarrow",
+            name_function=name_function,
+            append=False,
+            overwrite=overwrite,
+            write_metadata_file = True,
+        )
+
 
     def generate(
         self,
