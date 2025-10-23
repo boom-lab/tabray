@@ -351,13 +351,20 @@ class GenerateData:
 
         # Generate random indices for observation placement using numpy RNG
         # (this metadata is small - just indices, not the full array)
+        # Flatten the multi-dimensional index space
         flat_indices = self._rng.choice(
             total_points_in_grid,
             size=self.num_obs,
             replace=False
         )
 
-        # Convert flat indices to multi-dimensional indices
+        # Convert flat indices to multi-dimensional indices:
+        # it reconstructs where the index idx of the flattened 1D array with
+        # elements np.prod(shape) is in the multidimensional array of dimensions
+        # shape[0], shape[1], ... shape[n]
+        # multi_indices contains a total of len(flat_indices) 1D arrays with each
+        # containing len(shape) elements, and corresponds to the
+        # num_obs=len(flat_indices) number of points where observations are known
         multi_indices = np.unravel_index(flat_indices, shape)
 
         # Store indices for later use in dataframe creation (without computing record)
@@ -507,54 +514,48 @@ class GenerateData:
         if self._record is None:
             raise RuntimeError("Record must be generated first")
 
-        # Target 300MB per partition as specified in requirements
-        # Estimate row size: num_dims * 8 bytes (float64) + 8 bytes (record float64)
-        row_size_bytes = (self.num_dims + 1) * 8
-        target_partition_size = 300 * 1024 * 1024  # 300MB in bytes
-        rows_per_partition = max(1, int(target_partition_size / row_size_bytes))
+        # Build DataFrame directly from stored indices without computing full record array.
+        # The old approach computed the full record array and used np.where() to find non-NaN
+        # positions, but that required loading the entire sparse array into memory.
+        # Instead, we use the stored _multi_indices (from _generate_record) which already
+        # knows where observations are located, allowing us to create the dataframe lazily.
 
-        # Calculate number of partitions
-        npartitions = max(1, self.num_obs // rows_per_partition)
-
-        # Create delayed functions to build each partition
+        # Create a delayed function to build the full dataframe
         coord_names = list(self._coordinates.keys())
         coord_arrays = list(self._coordinates.values())
 
         @dask.delayed
-        def create_partition(start_idx, end_idx):
-            """Create a single partition of the dataframe."""
+        def create_dataframe():
+            """Create the dataframe from observation indices and values."""
             partition_data = {}
 
             # For each dimension, get the coordinate values at the observation positions
             for i, name in enumerate(coord_names):
-                # Get indices for this partition
-                indices = self._multi_indices[i][start_idx:end_idx]
+                # Get indices for all observations
+                indices = self._multi_indices[i]
                 # Get coordinate values at these indices
                 coords_at_indices = coord_arrays[i][indices].compute()
                 partition_data[name] = coords_at_indices
 
-            # Add observation values for this partition
-            partition_data["record"] = self._observations[start_idx:end_idx].compute()
+            # Add observation values
+            partition_data["record"] = self._observations.compute()
 
             return pd.DataFrame(partition_data)
 
-        # Create delayed partitions
-        partitions = []
-        for i in range(npartitions):
-            start_idx = i * rows_per_partition
-            end_idx = min((i + 1) * rows_per_partition, self.num_obs)
-            partitions.append(create_partition(start_idx, end_idx))
-
-        # Create dask dataframe from delayed partitions
-        # First get a sample to determine dtypes
+        # Create dask dataframe from delayed object
+        # First get metadata (column names and types)
         sample_data = {}
         for name in coord_names:
             sample_data[name] = np.array([], dtype=float)
         sample_data["record"] = np.array([], dtype=float)
         meta = pd.DataFrame(sample_data)
 
-        # Convert delayed objects to dask dataframe
-        dataframe = dd.from_delayed(partitions, meta=meta)
+        # Convert delayed object to dask dataframe
+        dataframe = dd.from_delayed([create_dataframe()], meta=meta)
+
+        # Repartition to target 300MB per partition as specified in requirements
+        # This is more robust than manual partition calculation
+        dataframe = dataframe.repartition(partition_size='300MB')
 
         self._dataframe = dataframe
         return dataframe
@@ -581,14 +582,17 @@ class GenerateData:
         ds_utils.check_nc(filepath, overwrite)
 
         # Save with compute=True to write the actual data to disk
-        # The chunking is already set in the dask array
+        # Note: compute=True in to_netcdf() does NOT load the entire array into memory.
+        # Instead, xarray/dask compute and write chunks sequentially to the NetCDF file.
+        # This enables truly larger-than-memory data storage as each chunk is computed,
+        # written to disk, and then freed from memory before the next chunk is processed.
         self._dataarray.to_netcdf(filepath, compute=True)
 
     def save_to_parquet(self, dirname: str, filename: str = None, overwrite: bool = False) -> None:
         """Save data to Parquet file format.
 
-        The dask dataframe is repartitioned to target 300MB per partition
-        before saving.
+        The dask dataframe has already been repartitioned to target 300MB per partition
+        during creation (see _create_dataframe).
 
         Args:
             dirname: path to directory to store parquet dataset to
