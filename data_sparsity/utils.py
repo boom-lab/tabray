@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
+"""Utility functions for data_sparsity package.
+
+This module provides helper functions for file and directory management
+used by the GenerateData class.
+"""
 
 import os
-from typing import Any, Dict, List, Tuple
 
 
 def check_or_create_folder(folder_path: str, overwrite: bool = False) -> None:

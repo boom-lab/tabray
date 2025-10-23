@@ -18,8 +18,8 @@ The `GenerateData` class provides a clean, modular interface for generating synt
 
 - `__init__(num_obs, num_dims, ratio_dims, sparsity, seed)`: Initialize with validation
 - `generate(netcdf_filepath, parquet_filepath)`: Main orchestration method
-- `save_to_netcdf(filepath)`: Save array data to NetCDF
-- `save_to_parquet(filepath)`: Save tabular data to Parquet
+- `save_to_netcdf(filepath, overwrite)`: Save array data to NetCDF
+- `save_to_parquet(dirname, filename, overwrite)`: Save tabular data to Parquet dataset
 
 ### Private Methods
 
@@ -30,20 +30,26 @@ The `GenerateData` class provides a clean, modular interface for generating synt
 - `_create_dataarray()`: Builds xarray DataArray
 - `_create_dataframe()`: Builds pandas DataFrame
 
-## Parameter Validation (8 Checks)
+## Parameter Validation
 
-The `_validate_parameters()` method performs comprehensive validation:
+The `_validate_parameters()` method performs comprehensive validation with both hard and soft checks:
 
+### Hard Checks (raises errors):
 1. **num_obs type and value**: Must be a positive integer
-2. **num_dims type and value**: Must be a positive integer
-3. **ratio_dims type**: Must be a tuple
-4. **ratio_dims length**: Must have exactly num_dims elements
-5. **ratio_dims values**: All elements must be positive numbers
-6. **sparsity type and range**: Must be a number in [0.0, 1.0]
-7. **seed type and value**: Must be a non-negative integer
-8. **sparsity feasibility**: Must be feasible given num_obs
+2. **sparsity type and range**: Must be a number in [0.0, 1.0]
+3. **num_dims type and value**: Must be a positive integer
+4. **ratio_dims type and consistency**: Must be int (value 1), or list/tuple/array matching num_dims length
+5. **Minimum dimension size**: All dimensions must have at least 1 element
+6. **Integer dimension sizes**: All dimensions must have integer number of elements
+7. **Minimum sparsity**: Sparsity must be above minimum theoretical value
+8. **seed type and value**: Must be a non-negative integer
 
-Each check raises descriptive errors (TypeError or ValueError) to help users quickly identify and fix issues.
+### Soft Checks (auto-corrects with warnings):
+- **Dimension size rounding**: Non-integer dimension sizes are rounded to nearest integer
+- **num_obs consistency**: Adjusted if inconsistent with sparsity and dimension sizes due to rounding
+- **Zero sparsity**: Automatically set to minimum allowed value if input is exactly 0
+
+The validation includes extensive print statements to inform users of any auto-corrections, ensuring transparency in parameter adjustments.
 
 ## Data Generation Pipeline
 
@@ -121,10 +127,22 @@ The underscore prefix (`_method_name`) indicates internal implementation:
 Chosen for stability, wide adoption, and performance:
 
 - `numpy>=1.24.0`: Array operations and random generation
-- `pandas>=2.0.0`: DataFrame handling and Parquet I/O
+- `pandas>=2.0.0`: DataFrame handling
+- `dask`: Parallel computing and distributed Parquet datasets
 - `pyarrow>=12.0.0`: Parquet format backend
 - `xarray>=2023.1.0`: Labeled array operations
 - `netCDF4>=1.6.0`: NetCDF format I/O
+- `jupyterlab`: For running example notebooks
+
+## Utility Module
+
+The `data_sparsity.utils` module provides helper functions:
+
+- `check_or_create_folder()`: Validates/creates directories with overwrite control
+- `check_nc()`: Validates NetCDF file paths and creates necessary directories
+- `check_parquet()`: Validates Parquet dataset directories
+
+These utilities ensure proper file handling and prevent accidental overwrites unless explicitly requested.
 
 ## Future Extensions
 
@@ -138,9 +156,21 @@ The architecture supports easy extensions:
 
 ## Usage Examples
 
-See `examples.py` for comprehensive usage demonstrations including:
-- Basic generation and saving
-- Different sparsity levels
-- Non-uniform dimensions
-- Data inspection
-- Reproducibility with seeds
+See `examples.py` (Python script) or `notebooks/examples.ipynb` (Jupyter notebook) for comprehensive usage demonstrations including:
+- Basic generation and saving to both NetCDF and Parquet formats
+- Different sparsity levels and their effect on grid size
+- Non-uniform dimensions with custom ratios
+- Data inspection and attribute viewing
+- Reproducibility verification with random seeds
+
+## Key API Changes from Original Design
+
+The implementation has evolved to include:
+
+1. **Flexible ratio_dims**: Can now be specified as `int` (value `1` for equal dimensions) or as array-like
+2. **Enhanced validation**: Includes automatic corrections with user notifications for rounding issues
+3. **Dask integration**: Parquet datasets use Dask for better scalability
+4. **Overwrite control**: All save methods now include explicit `overwrite` parameters
+5. **Parquet as dataset**: `save_to_parquet()` creates a directory with multiple files rather than a single file
+6. **Coordinate naming**: Dimensions are named `x0`, `x1`, etc. instead of `dim_0`, `dim_1`
+7. **Verbose output**: Extensive print statements during initialization and validation for transparency
