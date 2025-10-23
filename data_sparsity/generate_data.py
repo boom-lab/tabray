@@ -89,6 +89,9 @@ class GenerateData:
         self._record = None
         self._dataarray = None
         self._dataframe = None
+        # Storage for observation indices (used for dataframe creation)
+        self._flat_indices = None
+        self._multi_indices = None
 
     def _validate_parameters(self) -> None:
         """Validate initialization parameters.
@@ -357,9 +360,9 @@ class GenerateData:
         # Convert flat indices to multi-dimensional indices
         multi_indices = np.unravel_index(flat_indices, shape)
 
-        # Compute observation values once (these are small - just num_obs values)
-        # This is acceptable as it's a 1D array of length num_obs
-        obs_values = self._observations.compute()
+        # Store indices for later use in dataframe creation (without computing record)
+        self._flat_indices = flat_indices
+        self._multi_indices = multi_indices
 
         # Create a function that will be applied to each chunk
         def create_sparse_chunk(block, block_info=None):
@@ -393,6 +396,11 @@ class GenerateData:
             # Initialize chunk with NaN
             chunk = np.full(chunk_shape, np.nan)
 
+            # Get observation values that fall in this chunk
+            # We'll compute only the observations needed for this chunk
+            obs_indices_in_chunk = []
+            local_positions = []
+
             # For each observation, check if it falls in this chunk
             for obs_idx in range(len(flat_indices)):
                 # Get observation's multi-dimensional position
@@ -414,7 +422,14 @@ class GenerateData:
                         break
 
                 if in_chunk:
-                    chunk[tuple(local_pos)] = obs_values[obs_idx]
+                    obs_indices_in_chunk.append(obs_idx)
+                    local_positions.append(tuple(local_pos))
+
+            # Compute only the observation values needed for this chunk
+            if obs_indices_in_chunk:
+                obs_subset = self._observations[obs_indices_in_chunk].compute()
+                for i, local_pos in enumerate(local_positions):
+                    chunk[local_pos] = obs_subset[i]
 
             return chunk
 
@@ -474,7 +489,8 @@ class GenerateData:
 
         Constructs a dask DataFrame with num_obs rows and num_dims + 1 columns.
         Each row contains the coordinates of an observation point and the
-        corresponding record value.
+        corresponding record value. The dataframe is created using dask delayed
+        to avoid loading all data into memory at once.
 
         Returns:
             dask DataFrame with observation coordinates and values
@@ -491,62 +507,54 @@ class GenerateData:
         if self._record is None:
             raise RuntimeError("Record must be generated first")
 
-        # Find non-NaN points in record
-        # Need to compute the record to find non-NaN locations
-        record_computed = self._record.compute()
-
-        # non_nan_mask has the same shape of _record, and contains False where
-        # the corresponding value in _record is nan, True otherwise
-        #
-        # non_nan_indices is a tuple containing num_dims arrays, each containing
-        # num_obs elements, where each element is the index of the coordinate
-        # along that dimension for the corresponding observation value.
-        #
-        # Example:
-        # _record =
-        # array([[ 0.1, 0.2, nan, 0.4],
-        #        [ nan, nan, 0.7, 0.8],
-        #        [ 0.9, 0.2, 0.4, 0.5]])
-        # non_nan_indices =
-        # (array([0, 0, 0, 1, 1, 2, 2, 2, 2]), array([0, 1, 3, 2, 3, 0, 1, 2, 3]))
-        #
-        # so num_obs=9, and the location of the record values along dim0 is at positions
-        # non_nan_indices[0]=array([0, 0, 0, 1, 1, 2, 2, 2, 2]
-        # and along dim1 at positions
-        # non_nan_indices[1]=array([0, 1, 3, 2, 3, 0, 1, 2, 3])
-        # e.g: _record[0,0] = 0.1, _record[1,3] = 0.7, etc.
-        non_nan_mask = ~np.isnan(record_computed)
-        non_nan_indices = np.where(non_nan_mask)
-
-        # Build DataFrame columns
-        data_dict = {}
-
-        # Add coordinate columns
-        coord_names = list(self._coordinates.keys())
-        coord_arrays = list(self._coordinates.values())
-
-        for i, (name, coords) in enumerate(zip(coord_names, coord_arrays)):
-            # Map indices to coordinate values
-            # Need to compute coordinates to index them
-            coords_computed = coords.compute()
-            data_dict[name] = coords_computed[non_nan_indices[i]]
-
-        # Add record values
-        data_dict["record"] = record_computed[non_nan_mask]
-
-        # Create pandas DataFrame first
-        dataframe_pd = pd.DataFrame(data_dict)
-
-        # Convert to dask DataFrame
         # Target 300MB per partition as specified in requirements
         # Estimate row size: num_dims * 8 bytes (float64) + 8 bytes (record float64)
         row_size_bytes = (self.num_dims + 1) * 8
         target_partition_size = 300 * 1024 * 1024  # 300MB in bytes
         rows_per_partition = max(1, int(target_partition_size / row_size_bytes))
 
-        # Create dask dataframe with calculated partition size
-        npartitions = max(1, len(dataframe_pd) // rows_per_partition)
-        dataframe = dd.from_pandas(dataframe_pd, npartitions=npartitions)
+        # Calculate number of partitions
+        npartitions = max(1, self.num_obs // rows_per_partition)
+
+        # Create delayed functions to build each partition
+        coord_names = list(self._coordinates.keys())
+        coord_arrays = list(self._coordinates.values())
+
+        @dask.delayed
+        def create_partition(start_idx, end_idx):
+            """Create a single partition of the dataframe."""
+            partition_data = {}
+
+            # For each dimension, get the coordinate values at the observation positions
+            for i, name in enumerate(coord_names):
+                # Get indices for this partition
+                indices = self._multi_indices[i][start_idx:end_idx]
+                # Get coordinate values at these indices
+                coords_at_indices = coord_arrays[i][indices].compute()
+                partition_data[name] = coords_at_indices
+
+            # Add observation values for this partition
+            partition_data["record"] = self._observations[start_idx:end_idx].compute()
+
+            return pd.DataFrame(partition_data)
+
+        # Create delayed partitions
+        partitions = []
+        for i in range(npartitions):
+            start_idx = i * rows_per_partition
+            end_idx = min((i + 1) * rows_per_partition, self.num_obs)
+            partitions.append(create_partition(start_idx, end_idx))
+
+        # Create dask dataframe from delayed partitions
+        # First get a sample to determine dtypes
+        sample_data = {}
+        for name in coord_names:
+            sample_data[name] = np.array([], dtype=float)
+        sample_data["record"] = np.array([], dtype=float)
+        meta = pd.DataFrame(sample_data)
+
+        # Convert delayed objects to dask dataframe
+        dataframe = dd.from_delayed(partitions, meta=meta)
 
         self._dataframe = dataframe
         return dataframe
