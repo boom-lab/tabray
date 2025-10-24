@@ -268,8 +268,13 @@ class GenerateData:
             # Generate using dask random for larger-than-memory support
             # Use single chunk for 1D coordinate arrays (they're typically small)
             dask_coords = self._dask_rng.uniform(0, 1, size=n_coords, chunks=-1)
-            # Sort the coordinates using map_blocks (more efficient than delayed)
-            sorted_coords = da.map_blocks(np.sort, dask_coords, dtype=float)
+            # Sort the coordinates globally using dask.delayed
+            # Note: Coordinates are small 1D arrays, so computing for sorting is acceptable
+            sorted_coords = da.from_delayed(
+                dask.delayed(np.sort)(dask_coords),
+                shape=(n_coords,),
+                dtype=float
+            )
             coordinates[dim_name] = sorted_coords
 
         self._coordinates = coordinates
