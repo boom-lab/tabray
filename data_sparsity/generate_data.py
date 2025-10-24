@@ -4,7 +4,7 @@ This module provides the GenerateData class for creating dummy observations
 and storing them in both array (netCDF) and tabular (Parquet) formats.
 """
 
-from typing import Tuple, Union
+from typing import Tuple, Union, Optional
 import dask.dataframe as dd
 import numpy as np
 from numpy.typing import ArrayLike
@@ -37,12 +37,15 @@ class GenerateData:
         num_dims: int,
         ratio_dims: Union[int,ArrayLike],
         sparsity: Union[int,float],
-        seed: int
+        seed: int,
+        aws_config_path: Optional[str] = None
     ) -> None:
         """Initialize the data generator with validation.
 
         Args:
             see attributes above
+            aws_config_path: Optional path to AWS configuration YAML file
+                           for S3 access. If None, uses default AWS credentials.
 
         Raises:
             TypeError: If arguments are not of expected types
@@ -54,6 +57,7 @@ class GenerateData:
         self.ratio_dims = ratio_dims
         self.sparsity = sparsity
         self.seed = seed
+        self.aws_config_path = aws_config_path
 
         print("Input configuration:")
         print(f"  Number of observations: {self.num_obs}")
@@ -443,11 +447,13 @@ class GenerateData:
         self._dataframe = dataframe
         return dataframe
 
-    def save_to_netcdf(self, filepath: str, overwrite: str = False) -> None:
+    def save_to_netcdf(self, filepath: str, overwrite: bool = False) -> None:
         """Save data to NetCDF file format.
 
+        Supports both local filesystem and S3 paths (s3://bucket/path/file.nc).
+
         Args:
-            filepath: Path where the NetCDF file should be saved
+            filepath: Path where the NetCDF file should be saved (local or S3)
             overwrite: overwrites existing file
 
         Raises:
@@ -459,14 +465,31 @@ class GenerateData:
                 "Call generate() first."
             )
 
-        ds_utils.check_nc(filepath, overwrite)
-        self._dataarray.to_netcdf(filepath)
+        if ds_utils.is_s3_path(filepath):
+            # S3 path - use s3fs
+            s3_filesystem = ds_utils.get_s3_filesystem(self.aws_config_path)
+            ds_utils.check_nc(filepath, overwrite, s3_filesystem)
 
-    def save_to_parquet(self, dirname: str, filename: str = None, overwrite: bool = False) -> None:
+            # Write to S3 using s3fs
+            with s3_filesystem.open(filepath, 'wb') as f:
+                self._dataarray.to_netcdf(f)
+        else:
+            # Local filesystem
+            ds_utils.check_nc(filepath, overwrite)
+            self._dataarray.to_netcdf(filepath)
+
+    def save_to_parquet(
+        self,
+        dirname: str,
+        filename: str = None,
+        overwrite: bool = False
+    ) -> None:
         """Save data to Parquet file format.
 
+        Supports both local filesystem and S3 paths (s3://bucket/path/).
+
         Args:
-            dirname: path to directory to store parquet dataset to
+            dirname: path to directory to store parquet dataset to (local or S3)
             filename: basename for all parquet files in the dataset
             overwrite: overwrites existing datasets
 
@@ -483,19 +506,51 @@ class GenerateData:
         nb_digits = len(str(ddf.npartitions))
         if filename is None:
             filename = 'test'
-        name_function = lambda x: f"{filename}_{x:0{nb_digits}d}.parquet"
-        ds_utils.check_parquet(
-            dirname,
-            overwrite=overwrite
-        )
-        ddf.to_parquet(
-            dirname,
-            engine="pyarrow",
-            name_function=name_function,
-            append=False,
-            overwrite=overwrite,
-            write_metadata_file = True,
-        )
+
+        def name_function(x):
+            return f"{filename}_{x:0{nb_digits}d}.parquet"
+
+        if ds_utils.is_s3_path(dirname):
+            # S3 path
+            s3_filesystem = ds_utils.get_s3_filesystem(self.aws_config_path)
+            ds_utils.check_parquet(dirname, overwrite=overwrite, s3_filesystem=s3_filesystem)
+
+            # Write to S3 using s3fs as the storage_options
+            storage_options = {}
+            config = ds_utils.load_aws_config(self.aws_config_path)
+            if 'aws_access_key_id' in config:
+                storage_options['key'] = config['aws_access_key_id']
+            if 'aws_secret_access_key' in config:
+                storage_options['secret'] = config['aws_secret_access_key']
+            if 'aws_session_token' in config:
+                storage_options['token'] = config['aws_session_token']
+            if 'aws_profile' in config:
+                storage_options['profile'] = config['aws_profile']
+            if 's3_endpoint_url' in config:
+                storage_options['endpoint_url'] = config['s3_endpoint_url']
+            if 's3_use_ssl' in config:
+                storage_options['use_ssl'] = config['s3_use_ssl']
+
+            ddf.to_parquet(
+                dirname,
+                engine="pyarrow",
+                name_function=name_function,
+                append=False,
+                overwrite=overwrite,
+                write_metadata_file=True,
+                storage_options=storage_options
+            )
+        else:
+            # Local filesystem
+            ds_utils.check_parquet(dirname, overwrite=overwrite)
+            ddf.to_parquet(
+                dirname,
+                engine="pyarrow",
+                name_function=name_function,
+                append=False,
+                overwrite=overwrite,
+                write_metadata_file=True,
+            )
 
 
     def generate(
