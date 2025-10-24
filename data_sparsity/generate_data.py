@@ -556,9 +556,6 @@ class GenerateData:
 
         # Convert delayed object to dask dataframe
         dataframe = dd.from_delayed([create_dataframe()], meta=meta)
-
-        # Repartition to target 300MB per partition as specified in requirements
-        # This is more robust than manual partition calculation
         dataframe = dataframe.repartition(partition_size='300MB')
 
         self._dataframe = dataframe
