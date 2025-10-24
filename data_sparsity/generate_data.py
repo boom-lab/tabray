@@ -383,7 +383,7 @@ class GenerateData:
             It only processes observations that fall within this chunk's boundaries.
 
             Args:
-                block: The input block (template, will be ignored)
+                block: The input chunk (from map_blocks)
                 block_info: Dictionary containing chunk location information
 
             Returns:
