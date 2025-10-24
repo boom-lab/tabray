@@ -214,3 +214,6 @@ __marimo__/
 *.zarr
 *.h5
 *.hdf5
+
+# AWS configuration files (keep only template)
+aws_config.yaml

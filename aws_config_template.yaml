@@ -1,0 +1,31 @@
+# AWS Configuration Template
+# 
+# Copy this file to `aws_config.yaml` and fill in your AWS credentials and settings.
+# The `aws_config.yaml` file is gitignored and will not be committed to version control.
+#
+# IMPORTANT: Never commit actual AWS credentials to version control!
+#
+# You can also use AWS environment variables instead of this config file:
+# - AWS_ACCESS_KEY_ID
+# - AWS_SECRET_ACCESS_KEY
+# - AWS_SESSION_TOKEN (optional, for temporary credentials)
+# - AWS_DEFAULT_REGION
+# - AWS_PROFILE (optional, to use a named profile from ~/.aws/credentials)
+#
+# If both environment variables and this config file are present,
+# environment variables take precedence.
+
+# AWS credentials (optional - can use environment variables instead)
+# aws_access_key_id: YOUR_ACCESS_KEY_ID
+# aws_secret_access_key: YOUR_SECRET_ACCESS_KEY
+# aws_session_token: YOUR_SESSION_TOKEN  # Optional, for temporary credentials
+
+# AWS region (optional - defaults to us-east-1)
+# aws_default_region: us-east-1
+
+# AWS profile name (optional - uses default profile if not specified)
+# aws_profile: default
+
+# S3 specific settings (optional)
+# s3_endpoint_url: null  # Custom S3 endpoint (e.g., for MinIO or LocalStack)
+# s3_use_ssl: true  # Whether to use SSL for S3 connections
