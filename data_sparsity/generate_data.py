@@ -365,6 +365,10 @@ class GenerateData:
         # multi_indices contains a total of len(flat_indices) 1D arrays with each
         # containing len(shape) elements, and corresponds to the
         # num_obs=len(flat_indices) number of points where observations are known
+        # in other words, multi_indices[j] identifies the location along xk of
+        # all the observations; the location is identified by the index along xk;
+        # multi_indices[j][k] is then the index position along xj for the k-th
+        # observation
         multi_indices = np.unravel_index(flat_indices, shape)
 
         # Store indices for later use in dataframe creation (without computing record)
