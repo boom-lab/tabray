@@ -268,13 +268,8 @@ class GenerateData:
             # Generate using dask random for larger-than-memory support
             # Use single chunk for 1D coordinate arrays (they're typically small)
             dask_coords = self._dask_rng.uniform(0, 1, size=n_coords, chunks=-1)
-            # Sort the coordinates (requires computation)
-            # For 1D arrays, this is acceptable as they're typically small
-            sorted_coords = da.from_delayed(
-                dask.delayed(np.sort)(dask_coords),
-                shape=(n_coords,),
-                dtype=float
-            )
+            # Sort the coordinates using map_blocks (more efficient than delayed)
+            sorted_coords = da.map_blocks(np.sort, dask_coords, dtype=float)
             coordinates[dim_name] = sorted_coords
 
         self._coordinates = coordinates
@@ -375,6 +370,16 @@ class GenerateData:
         self._flat_indices = flat_indices
         self._multi_indices = multi_indices
 
+        # Pre-compute which observations belong to which chunks (small metadata)
+        # This avoids iterating through ALL observations in EACH chunk
+        obs_by_chunk = {}
+        for obs_idx in range(len(flat_indices)):
+            # Calculate which chunk this observation belongs to
+            chunk_id = tuple(multi_indices[dim][obs_idx] // chunks[dim] for dim in range(len(shape)))
+            if chunk_id not in obs_by_chunk:
+                obs_by_chunk[chunk_id] = []
+            obs_by_chunk[chunk_id].append(obs_idx)
+
         # Create a function that will be applied to each chunk
         def create_sparse_chunk(block: np.ndarray, block_info: dict = None) -> np.ndarray:
             """Create a chunk of the sparse array.
@@ -407,39 +412,22 @@ class GenerateData:
             # Initialize chunk with NaN
             chunk = np.full(chunk_shape, np.nan)
 
-            # Get observation values that fall in this chunk
-            # We'll compute only the observations needed for this chunk
-            obs_indices_in_chunk = []
-            local_positions = []
+            # Calculate chunk ID from chunk_starts
+            chunk_id = tuple(chunk_starts[dim] // chunks[dim] for dim in range(len(shape)))
 
-            # For each observation, check if it falls in this chunk
-            for obs_idx in range(len(flat_indices)):
-                # Get observation's multi-dimensional position
-                obs_pos = tuple(multi_indices[dim][obs_idx] for dim in range(len(shape)))
+            # Get only the observations that belong to this chunk (pre-computed)
+            obs_indices_in_chunk = obs_by_chunk.get(chunk_id, [])
 
-                # Check if observation is in this chunk and get local position
-                in_chunk = True
-                local_pos = []
-
-                for dim_idx in range(len(shape)):
-                    global_pos = obs_pos[dim_idx]
-                    chunk_start = chunk_starts[dim_idx]
-                    chunk_end = chunk_start + chunk_shape[dim_idx]
-
-                    if chunk_start <= global_pos < chunk_end:
-                        local_pos.append(global_pos - chunk_start)
-                    else:
-                        in_chunk = False
-                        break
-
-                if in_chunk:
-                    obs_indices_in_chunk.append(obs_idx)
-                    local_positions.append(tuple(local_pos))
-
-            # Compute only the observation values needed for this chunk
             if obs_indices_in_chunk:
+                # Compute observation values for this chunk
                 obs_subset = self._observations[obs_indices_in_chunk].compute()
-                for i, local_pos in enumerate(local_positions):
+
+                # Place observations at their local positions within the chunk
+                for i, obs_idx in enumerate(obs_indices_in_chunk):
+                    # Get global position of this observation
+                    obs_pos = tuple(multi_indices[dim][obs_idx] for dim in range(len(shape)))
+                    # Convert to local position within chunk
+                    local_pos = tuple(obs_pos[dim] - chunk_starts[dim] for dim in range(len(shape)))
                     chunk[local_pos] = obs_subset[i]
 
             return chunk
