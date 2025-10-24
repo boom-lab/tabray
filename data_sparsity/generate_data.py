@@ -365,10 +365,6 @@ class GenerateData:
         # multi_indices contains a total of len(flat_indices) 1D arrays with each
         # containing len(shape) elements, and corresponds to the
         # num_obs=len(flat_indices) number of points where observations are known
-        # in other words, multi_indices[j] identifies the location along xk of
-        # all the observations; the location is identified by the index along xk;
-        # multi_indices[j][k] is then the index position along xj for the k-th
-        # observation
         multi_indices = np.unravel_index(flat_indices, shape)
 
         # Store indices for later use in dataframe creation (without computing record)
@@ -376,7 +372,7 @@ class GenerateData:
         self._multi_indices = multi_indices
 
         # Create a function that will be applied to each chunk
-        def create_sparse_chunk(block):
+        def create_sparse_chunk(block, block_info=None):
             """Create a chunk of the sparse array.
 
             This function is called lazily for each chunk.
@@ -389,8 +385,20 @@ class GenerateData:
             Returns:
                 numpy array with the chunk's data
             """
-            chunk_shape = block.shape
-            chunk_starts = tuple([0] * len(chunk_shape))
+            if block_info is None or not block_info:
+                # Fallback: use block shape directly
+                chunk_shape = block.shape
+                chunk_starts = tuple([0] * len(chunk_shape))
+            else:
+                # Get chunk info from block_info
+                # block_info structure: {input_index: {'shape': ..., 'array-location': ...}}
+                info = block_info[0] if 0 in block_info else block_info[None]
+                chunk_shape = block.shape  # Use actual block shape
+                # Get array location (start indices for each dimension)
+                if 'array-location' in info:
+                    chunk_starts = tuple([loc[0] for loc in info['array-location']])
+                else:
+                    chunk_starts = tuple([0] * len(chunk_shape))
 
             # Initialize chunk with NaN
             chunk = np.full(chunk_shape, np.nan)
