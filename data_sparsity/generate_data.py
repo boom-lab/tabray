@@ -376,7 +376,7 @@ class GenerateData:
         self._multi_indices = multi_indices
 
         # Create a function that will be applied to each chunk
-        def create_sparse_chunk(block, block_info=None):
+        def create_sparse_chunk(block: np.ndarray, block_info: dict = None) -> np.ndarray:
             """Create a chunk of the sparse array.
 
             This function is called lazily for each chunk.
@@ -529,7 +529,7 @@ class GenerateData:
         coord_arrays = list(self._coordinates.values())
 
         @dask.delayed
-        def create_dataframe():
+        def create_dataframe() -> pd.DataFrame:
             """Create the dataframe from observation indices and values."""
             partition_data = {}
 
@@ -586,17 +586,11 @@ class GenerateData:
         ds_utils.check_nc(filepath, overwrite)
 
         # Save with compute=True to write the actual data to disk
-        # Note: compute=True in to_netcdf() does NOT load the entire array into memory.
-        # Instead, xarray/dask compute and write chunks sequentially to the NetCDF file.
-        # This enables truly larger-than-memory data storage as each chunk is computed,
-        # written to disk, and then freed from memory before the next chunk is processed.
+        # The chunking is already set in the dask array
         self._dataarray.to_netcdf(filepath, compute=True)
 
     def save_to_parquet(self, dirname: str, filename: str = None, overwrite: bool = False) -> None:
         """Save data to Parquet file format.
-
-        The dask dataframe has already been repartitioned to target 300MB per partition
-        during creation (see _create_dataframe).
 
         Args:
             dirname: path to directory to store parquet dataset to
@@ -611,9 +605,6 @@ class GenerateData:
                 "DataFrame must be created before saving. "
                 "Call generate() first."
             )
-
-        # The dataframe is already partitioned in _create_dataframe()
-        # with target size of 300MB per partition
         nb_digits = len(str(self._dataframe.npartitions))
         if filename is None:
             filename = 'test'
