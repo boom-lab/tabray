@@ -3,6 +3,7 @@ channels:
   - conda-forge
   - defaults
 dependencies:
+  - bokeh>=3.1.0
   - dask
   - distributed
   - ipykernel
