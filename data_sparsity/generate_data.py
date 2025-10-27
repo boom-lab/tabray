@@ -373,7 +373,7 @@ class GenerateData:
         self._record = record
         return record
 
-    def _generate_record_par(self) -> np.ndarray:
+    def _generate_par(self) -> None:
         """Generate sparse record array with observations using parallel
         processing.
 
@@ -385,7 +385,7 @@ class GenerateData:
         print("Dask dashboard:", client.dashboard_link)
 
         # Submit one task per seed
-        futures = [client.submit(_create_dataarray_par, chunk_id) for chunk_id in range(self.NTASKS)]
+        futures = [client.submit(_create_record_par, chunk_id) for chunk_id in range(self.NTASKS)]
         tot_completed = 0
         for f in as_completed(futures):
             chunk_id = fut.result()
@@ -610,7 +610,7 @@ class GenerateData:
                 f": {self.dim_size_per_procN}"
             )
 
-            self._generate_record_par()
+            self._generate_par()
 
 
         else:
