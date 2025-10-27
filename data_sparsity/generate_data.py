@@ -6,6 +6,7 @@ and storing them in both array (netCDF) and tabular (Parquet) formats.
 
 from typing import Tuple, Union
 import dask.dataframe as dd
+from dask.distributed import Client, LocalCluster, as_completed
 import numpy as np
 from numpy.typing import ArrayLike
 import pandas as pd
@@ -74,6 +75,7 @@ class GenerateData:
         print(f"  Sparsity: {self.sparsity}")
         print(f"  Random seed: {self.seed}")
 
+        self._multiprocessing_setup()
 
         # Initialize random number generator with seed
         self._rng = np.random.default_rng(seed)
@@ -241,6 +243,38 @@ class GenerateData:
         if self.seed < 0:
             raise ValueError(f"seed must be non-negative, got {self.seed}")
 
+    def _multiprocessing_setup(self, max_obs : int = None) -> None:
+        """Set up multiprocessing environment with dask
+        """
+
+        ntasks = 1 # this is equivalent to the number of chunks that will be generated
+        if max_obs is None:
+            max_obs = 100000000 #1e8 obs, very empirical
+
+        num_obs = self.num_obs
+        if max_obs > num_obs:
+            ntasks = np.ceil(max_obs/num_obs)
+
+        self.NTASKS = int(ntasks)
+        if ntasks == 1:
+            return
+
+        num_dims = self.num_dims
+        dim_size = self.nb_coords_per_dim
+        dim_size_per_proc = [0]*num_dims
+        dim_size_per_procN = [0]*num_dims
+        for d, dsize in enumerate(dim_size):
+            if dsize % 2:
+                dim_size_per_proc[d]  = int(dsize/ntasks)
+                dim_size_per_procN[d] = int(dsize/ntasks)
+            else:
+                dim_size_per_proc[d]  = int(np.floor(dsize/ntasks))
+                dim_size_per_procN[d] = int(np.ceil( dsize/ntasks))
+
+        self.dim_size_per_proc  = dim_size_per_proc
+        self.dim_size_per_procN = dim_size_per_procN
+
+
     def _generate_coordinates(self) -> dict:
         """Generate random coordinates for each dimension.
 
@@ -338,6 +372,31 @@ class GenerateData:
 
         self._record = record
         return record
+
+    def _generate_record_par(self) -> np.ndarray:
+        """Generate sparse record array with observations using parallel
+        processing.
+
+        Submit as many dataset generation tasks as number of blocks needed.
+        """
+
+        cluster = LocalCluster(n_workers=4, threads_per_worker=1, processes=True)
+        client = Client(cluster)
+        print("Dask dashboard:", client.dashboard_link)
+
+        # Submit one task per seed
+        futures = [client.submit(_create_dataarray_par, chunk_id) for chunk_id in range(self.NTASKS)]
+        tot_completed = 0
+        for f in as_completed(futures):
+            chunk_id = fut.result()
+            tot_completed += 1
+            print(
+                f"Completed {tot_completed+1} of {self.NTASKS} chunnks "
+                f"(completed chunk #{chunk_id})"
+            )
+
+        client.close()
+        cluster.close()
 
     def _create_dataarray(self) -> xr.DataArray:
         """Create xarray DataArray from generated data.
@@ -521,18 +580,38 @@ class GenerateData:
         Returns:
             Tuple of (DataArray, DataFrame) containing the generated data
         """
-        # Execute generation pipeline
-        self._generate_coordinates()
-        self._generate_observations()
-        self._generate_record()
-        dataarray = self._create_dataarray()
-        dataframe = self._create_dataframe()
 
-        # Save files if paths provided
-        if netcdf_filepath is not None:
-            self.save_to_netcdf(netcdf_filepath)
+        # Execute generation pipeline for single process
+        if self.NTASKS == 1:
+            self._generate_coordinates()
+            self._generate_observations()
+            self._generate_record()
+            dataarray = self._create_dataarray()
+            dataframe = self._create_dataframe()
 
-        if parquet_filepath is not None:
-            self.save_to_parquet(parquet_filepath)
+            # Save files if paths provided
+            if netcdf_filepath is not None:
+                self.save_to_netcdf(netcdf_filepath)
 
-        return dataarray, dataframe
+            if parquet_filepath is not None:
+                self.save_to_parquet(parquet_filepath)
+
+            return dataarray, dataframe
+
+        elif self.NTASKS > 1:
+            print("Generating datasets in parallel:")
+            print(f"  Number of blocks: {self.NTASKS}")
+            print(
+                f"  Block dimensions for first {self.NTASKS-1} blocks"
+                f": {self.dim_size_per_proc}"
+            )
+            print(
+                f"  Block dimensions for {self.NTASKS}th block"
+                f": {self.dim_size_per_procN}"
+            )
+
+            self._generate_record_par()
+
+
+        else:
+            raise ValueError(f"NTASKS must positive, got {self.NTASKS} instead.")
