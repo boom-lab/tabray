@@ -204,6 +204,7 @@ class GenerateData:
             print(f"  Old number of elements: {self.nb_coords_per_dim}")
             self.nb_coords_per_dim = np.rint(self.nb_coords_per_dim).astype(int)
             print(f"  New number of elements: {self.nb_coords_per_dim}")
+        self.shape = tuple(dim_size for dim_size in self.nb_coords_per_dim)
 
         # Check that sparsity is larger than minimum allowed for this set of parameters
         self.sparsity_zero = 1/np.min(self.nb_coords_per_dim)
@@ -249,7 +250,7 @@ class GenerateData:
 
         ntasks = 1 # this is equivalent to the number of chunks that will be generated
         if max_obs is None:
-            max_obs = 100000000 #1e8 obs, very empirical
+            max_obs = 10000000 #1e7 obs, very empirical
 
         num_obs = self.num_obs
         if max_obs > num_obs:
@@ -259,20 +260,14 @@ class GenerateData:
         if ntasks == 1:
             return
 
-        num_dims = self.num_dims
-        dim_size = self.nb_coords_per_dim
-        dim_size_per_proc = [0]*num_dims
-        dim_size_per_procN = [0]*num_dims
-        for d, dsize in enumerate(dim_size):
-            if dsize % 2:
-                dim_size_per_proc[d]  = int(dsize/ntasks)
-                dim_size_per_procN[d] = int(dsize/ntasks)
-            else:
-                dim_size_per_proc[d]  = int(np.floor(dsize/ntasks))
-                dim_size_per_procN[d] = int(np.ceil( dsize/ntasks))
+        max_dim = np.argmax(self.nb_coords_per_dim)
+        max_dim_size = self.nb_coords_per_dim[max_dim]
+        Neach_section, extras = divmod(max_dim_size, ntasks)
+        section_sizes = ([0] + extras * [Neach_section + 1] + (ntasks - extras) * [Neach_section])
+        div_points = np.array(section_sizes, dtype=int).cumsum()
 
-        self.dim_size_per_proc  = dim_size_per_proc
-        self.dim_size_per_procN = dim_size_per_procN
+        self.dim_split = max_dim
+        self.section_sizes = section_sizes
 
 
     def _generate_coordinates(self) -> dict:
@@ -397,6 +392,14 @@ class GenerateData:
 
         client.close()
         cluster.close()
+
+    def _generate_record_par(self) -> None:
+        """Processor-level generation of sparse record array for a given block,
+        consistently with global array.
+        """
+
+
+
 
     def _create_dataarray(self) -> xr.DataArray:
         """Create xarray DataArray from generated data.
@@ -601,14 +604,8 @@ class GenerateData:
         elif self.NTASKS > 1:
             print("Generating datasets in parallel:")
             print(f"  Number of blocks: {self.NTASKS}")
-            print(
-                f"  Block dimensions for first {self.NTASKS-1} blocks"
-                f": {self.dim_size_per_proc}"
-            )
-            print(
-                f"  Block dimensions for {self.NTASKS}th block"
-                f": {self.dim_size_per_procN}"
-            )
+            print(f"  Dataset split along {self.dim_split}-th dimension")
+            print(f"  Block dimensions along it: {self.section_sizes}")
 
             self._generate_par()
 
