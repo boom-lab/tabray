@@ -38,7 +38,8 @@ class GenerateData:
         num_dims: int,
         ratio_dims: Union[int,ArrayLike],
         sparsity: Union[int,float],
-        seed: int
+        seed: int,
+        max_obs: int = None,
     ) -> None:
         """Initialize the data generator with validation.
 
@@ -75,7 +76,7 @@ class GenerateData:
         print(f"  Sparsity: {self.sparsity}")
         print(f"  Random seed: {self.seed}")
 
-        self._multiprocessing_setup()
+        self._multiprocessing_setup(max_obs=max_obs)
 
         # Initialize random number generator with seed
         self._rng = np.random.default_rng(seed)
@@ -391,18 +392,22 @@ class GenerateData:
         print("Dask dashboard:", client.dashboard_link)
 
         # Submit one task per seed
-        futures = [client.submit(_create_record_par, chunk_id) for chunk_id in range(self.NTASKS)]
+        futures = [client.submit(_generate_record_par, chunk_id) for chunk_id in range(self.NTASKS)]
         tot_completed = 0
+        tot_obs = 0
         for f in as_completed(futures):
-            chunk_id = fut.result()
+            chunk_id, obs_num = fut.result()
             tot_completed += 1
+            tot_obs += obs_num
             print(
                 f"Completed {tot_completed+1} of {self.NTASKS} chunnks "
                 f"(completed chunk #{chunk_id})"
             )
 
+        print(f"Total obs stored to disk: {tot_obs}.")
         client.close()
         cluster.close()
+
 
     def _generate_record_par(self, chunk_id) -> None:
         """Processor-level generation of sparse record array for a given block,
@@ -486,6 +491,8 @@ class GenerateData:
 
         fpath = f'./nc/test_{chunk_id}.nc'
         self.save_to_netcdf(fpath, overwrite=True)
+
+        return chunk_id, len(record)
 
 
     def _create_dataarray(self) -> xr.DataArray:
