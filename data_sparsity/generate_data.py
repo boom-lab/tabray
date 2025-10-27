@@ -80,6 +80,12 @@ class GenerateData:
         # Initialize random number generator with seed
         self._rng = np.random.default_rng(seed)
 
+        # Store global variables
+        self.shape = np.array(
+            tuple(len(coords) for coords in self._coordinates.values())
+        )
+        self.total_grid_points = np.prod(shape)
+
         # Storage for generated data
         self._coordinates = None
         self._observations = None
@@ -262,12 +268,18 @@ class GenerateData:
 
         max_dim = np.argmax(self.nb_coords_per_dim)
         max_dim_size = self.nb_coords_per_dim[max_dim]
+        if max_dim_size < ntasks:
+            raise ValueError(
+                f"Dimension has size {max_dim_size} but {ntasks} blocks should be generated?"
+            )
         Neach_section, extras = divmod(max_dim_size, ntasks)
         section_sizes = ([0] + extras * [Neach_section + 1] + (ntasks - extras) * [Neach_section])
         div_points = np.array(section_sizes, dtype=int).cumsum()
 
         self.dim_split = max_dim
+        self.max_dim_size = max_dim_size
         self.section_sizes = section_sizes
+        self.div_points = div_points
 
 
     def _generate_coordinates(self) -> dict:
@@ -331,10 +343,9 @@ class GenerateData:
                 "Call _generate_observations() first."
             )
 
-        # Get shape of the full grid
-        shape = tuple(len(coords) for coords in self._coordinates.values())
-        total_points_in_grid = np.prod(shape)
-        s_estim = self.num_obs/total_points_in_grid
+        # Get total grid points and check sparsity
+        total_grid_points = self.total_grid_points
+        s_estim = self.num_obs/total_grid_points
         if s_estim != self.sparsity:
             raise ValueError(
                 f"Sparcity {s_estim} determined from number "
@@ -348,7 +359,7 @@ class GenerateData:
         # Generate random indices for observation placement
         # Flatten the multi-dimensional index space
         flat_indices = self._rng.choice(
-            total_points_in_grid,
+            total_grid_points,
             size=self.num_obs,
             replace=False
         )
@@ -393,12 +404,88 @@ class GenerateData:
         client.close()
         cluster.close()
 
-    def _generate_record_par(self) -> None:
+    def _generate_record_par(self, chunk_id) -> None:
         """Processor-level generation of sparse record array for a given block,
         consistently with global array.
         """
 
+        # Generate two distinct generators:
+        # global_rng needs to be identical across tasks, and it's where along
+        # the split dimension we are placing the obs value
+        # task_rng is used to draw where within the current chunk along the
+        # other dimensions the observation is put, and to draw its value
+        global_rng = np.random.default_rng(self.seed)
+        task_rng = np.random.default_rng(self.seed + chunk_id)
 
+        # range of values and size of chunk along split dimension
+        task_range = (self.div_points[chunk_id], self.div_points[chunk_id+1])
+        task_size  = self.section_sizes[chunk_id]
+        task_shape = self.shape
+        task_shape[self.dim_split] = task_size
+        task_shape_slice = np.delete(self.shape, self.dim_split)
+
+        # get total number of points in a slice for a given index along the
+        # split dimension
+        total_slice_points = self.total_grid_points/task_size
+
+        # initialize coordinates, record
+        coordinates = {}
+        for idx, n_coords in enumerate(self.nb_coords_per_dim):
+            dim_name = f"x{idx}"
+            low  = 0
+            high = 1
+            if idx == self.dim_split:
+                low  = task_range[0]/self.max_dim_size
+                high = task_range[1]/self.max_dim_size
+            coordinates[dim_name] = np.sort(
+                self._rng.uniform(low, high, size=n_coords)
+            )
+
+        record = np.full(task_shape, np.nan)
+
+        for obs in range(self.num_obs):
+            # pick random index along split dimension
+            split_dim_idx = global_rng.choice(self.num_obs)
+
+            # if index not in this chunk, skip (but we had to draw for
+            # consistency across tasks)
+            if not (task_range[0] <= split_dim_idx <= task_range[1]):
+                continue
+
+            # draw random position inside this chunk, for the other dimensions
+            flat_idx = task_rng.choice(total_slice_points)
+            multi_indices = np.unravel_index(flat_idx, task_shape_slice)
+
+            # add position along split dimension
+            split_dim_task_idx = split_dim_idx - task_range[0] # adjust for local task
+            multi_indices = numpy.insert(
+                multi_indices,
+                self.dim_split,
+                split_dim_task_idx,
+                axis=0 # multi_indices is a 1D array originally
+            )
+
+            record[multi_indices] = task_rng.uniform(0,1,size=1)
+
+        # Create DataArray with coordinates
+        dataarray = xr.DataArray(
+            record,
+            coords=coordinates,
+            dims=list(coordinates.keys()),
+            name="record",
+            attrs={
+                "description": "Sparse observation data",
+                "chunk id": chunk_id,
+                "global num_obs": self.num_obs,
+                "global num_dims": self.num_dims,
+                "global ratio_dims": self.ratio_dims,
+                "global sparsity": self.sparsity,
+                "global seed": self.seed
+            }
+        )
+
+        fpath = f'./nc/test_{chunk_id}.nc'
+        self.save_to_netcdf(fpath, overwrite=True)
 
 
     def _create_dataarray(self) -> xr.DataArray:
