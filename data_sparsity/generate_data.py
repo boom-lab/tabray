@@ -478,6 +478,10 @@ class GenerateData:
         record = np.full(task_shape, np.nan)
         logging.debug("record shape: %s", record.shape)
 
+        flat_idx_range = {}
+        for idx in range(task_size):
+            flat_idx_range[idx] = np.arange(total_slice_points)
+
         for obs in range(self.num_obs):
             logging.debug("##----------- NEW OBS -----------##")
             # pick random index along split dimension
@@ -488,16 +492,19 @@ class GenerateData:
             # consistency across tasks)
             if not (task_range[0] <= split_dim_idx < task_range[1]):
                 continue
+            split_dim_task_idx = split_dim_idx - task_range[0]
 
             # draw random position inside this chunk, for the other dimensions
-            flat_idx = task_rng.choice(total_slice_points)
+            flat_idx_values = flat_idx_range[split_dim_task_idx]
+            flat_idx = task_rng.choice(flat_idx_values)
+            flat_idx_range[split_dim_task_idx] = flat_idx_values[flat_idx_values != flat_idx] #remove used idx for given value of split dimension
             multi_indices = np.unravel_index(flat_idx, task_shape_slice)
             logging.debug("flat_idx (slice): %s", flat_idx)
             logging.debug("multi_indices (slice): %s", multi_indices)
             logging.debug("multi_indices (slice): %s", np.array(multi_indices))
 
             # add position along split dimension
-            split_dim_task_idx = split_dim_idx - task_range[0] # adjust for local task
+            # adjust for local task
             multi_indices = np.insert(
                 multi_indices,
                 self.dim_split,
