@@ -412,7 +412,7 @@ class GenerateData:
             tot_completed += 1
             tot_obs += obs_num
             print(
-                f"Completed {tot_completed+1} of {self.NTASKS} chunnks "
+                f"Completed {tot_completed} of {self.NTASKS} chunks "
                 f"(completed chunk #{chunk_id})"
             )
 
@@ -464,7 +464,7 @@ class GenerateData:
         # initialize coordinates, record
         logging.debug("max_dim_size: %s", self.max_dim_size)
         coordinates = {}
-        for idx, n_coords in enumerate(self.nb_coords_per_dim):
+        for idx, n_coords in enumerate(task_shape):
             dim_name = f"x{idx}"
             low  = 0
             high = 1
@@ -526,6 +526,13 @@ class GenerateData:
             record[multi_indices] = task_rng.uniform(0,1,size=1)
             logging.debug("record[multi_indices]: %s", record[multi_indices])
 
+
+        logging.debug("chunk id: %s", chunk_id)
+        logging.debug("record.shape: %s", record.shape)
+        logging.debug("num obs in chunk: %s", np.sum( ~np.isnan(record) ))
+        logging.debug("dims: %s", list(coordinates.keys()))
+        logging.debug("coords: %s", coordinates)
+
         # Create DataArray with coordinates
         dataarray = xr.DataArray(
             record,
@@ -544,9 +551,9 @@ class GenerateData:
         )
 
         fpath = f'./nc/test_{chunk_id}.nc'
-        self.save_to_netcdf(fpath, overwrite=True)
+        self.save_to_netcdf(fpath, dataarray=dataarray, overwrite=True)
 
-        return chunk_id, len(record)
+        return chunk_id, np.sum( ~np.isnan(record) )
 
 
     def _create_dataarray(self) -> xr.DataArray:
@@ -653,7 +660,7 @@ class GenerateData:
         self._dataframe = dataframe
         return dataframe
 
-    def save_to_netcdf(self, filepath: str, overwrite: str = False) -> None:
+    def save_to_netcdf(self, filepath: str, dataarray: np.array = None, overwrite: str = False) -> None:
         """Save data to NetCDF file format.
 
         Args:
@@ -663,14 +670,17 @@ class GenerateData:
         Raises:
             RuntimeError: If DataArray has not been created yet
         """
-        if self._dataarray is None:
-            raise RuntimeError(
-                "DataArray must be created before saving. "
-                "Call generate() first."
-            )
+        if dataarray is None:
+            if self._dataarray is None:
+                raise RuntimeError(
+                    "DataArray must be created before saving. "
+                    "Call generate() first."
+                )
+            else:
+                dataarray = self._dataarray
 
         ds_utils.check_nc(filepath, overwrite)
-        self._dataarray.to_netcdf(filepath)
+        dataarray.to_netcdf(filepath)
 
     def save_to_parquet(self, dirname: str, filename: str = None, overwrite: bool = False) -> None:
         """Save data to Parquet file format.
