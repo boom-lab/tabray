@@ -9,8 +9,18 @@ def check_or_create_folder(folder_path: str, overwrite: bool = False) -> None:
     if os.path.exists(folder_path):
         if not os.path.isdir(folder_path):
             raise NotADirectoryError(f"{folder_path} exists but is not a directory")
-        if os.listdir(folder_path) and not overwrite:
-            raise ValueError(f"'{folder_path}' exists but is not empty")
+        if os.listdir(folder_path):
+            if not overwrite:
+                raise ValueError(f"'{folder_path}' exists but is not empty")
+            else:
+                for filename in os.listdir(folder_path):
+                    file_path = os.path.join(folder_path, filename)
+                    try:
+                        if os.path.isfile(file_path) or os.path.islink(file_path):
+                            os.remove(file_path)
+                            print(f'  Deleted file: {file_path}')
+                    except OSError as e:
+                        print(f'Failed to delete {file_path}. Reason: {e}')
     else:
         try:
             os.makedirs(folder_path, exist_ok=True)
