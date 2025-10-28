@@ -427,7 +427,10 @@ class GenerateData:
         self.num_obs = mp_obs
 
         # Submit one task per seed
-        futures = [client.submit(self._generate_record_par, chunk_id, chunk_obs) for chunk_id, chunk_obs in zip(range(self.NTASKS),per_chunk_obs)]
+        futures = [
+            client.submit(self._generate_record_par, chunk_id, chunk_obs)
+            for chunk_id, chunk_obs in zip(range(self.NTASKS),per_chunk_obs)
+        ]
         tot_completed = 0
         tot_obs = 0
         for f in as_completed(futures):
@@ -456,12 +459,12 @@ class GenerateData:
         logging.debug("")
         logging.debug("######------ NEW CHUNK ------######")
 
-
         # Generate two distinct generators:
-        # global_rng needs to be identical across tasks, and it's where along
-        # the split dimension we are placing the obs value
-        # task_rng is used to draw where within the current chunk along the
-        # other dimensions the observation is put, and to draw its value
+        # global_rng: needs to be identical across tasks, and it's used to
+        # generate the coordinates along non-split dimensions
+        # task_rng: is used to draw the coordinates along the split dimension
+        # (which differ per chunk), and the position (within the chunk) and
+        # value of the observations
         global_rng = np.random.default_rng(self.seed)
         task_rng = np.random.default_rng(self.seed + chunk_id)
 
@@ -470,21 +473,16 @@ class GenerateData:
         task_size  = self.section_sizes[chunk_id]
         task_shape = self.shape
         task_shape[self.dim_split] = task_size
-        task_shape_slice = np.delete(self.shape, self.dim_split)
         logging.debug("task_range: %s", task_range)
         logging.debug("task_size: %s", task_size)
         logging.debug("task_shape: %s", task_shape)
-        logging.debug("task_shape_slice: %s", task_shape_slice)
 
         # get total number of points in a slice for a given index along the
         # split dimension
-        total_slice_points = self.total_grid_points/self.max_dim_size
-        total_chunk_points = total_slice_points*task_size
-        if not total_slice_points.is_integer():
+        total_chunk_points = np.prod(task_shape)
+        if not total_chunk_points.is_integer():
             raise ValueError("total_slice_points must be an int")
-        total_slice_points = int(total_slice_points)
         total_chunk_points = int(total_chunk_points)
-        logging.debug("total_slice_points: %s", total_slice_points)
         logging.debug("total_chunk_points: %s", total_chunk_points)
 
         # initialize coordinates, record
@@ -493,8 +491,6 @@ class GenerateData:
         # task-based local generator is used for the split dimension, which must
         # not have same coordinates across chunks (and must not affect draws for
         # the other dimensions)
-        #
-        logging.debug("max_dim_size: %s", self.max_dim_size)
         coordinates = {}
         for idx, n_coords in enumerate(task_shape):
             dim_name = f"x{idx}"
@@ -510,33 +506,7 @@ class GenerateData:
             )
 
         record = np.full(task_shape, np.nan)
-        logging.debug("record shape: %s", record.shape)
 
-        flat_idx_range = {}
-        for idx in range(task_size):
-            flat_idx_range[idx] = np.arange(total_slice_points)
-
-        # determine number of obs in present chunk
-        # looping to prevent building a big array when we just need a scalar
-        # obs_in_chunk = 0
-        # global_choice_range = np.arange(self.NTASKS)
-        # for obs in range(self.num_obs):
-        #     logging.debug("##----------- NEW OBS -----------##")
-        #     # pick random index along split dimension
-        #     split_dim_idx = global_rng.choice(global_choice_range)
-        #     global_choice_range = global_choice_range[global_choice_range!=split_dim_idx]
-        #     logging.debug("split_dim_idx: %s", split_dim_idx)
-
-        #     # if index not in this chunk, skip (but we had to draw for
-        #     # consistency across tasks)
-        #     if not (task_range[0] <= split_dim_idx < task_range[1]):
-        #         logging.debug("discarded: split_dim_idx = %s", split_dim_idx)
-        #         continue
-        #     obs_in_chunk += 1
-        #     logging.debug("added    : split_dim_idx = %s", split_dim_idx)
-        #     logging.debug("total obs in chunk: %s", obs_in_chunk)
-
-        logging.debug("")
         logging.debug("obs in chunk: %s", obs_in_chunk)
         logging.debug("total chunk points: %s", total_chunk_points)
 
@@ -545,7 +515,6 @@ class GenerateData:
             size=obs_in_chunk,
             replace=False
         )
-
         multi_indices = np.unravel_index(flat_indices, task_shape)
         record[multi_indices] = task_rng.uniform(0, 1, size=obs_in_chunk)
 
