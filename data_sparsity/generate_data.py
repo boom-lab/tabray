@@ -4,6 +4,7 @@ This module provides the GenerateData class for creating dummy observations
 and storing them in both array (netCDF) and tabular (Parquet) formats.
 """
 
+import logging
 from typing import Tuple, Union
 import dask.dataframe as dd
 from dask.distributed import Client, LocalCluster, as_completed
@@ -50,6 +51,7 @@ class GenerateData:
             TypeError: If arguments are not of expected types
             ValueError: If arguments fail validation checks
         """
+
         # Store parameters as instance variables
         self.num_obs = num_obs
         self.num_dims = num_dims
@@ -68,11 +70,14 @@ class GenerateData:
 
         # Validate all parameters
         self._validate_parameters()
+        # Store global variables
+
         print("Updated configuration after validation:")
         print(f"  Number of observations: {self.num_obs}")
         print(f"  Number of dimensions: {self.num_dims}")
         print(f"  Ratio of dimensions: {self.ratio_dims}")
-        print(f"  Dimensions sizes: {self.nb_coords_per_dim}")
+        print(f"  Dimensions shape: {self.shape}")
+        print(f"  Total grid poitns: {self.total_grid_points}")
         print(f"  Sparsity: {self.sparsity}")
         print(f"  Random seed: {self.seed}")
 
@@ -80,12 +85,6 @@ class GenerateData:
 
         # Initialize random number generator with seed
         self._rng = np.random.default_rng(seed)
-
-        # Store global variables
-        self.shape = np.array(
-            tuple(len(coords) for coords in self._coordinates.values())
-        )
-        self.total_grid_points = np.prod(shape)
 
         # Storage for generated data
         self._coordinates = None
@@ -211,7 +210,8 @@ class GenerateData:
             print(f"  Old number of elements: {self.nb_coords_per_dim}")
             self.nb_coords_per_dim = np.rint(self.nb_coords_per_dim).astype(int)
             print(f"  New number of elements: {self.nb_coords_per_dim}")
-        self.shape = tuple(dim_size for dim_size in self.nb_coords_per_dim)
+        self.shape = [int(dim_size) for dim_size in self.nb_coords_per_dim]
+        self.total_grid_points = np.prod(self.shape)
 
         # Check that sparsity is larger than minimum allowed for this set of parameters
         self.sparsity_zero = 1/np.min(self.nb_coords_per_dim)
@@ -255,15 +255,21 @@ class GenerateData:
         """Set up multiprocessing environment with dask
         """
 
+        print("##############")
+        print(max_obs)
         ntasks = 1 # this is equivalent to the number of chunks that will be generated
         if max_obs is None:
             max_obs = 10000000 #1e7 obs, very empirical
 
         num_obs = self.num_obs
-        if max_obs > num_obs:
-            ntasks = np.ceil(max_obs/num_obs)
+        if max_obs < num_obs:
+            ntasks = int(np.ceil(num_obs/max_obs))
+            print(
+                "Dataset will be generated in parallel: total observations are more "
+                f"than threshold ({self.num_obs}>{max_obs})."
+            )
 
-        self.NTASKS = int(ntasks)
+        self.NTASKS = ntasks
         if ntasks == 1:
             return
 
@@ -274,13 +280,19 @@ class GenerateData:
                 f"Dimension has size {max_dim_size} but {ntasks} blocks should be generated?"
             )
         Neach_section, extras = divmod(max_dim_size, ntasks)
+        Neach_section = int(Neach_section)
+        extra = int(extras)
         section_sizes = ([0] + extras * [Neach_section + 1] + (ntasks - extras) * [Neach_section])
         div_points = np.array(section_sizes, dtype=int).cumsum()
 
         self.dim_split = max_dim
         self.max_dim_size = max_dim_size
-        self.section_sizes = section_sizes
+        self.section_sizes = section_sizes[1:]
         self.div_points = div_points
+
+        print(f"  Number of blocks: {self.NTASKS}")
+        print(f"  Dataset split along {self.dim_split}-th dimension")
+        print(f"  Block dimensions along it: {self.section_sizes}")
 
 
     def _generate_coordinates(self) -> dict:
@@ -392,11 +404,11 @@ class GenerateData:
         print("Dask dashboard:", client.dashboard_link)
 
         # Submit one task per seed
-        futures = [client.submit(_generate_record_par, chunk_id) for chunk_id in range(self.NTASKS)]
+        futures = [client.submit(self._generate_record_par, chunk_id) for chunk_id in range(self.NTASKS)]
         tot_completed = 0
         tot_obs = 0
         for f in as_completed(futures):
-            chunk_id, obs_num = fut.result()
+            chunk_id, obs_num = f.result()
             tot_completed += 1
             tot_obs += obs_num
             print(
@@ -413,6 +425,14 @@ class GenerateData:
         """Processor-level generation of sparse record array for a given block,
         consistently with global array.
         """
+        logging.basicConfig(
+            level=logging.DEBUG,
+            format='%(asctime)s %(process)d %(levelname)s %(message)s',
+            filename=f'dask_worker_{chunk_id}.log',  # or use None for stdout
+        )
+        logging.debug("")
+        logging.debug("######------ NEW CHUNK ------######")
+
 
         # Generate two distinct generators:
         # global_rng needs to be identical across tasks, and it's where along
@@ -428,12 +448,21 @@ class GenerateData:
         task_shape = self.shape
         task_shape[self.dim_split] = task_size
         task_shape_slice = np.delete(self.shape, self.dim_split)
+        logging.debug("task_range: %s", task_range)
+        logging.debug("task_size: %s", task_size)
+        logging.debug("task_shape: %s", task_shape)
+        logging.debug("task_shape_slice: %s", task_shape_slice)
 
         # get total number of points in a slice for a given index along the
         # split dimension
-        total_slice_points = self.total_grid_points/task_size
+        total_slice_points = self.total_grid_points/self.max_dim_size
+        if not total_slice_points.is_integer():
+            raise ValueError("total_slice_points must be an int")
+        total_slice_points = int(total_slice_points)
+        logging.debug("total_slice_points: %s", total_slice_points)
 
         # initialize coordinates, record
+        logging.debug("max_dim_size: %s", self.max_dim_size)
         coordinates = {}
         for idx, n_coords in enumerate(self.nb_coords_per_dim):
             dim_name = f"x{idx}"
@@ -447,30 +476,48 @@ class GenerateData:
             )
 
         record = np.full(task_shape, np.nan)
+        logging.debug("record shape: %s", record.shape)
 
         for obs in range(self.num_obs):
+            logging.debug("##----------- NEW OBS -----------##")
             # pick random index along split dimension
-            split_dim_idx = global_rng.choice(self.num_obs)
+            split_dim_idx = global_rng.choice(self.max_dim_size)
+            logging.debug("split_dim_idx: %s", split_dim_idx)
 
             # if index not in this chunk, skip (but we had to draw for
             # consistency across tasks)
-            if not (task_range[0] <= split_dim_idx <= task_range[1]):
+            if not (task_range[0] <= split_dim_idx < task_range[1]):
                 continue
 
             # draw random position inside this chunk, for the other dimensions
             flat_idx = task_rng.choice(total_slice_points)
             multi_indices = np.unravel_index(flat_idx, task_shape_slice)
+            logging.debug("flat_idx (slice): %s", flat_idx)
+            logging.debug("multi_indices (slice): %s", multi_indices)
+            logging.debug("multi_indices (slice): %s", np.array(multi_indices))
 
             # add position along split dimension
             split_dim_task_idx = split_dim_idx - task_range[0] # adjust for local task
-            multi_indices = numpy.insert(
+            multi_indices = np.insert(
                 multi_indices,
                 self.dim_split,
                 split_dim_task_idx,
                 axis=0 # multi_indices is a 1D array originally
             )
 
+            logging.debug("multi_indices with split_dim: %s", multi_indices)
+            if not all(isinstance(j, (int, np.integer)) or (isinstance(j, float) and j.is_integer()) for j in multi_indices):
+                raise TypeError(f"Some indices are not integers: {multi_indices}")
+            multi_indices = tuple(int(j) for j in multi_indices)
+            logging.debug("split_dim_task_idx: %s", split_dim_task_idx)
+            logging.debug("multi_indices with split_dim (tuple): %s", multi_indices)
+            logging.debug("record shape: %s", record.shape)
+            logging.debug("record[multi_indices]: %s", record[multi_indices])
+
+            if not np.isnan(record[multi_indices]):
+                raise ValueError(f"Position {multi_indices} was already assigned.")
             record[multi_indices] = task_rng.uniform(0,1,size=1)
+            logging.debug("record[multi_indices]: %s", record[multi_indices])
 
         # Create DataArray with coordinates
         dataarray = xr.DataArray(
@@ -696,11 +743,6 @@ class GenerateData:
             return dataarray, dataframe
 
         elif self.NTASKS > 1:
-            print("Generating datasets in parallel:")
-            print(f"  Number of blocks: {self.NTASKS}")
-            print(f"  Dataset split along {self.dim_split}-th dimension")
-            print(f"  Block dimensions along it: {self.section_sizes}")
-
             self._generate_par()
 
 
