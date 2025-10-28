@@ -255,8 +255,6 @@ class GenerateData:
         """Set up multiprocessing environment with dask
         """
 
-        print("##############")
-        print(max_obs)
         ntasks = 1 # this is equivalent to the number of chunks that will be generated
         if max_obs is None:
             max_obs = 10000000 #1e7 obs, very empirical
@@ -403,8 +401,33 @@ class GenerateData:
         client = Client(cluster)
         print("Dask dashboard:", client.dashboard_link)
 
+        total_obs = self.num_obs
+        total_points = np.prod(self.shape)
+        total_points_slice = total_points/self.max_dim_size
+        chunk_points = np.array(
+            [total_points_slice*chunk_size for chunk_size in self.section_sizes]
+        ).astype(int)
+        print("type chunk_points", type(chunk_points))
+        print("chunk_points", chunk_points)
+        # as randomness is uniform
+        per_chunk_obs = np.rint(self.sparsity*chunk_points).astype(int)
+        for idx, c in enumerate(per_chunk_obs):
+            if c > chunk_points[idx]:
+                per_chunk_obs[idx]=chunk_points[idx]
+
+        mp_obs = per_chunk_obs.sum()
+        if mp_obs.is_integer():
+            mp_obs = int(mp_obs)
+        else:
+            raise ValueError(f"Got non integer value of observations {mp_obs}.")
+        sparsity = mp_obs/total_points
+        print(f"Multiprocessing approximations lead to {mp_obs} total observation (goal: {total_obs}).")
+        print(f"Updated sparsity is {sparsity} (was: {self.sparsity}).")
+        self.sparsity = sparsity
+        self.num_obs = mp_obs
+
         # Submit one task per seed
-        futures = [client.submit(self._generate_record_par, chunk_id) for chunk_id in range(self.NTASKS)]
+        futures = [client.submit(self._generate_record_par, chunk_id, chunk_obs) for chunk_id, chunk_obs in zip(range(self.NTASKS),per_chunk_obs)]
         tot_completed = 0
         tot_obs = 0
         for f in as_completed(futures):
@@ -421,7 +444,7 @@ class GenerateData:
         cluster.close()
 
 
-    def _generate_record_par(self, chunk_id) -> None:
+    def _generate_record_par(self, chunk_id : int, obs_in_chunk : int) -> None:
         """Processor-level generation of sparse record array for a given block,
         consistently with global array.
         """
@@ -456,23 +479,34 @@ class GenerateData:
         # get total number of points in a slice for a given index along the
         # split dimension
         total_slice_points = self.total_grid_points/self.max_dim_size
+        total_chunk_points = total_slice_points*task_size
         if not total_slice_points.is_integer():
             raise ValueError("total_slice_points must be an int")
         total_slice_points = int(total_slice_points)
+        total_chunk_points = int(total_chunk_points)
         logging.debug("total_slice_points: %s", total_slice_points)
+        logging.debug("total_chunk_points: %s", total_chunk_points)
 
         # initialize coordinates, record
+        # coordinates along non-split dimensions need to be identical across
+        # chunks, so the same global random generator is used for them, while a
+        # task-based local generator is used for the split dimension, which must
+        # not have same coordinates across chunks (and must not affect draws for
+        # the other dimensions)
+        #
         logging.debug("max_dim_size: %s", self.max_dim_size)
         coordinates = {}
         for idx, n_coords in enumerate(task_shape):
             dim_name = f"x{idx}"
             low  = 0
             high = 1
+            rng = global_rng
             if idx == self.dim_split:
                 low  = task_range[0]/self.max_dim_size
                 high = task_range[1]/self.max_dim_size
+                rng = task_rng
             coordinates[dim_name] = np.sort(
-                self._rng.uniform(low, high, size=n_coords)
+                rng.uniform(low, high, size=n_coords)
             )
 
         record = np.full(task_shape, np.nan)
@@ -482,54 +516,43 @@ class GenerateData:
         for idx in range(task_size):
             flat_idx_range[idx] = np.arange(total_slice_points)
 
-        for obs in range(self.num_obs):
-            logging.debug("##----------- NEW OBS -----------##")
-            # pick random index along split dimension
-            split_dim_idx = global_rng.choice(self.max_dim_size)
-            logging.debug("split_dim_idx: %s", split_dim_idx)
+        # determine number of obs in present chunk
+        # looping to prevent building a big array when we just need a scalar
+        # obs_in_chunk = 0
+        # global_choice_range = np.arange(self.NTASKS)
+        # for obs in range(self.num_obs):
+        #     logging.debug("##----------- NEW OBS -----------##")
+        #     # pick random index along split dimension
+        #     split_dim_idx = global_rng.choice(global_choice_range)
+        #     global_choice_range = global_choice_range[global_choice_range!=split_dim_idx]
+        #     logging.debug("split_dim_idx: %s", split_dim_idx)
 
-            # if index not in this chunk, skip (but we had to draw for
-            # consistency across tasks)
-            if not (task_range[0] <= split_dim_idx < task_range[1]):
-                continue
-            split_dim_task_idx = split_dim_idx - task_range[0]
+        #     # if index not in this chunk, skip (but we had to draw for
+        #     # consistency across tasks)
+        #     if not (task_range[0] <= split_dim_idx < task_range[1]):
+        #         logging.debug("discarded: split_dim_idx = %s", split_dim_idx)
+        #         continue
+        #     obs_in_chunk += 1
+        #     logging.debug("added    : split_dim_idx = %s", split_dim_idx)
+        #     logging.debug("total obs in chunk: %s", obs_in_chunk)
 
-            # draw random position inside this chunk, for the other dimensions
-            flat_idx_values = flat_idx_range[split_dim_task_idx]
-            flat_idx = task_rng.choice(flat_idx_values)
-            flat_idx_range[split_dim_task_idx] = flat_idx_values[flat_idx_values != flat_idx] #remove used idx for given value of split dimension
-            multi_indices = np.unravel_index(flat_idx, task_shape_slice)
-            logging.debug("flat_idx (slice): %s", flat_idx)
-            logging.debug("multi_indices (slice): %s", multi_indices)
-            logging.debug("multi_indices (slice): %s", np.array(multi_indices))
+        logging.debug("")
+        logging.debug("obs in chunk: %s", obs_in_chunk)
+        logging.debug("total chunk points: %s", total_chunk_points)
 
-            # add position along split dimension
-            # adjust for local task
-            multi_indices = np.insert(
-                multi_indices,
-                self.dim_split,
-                split_dim_task_idx,
-                axis=0 # multi_indices is a 1D array originally
-            )
+        flat_indices = self._rng.choice(
+            total_chunk_points,
+            size=obs_in_chunk,
+            replace=False
+        )
 
-            logging.debug("multi_indices with split_dim: %s", multi_indices)
-            if not all(isinstance(j, (int, np.integer)) or (isinstance(j, float) and j.is_integer()) for j in multi_indices):
-                raise TypeError(f"Some indices are not integers: {multi_indices}")
-            multi_indices = tuple(int(j) for j in multi_indices)
-            logging.debug("split_dim_task_idx: %s", split_dim_task_idx)
-            logging.debug("multi_indices with split_dim (tuple): %s", multi_indices)
-            logging.debug("record shape: %s", record.shape)
-            logging.debug("record[multi_indices]: %s", record[multi_indices])
-
-            if not np.isnan(record[multi_indices]):
-                raise ValueError(f"Position {multi_indices} was already assigned.")
-            record[multi_indices] = task_rng.uniform(0,1,size=1)
-            logging.debug("record[multi_indices]: %s", record[multi_indices])
-
+        multi_indices = np.unravel_index(flat_indices, task_shape)
+        record[multi_indices] = task_rng.uniform(0, 1, size=obs_in_chunk)
 
         logging.debug("chunk id: %s", chunk_id)
         logging.debug("record.shape: %s", record.shape)
-        logging.debug("num obs in chunk: %s", np.sum( ~np.isnan(record) ))
+        logging.debug("num obs in chunk: %s", obs_in_chunk)
+        logging.debug("non-nans in chunk: %s", np.sum( ~np.isnan(record) ))
         logging.debug("dims: %s", list(coordinates.keys()))
         logging.debug("coords: %s", coordinates)
 
