@@ -332,7 +332,9 @@ class GenerateData:
             dim_rng = dim_rngs.get(idx, rng)
             coordinates[dim_name] = np.sort(dim_rng.uniform(low, high, size=n_coords))
 
-        self._coordinates = coordinates
+        # Store as instance variable only for serial workflow
+        if self.NTASKS == 1:
+            self._coordinates = coordinates
         return coordinates
 
     def _generate_observations(
@@ -358,7 +360,9 @@ class GenerateData:
 
         observations = rng.uniform(0, 1, size=num_obs)
 
-        self._observations = observations
+        # Store as instance variable only for serial workflow
+        if self.NTASKS == 1:
+            self._observations = observations
         return observations
 
     def _generate_record(
@@ -448,8 +452,8 @@ class GenerateData:
         # Assign observation values to selected points
         record[multi_indices] = observations
 
-        # Store as instance variable for serial workflow
-        if shape == self.shape:
+        # Store as instance variable only for serial workflow
+        if self.NTASKS == 1:
             self._record = record
 
         return record
@@ -688,8 +692,8 @@ class GenerateData:
             attrs=attrs
         )
 
-        # Store as instance variable for serial workflow
-        if record is self._record:
+        # Store as instance variable only for serial workflow
+        if self.NTASKS == 1:
             self._dataarray = dataarray
 
         return dataarray
@@ -767,7 +771,7 @@ class GenerateData:
         # Create DataFrame
         dataframe = pd.DataFrame(data_dict)
 
-        if self.NTASKS==1:
+        if self.NTASKS == 1:
             self._dataframe = dataframe
 
         return dataframe
