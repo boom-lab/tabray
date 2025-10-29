@@ -292,46 +292,25 @@ class GenerateData:
         print(f"  Block dimensions along it: {self.section_sizes}")
 
 
-    def _generate_coordinates_for_dimension(
-        self,
-        n_coords: int,
-        rng: np.random.Generator,
-        low: float = 0.0,
-        high: float = 1.0
-    ) -> np.ndarray:
-        """Generate random coordinates for a single dimension.
-
-        Creates a coordinate array for a single dimension with values sorted
-        in ascending order within the specified range.
-
-        Args:
-            n_coords: Number of coordinates to generate
-            rng: Random number generator to use
-            low: Lower bound of the coordinate range (inclusive)
-            high: Upper bound of the coordinate range (exclusive)
-
-        Returns:
-            Sorted array of coordinate values
-        """
-        return np.sort(rng.uniform(low, high, size=n_coords))
-
     def _generate_coordinates(
         self,
         shape: list = None,
         rng: np.random.Generator = None,
-        dim_ranges: dict = None
+        dim_ranges: dict = None,
+        dim_rngs: dict = None
     ) -> dict:
         """Generate random coordinates for each dimension.
 
-        Creates coordinate arrays for each dimension with values in [0, 1).
-        The number of points in each dimension is determined by the shape
-        parameter or defaults to the instance's nb_coords_per_dim.
+        Creates coordinate arrays for each dimension with values sorted
+        in ascending order within specified ranges.
 
         Args:
             shape: Optional shape tuple/list. If None, uses self.nb_coords_per_dim
             rng: Optional random number generator. If None, uses self._rng
             dim_ranges: Optional dict mapping dimension indices to (low, high) tuples
                        for custom coordinate ranges. If None, uses [0, 1) for all dims.
+            dim_rngs: Optional dict mapping dimension indices to specific RNGs to use.
+                     If provided, these override the default rng for those dimensions.
 
         Returns:
             Dictionary mapping dimension names to coordinate arrays
@@ -342,15 +321,16 @@ class GenerateData:
             rng = self._rng
         if dim_ranges is None:
             dim_ranges = {}
+        if dim_rngs is None:
+            dim_rngs = {}
 
         # Generate random coordinate arrays for each dimension
         coordinates = {}
         for idx, n_coords in enumerate(shape):
             dim_name = f"x{idx}"
             low, high = dim_ranges.get(idx, (0.0, 1.0))
-            coordinates[dim_name] = self._generate_coordinates_for_dimension(
-                n_coords, rng, low, high
-            )
+            dim_rng = dim_rngs.get(idx, rng)
+            coordinates[dim_name] = np.sort(dim_rng.uniform(low, high, size=n_coords))
 
         self._coordinates = coordinates
         return coordinates
@@ -404,17 +384,42 @@ class GenerateData:
             Multi-dimensional array with sparse observations
 
         Raises:
-            RuntimeError: If coordinates have not been generated yet
+            RuntimeError: If coordinates or observations have not been generated
+                         when using default parameters
         """
+        # Validate that required data exists when using defaults (serial workflow)
         if shape is None:
+            if self._coordinates is None:
+                raise RuntimeError(
+                    "Coordinates must be generated before record. "
+                    "Call _generate_coordinates() first."
+                )
             shape = self.shape
+
         if num_obs is None:
             num_obs = self.num_obs
+
+        if observations is None and rng is None:
+            if self._observations is None:
+                raise RuntimeError(
+                    "Observations must be generated before record. "
+                    "Call _generate_observations() first."
+                )
+            observations = self._observations
+
         if rng is None:
             rng = self._rng
 
-        # Get total grid points
+        # Get total grid points and check sparsity for serial workflow
         total_grid_points = np.prod(shape)
+        if shape == self.shape:
+            s_estim = num_obs / total_grid_points
+            if s_estim != self.sparsity:
+                raise ValueError(
+                    f"Sparsity {s_estim} determined from number "
+                    f"of coordinates differs from sparsity {self.sparsity} "
+                    "determined during parameters validation step."
+                )
 
         # Initialize record with NaN
         record = np.full(shape, np.nan)
@@ -443,8 +448,8 @@ class GenerateData:
         # Assign observation values to selected points
         record[multi_indices] = observations
 
-        # Only set instance variable if this is the main record
-        if shape is None or (hasattr(self, 'shape') and shape == self.shape):
+        # Store as instance variable for serial workflow
+        if shape == self.shape:
             self._record = record
 
         return record
@@ -558,26 +563,24 @@ class GenerateData:
         total_chunk_points = int(total_chunk_points)
         logging.debug("total_chunk_points: %s", total_chunk_points)
 
-        # Build dimension ranges for coordinate generation
-        # Non-split dimensions use [0, 1), split dimension uses normalized chunk range
-        dim_ranges = {}
-        for idx in range(len(task_shape)):
-            if idx == self.dim_split:
-                dim_ranges[idx] = (
-                    task_range[0]/self.max_dim_size,
-                    task_range[1]/self.max_dim_size
-                )
+        # Build dimension ranges and RNGs for coordinate generation
+        # Non-split dimensions use [0, 1) with global_rng
+        # Split dimension uses normalized chunk range with task_rng
+        dim_ranges = {
+            self.dim_split: (
+                task_range[0]/self.max_dim_size,
+                task_range[1]/self.max_dim_size
+            )
+        }
+        dim_rngs = {self.dim_split: task_rng}
 
         # Generate coordinates using generalized method
-        # For split dimension, use task_rng; for others, use global_rng
-        coordinates = {}
-        for idx, n_coords in enumerate(task_shape):
-            dim_name = f"x{idx}"
-            rng = task_rng if idx == self.dim_split else global_rng
-            low, high = dim_ranges.get(idx, (0.0, 1.0))
-            coordinates[dim_name] = self._generate_coordinates_for_dimension(
-                n_coords, rng, low, high
-            )
+        coordinates = self._generate_coordinates(
+            shape=task_shape,
+            rng=global_rng,
+            dim_ranges=dim_ranges,
+            dim_rngs=dim_rngs
+        )
 
         logging.debug("obs in chunk: %s", obs_in_chunk)
         logging.debug("total chunk points: %s", total_chunk_points)
@@ -685,8 +688,8 @@ class GenerateData:
             attrs=attrs
         )
 
-        # Only set instance variable if this is the main dataarray
-        if record is self._record or (record is None):
+        # Store as instance variable for serial workflow
+        if record is self._record:
             self._dataarray = dataarray
 
         return dataarray
