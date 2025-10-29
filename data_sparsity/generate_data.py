@@ -446,6 +446,14 @@ class GenerateData:
         client.close()
         cluster.close()
 
+        ddf = dd.read_parquet('./parquet_tmp/')
+        ddf = ddf.repartition(partition_size="300MB")
+        self.save_to_parquet(
+            './pqt/',
+            ddf,
+            overwrite=True
+        )
+
 
     def _generate_record_par(self, chunk_id : int, obs_in_chunk : int) -> None:
         """Processor-level generation of sparse record array for a given block,
