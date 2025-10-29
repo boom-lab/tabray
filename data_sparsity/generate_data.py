@@ -545,6 +545,18 @@ class GenerateData:
         fpath = f'./nc/test_{chunk_id}.nc'
         self.save_to_netcdf(fpath, dataarray=dataarray, overwrite=True)
 
+        dataframe = dd.from_pandas(
+            self._create_dataframe(record=record,coordinates=coordinates)
+        )
+
+        dirpath = './parquet_tmp/'
+        self.save_to_parquet(
+            dirpath,
+            dataframe,
+            filename=f'test_{chunk_id}',
+            overwrite=False
+        )
+
         return chunk_id, np.sum( ~np.isnan(record) )
 
 
@@ -585,7 +597,11 @@ class GenerateData:
         self._dataarray = dataarray
         return dataarray
 
-    def _create_dataframe(self) -> pd.DataFrame:
+    def _create_dataframe(
+            self,
+            record : xr.DataArray = None,
+            coordinates : dict = None,
+    ) -> pd.DataFrame:
         """Create pandas DataFrame from generated data.
 
         Constructs a pandas DataFrame with num_obs rows and num_dims + 1 columns.
@@ -598,14 +614,17 @@ class GenerateData:
         Raises:
             RuntimeError: If required data has not been generated yet
         """
-        if self._coordinates is None:
-            raise RuntimeError("Coordinates must be generated first")
+        if coordinates is None:
+            if self._coordinates is None:
+                raise RuntimeError("Coordinates must be generated first")
+            else:
+                coordinates = self._coordinates
 
-        if self._observations is None:
-            raise RuntimeError("Observations must be generated first")
-
-        if self._record is None:
-            raise RuntimeError("Record must be generated first")
+        if record is None:
+            if self._record is None:
+                raise RuntimeError("Record must be generated first")
+            else:
+                record = self._record
 
         # Find non-NaN points in record
         #
@@ -629,27 +648,29 @@ class GenerateData:
         # and along dim1 at positions
         # non_nan_indices[1]=array([0, 1, 3, 2, 3, 0, 1, 2, 3])
         # e.g: _record[0,0] = 0.1, _record[1,3] = 0.7, etc.
-        non_nan_mask = ~np.isnan(self._record)
+        non_nan_mask = ~np.isnan(record)
         non_nan_indices = np.where(non_nan_mask)
 
         # Build DataFrame columns
         data_dict = {}
 
         # Add coordinate columns
-        coord_names = list(self._coordinates.keys())
-        coord_arrays = list(self._coordinates.values())
+        coord_names = list(coordinates.keys())
+        coord_arrays = list(coordinates.values())
 
         for i, (name, coords) in enumerate(zip(coord_names, coord_arrays)):
             # Map indices to coordinate values
             data_dict[name] = coords[non_nan_indices[i]]
 
         # Add record values
-        data_dict["record"] = self._record[non_nan_mask]
+        data_dict["record"] = record[non_nan_mask]
 
         # Create DataFrame
         dataframe = pd.DataFrame(data_dict)
 
-        self._dataframe = dataframe
+        if self.NTASKS==1:
+            self._dataframe = dataframe
+
         return dataframe
 
     def save_to_netcdf(self, filepath: str, dataarray: np.array = None, overwrite: str = False) -> None:
@@ -674,7 +695,7 @@ class GenerateData:
         ds_utils.check_nc(filepath, overwrite)
         dataarray.to_netcdf(filepath)
 
-    def save_to_parquet(self, dirname: str, filename: str = None, overwrite: bool = False) -> None:
+    def save_to_parquet(self, dirname: str, dataframe: Union[pd.Dataframe, dd.Dataframe] = None, filename: str = None, overwrite: bool = False) -> None:
         """Save data to Parquet file format.
 
         Args:
@@ -685,13 +706,17 @@ class GenerateData:
         Raises:
             RuntimeError: If DataFrame has not been created yet
         """
-        if self._dataframe is None:
-            raise RuntimeError(
-                "DataFrame must be created before saving. "
-                "Call generate() first."
-            )
+        if dataframe is None:
+            if self._dataframe is None:
+                raise RuntimeError("DataFrame must be created before saving.")
+            else:
+                dataframe=self._dataframe
 
-        ddf = dd.from_pandas(self._dataframe)
+        if isinstance(dataframe, pd.DataFrame):
+            ddf = dd.from_pandas(dataframe)
+        else:
+            ddf = dataframe
+
         nb_digits = len(str(ddf.npartitions))
         if filename is None:
             filename = 'test'
@@ -700,13 +725,17 @@ class GenerateData:
             dirname,
             overwrite=overwrite
         )
+
+        write_metadata_file = True
+        if self.NTASKS > 1:
+            write_metadata_file = False
         ddf.to_parquet(
             dirname,
             engine="pyarrow",
             name_function=name_function,
             append=False,
             overwrite=overwrite,
-            write_metadata_file = True,
+            write_metadata_file = write_metadata_file
         )
 
 
