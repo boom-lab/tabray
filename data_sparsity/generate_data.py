@@ -576,7 +576,12 @@ class GenerateData:
                 task_range[1]/self.max_dim_size
             )
         }
-        dim_rngs = {self.dim_split: task_rng}
+        dim_rngs = {}
+        for idx in range(len(task_shape)):
+            if idx == self.dim_split:
+                dim_rngs[idx] = task_rng
+            else:
+                dim_rngs[idx] = global_rng
 
         # Generate coordinates using generalized method
         coordinates = self._generate_coordinates(
