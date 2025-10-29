@@ -205,11 +205,11 @@ class GenerateData:
             for m in msgs:
                 print(m)
             raise ValueError("One or more dimensions contain a decimal number elements.")
-        else:
-            print("All dimensions contain approximately a natural number of elements, casting and/or rounding them:")
-            print(f"  Old number of elements: {self.nb_coords_per_dim}")
-            self.nb_coords_per_dim = np.rint(self.nb_coords_per_dim).astype(int)
-            print(f"  New number of elements: {self.nb_coords_per_dim}")
+
+        print("All dimensions contain approximately a natural number of elements, casting and/or rounding them:")
+        print(f"  Old number of elements: {self.nb_coords_per_dim}")
+        self.nb_coords_per_dim = np.rint(self.nb_coords_per_dim).astype(int)
+        print(f"  New number of elements: {self.nb_coords_per_dim}")
         self.shape = [int(dim_size) for dim_size in self.nb_coords_per_dim]
         self.total_grid_points = np.prod(self.shape)
 
@@ -279,8 +279,7 @@ class GenerateData:
             )
         Neach_section, extras = divmod(max_dim_size, ntasks)
         Neach_section = int(Neach_section)
-        extra = int(extras)
-        section_sizes = ([0] + extras * [Neach_section + 1] + (ntasks - extras) * [Neach_section])
+        section_sizes = [0] + extras * [Neach_section + 1] + (ntasks - extras) * [Neach_section]
         div_points = np.array(section_sizes, dtype=int).cumsum()
 
         self.dim_split = max_dim
@@ -293,85 +292,147 @@ class GenerateData:
         print(f"  Block dimensions along it: {self.section_sizes}")
 
 
-    def _generate_coordinates(self) -> dict:
+    def _generate_coordinates(
+        self,
+        shape: list = None,
+        rng: np.random.Generator = None,
+        dim_ranges: dict = None,
+        dim_rngs: dict = None
+    ) -> dict:
         """Generate random coordinates for each dimension.
 
-        Creates coordinate arrays for each dimension with values in [0, 1).
-        The number of points in each dimension is determined by ratio_dims
-        and constrained by the total number of grid points needed for the
-        specified sparsity level.
+        Creates coordinate arrays for each dimension with values sorted
+        in ascending order within specified ranges.
+
+        Args:
+            shape: Optional shape tuple/list. If None, uses self.nb_coords_per_dim
+            rng: Optional random number generator. If None, uses self._rng
+            dim_ranges: Optional dict mapping dimension indices to (low, high) tuples
+                       for custom coordinate ranges. If None, uses [0, 1) for all dims.
+            dim_rngs: Optional dict mapping dimension indices to specific RNGs to use.
+                     If provided, these override the default rng for those dimensions.
 
         Returns:
             Dictionary mapping dimension names to coordinate arrays
         """
+        if shape is None:
+            shape = self.nb_coords_per_dim
+        if rng is None:
+            rng = self._rng
+        if dim_ranges is None:
+            dim_ranges = {}
+        if dim_rngs is None:
+            dim_rngs = {}
 
         # Generate random coordinate arrays for each dimension
         coordinates = {}
-        for idx, n_coords in enumerate(self.nb_coords_per_dim):
+        for idx, n_coords in enumerate(shape):
             dim_name = f"x{idx}"
-            coordinates[dim_name] = np.sort(
-                self._rng.uniform(0, 1, size=n_coords)
-            )
+            low, high = dim_ranges.get(idx, (0.0, 1.0))
+            dim_rng = dim_rngs.get(idx, rng)
+            coordinates[dim_name] = np.sort(dim_rng.uniform(low, high, size=n_coords))
 
-        self._coordinates = coordinates
+        # Store as instance variable only for serial workflow
+        if self.NTASKS == 1:
+            self._coordinates = coordinates
         return coordinates
 
-    def _generate_observations(self) -> np.ndarray:
+    def _generate_observations(
+        self,
+        num_obs: int = None,
+        rng: np.random.Generator = None
+    ) -> np.ndarray:
         """Generate random observation values.
 
-        Creates num_obs random values in the range [0, 1].
+        Creates random values in the range [0, 1].
+
+        Args:
+            num_obs: Number of observations to generate. If None, uses self.num_obs
+            rng: Random number generator to use. If None, uses self._rng
 
         Returns:
             Array of random observation values
         """
-        observations = self._rng.uniform(0, 1, size=self.num_obs)
+        if num_obs is None:
+            num_obs = self.num_obs
+        if rng is None:
+            rng = self._rng
 
-        self._observations = observations
+        observations = rng.uniform(0, 1, size=num_obs)
+
+        # Store as instance variable only for serial workflow
+        if self.NTASKS == 1:
+            self._observations = observations
         return observations
 
-    def _generate_record(self) -> np.ndarray:
+    def _generate_record(
+        self,
+        shape: list = None,
+        num_obs: int = None,
+        observations: np.ndarray = None,
+        rng: np.random.Generator = None
+    ) -> np.ndarray:
         """Generate sparse record array with observations.
 
-        Creates a multi-dimensional array with the shape defined by
-        coordinates, then randomly selects num_obs points and assigns
-        the observation values to those points. All other points are NaN.
+        Creates a multi-dimensional array with the specified shape, then randomly
+        selects positions and assigns the observation values to those points.
+        All other points are NaN.
+
+        Args:
+            shape: Shape of the record array. If None, uses self.shape
+            num_obs: Number of observations to place. If None, uses self.num_obs
+            observations: Pre-generated observation values. If None, generates them
+            rng: Random number generator. If None, uses self._rng
 
         Returns:
             Multi-dimensional array with sparse observations
 
         Raises:
-            RuntimeError: If coordinates have not been generated yet
+            RuntimeError: If coordinates or observations have not been generated
+                         when using default parameters
         """
-        if self._coordinates is None:
-            raise RuntimeError(
-                "Coordinates must be generated before record. "
-                "Call _generate_coordinates() first."
-            )
+        # Validate that required data exists when using defaults (serial workflow)
+        if shape is None:
+            if self._coordinates is None:
+                raise RuntimeError(
+                    "Coordinates must be generated before record. "
+                    "Call _generate_coordinates() first."
+                )
+            shape = self.shape
 
-        if self._observations is None:
-            raise RuntimeError(
-                "Observations must be generated before record. "
-                "Call _generate_observations() first."
-            )
+        if num_obs is None:
+            num_obs = self.num_obs
 
-        # Get total grid points and check sparsity
-        total_grid_points = self.total_grid_points
-        s_estim = self.num_obs/total_grid_points
-        if s_estim != self.sparsity:
-            raise ValueError(
-                f"Sparcity {s_estim} determined from number "
-                f"of coordinates differs from sparsity {self.sparsity} "
-                "determined during paramaters validation step."
-            )
+        if observations is None and rng is None:
+            if self._observations is None:
+                raise RuntimeError(
+                    "Observations must be generated before record. "
+                    "Call _generate_observations() first."
+                )
+            observations = self._observations
+
+        if rng is None:
+            rng = self._rng
+
+        # Get total grid points and check sparsity for serial workflow
+        total_grid_points = np.prod(shape)
+        if shape == self.shape:
+            s_estim = num_obs / total_grid_points
+            if s_estim != self.sparsity:
+                raise ValueError(
+                    f"Sparsity {s_estim} determined from number "
+                    f"of coordinates differs from sparsity {self.sparsity} "
+                    "determined during parameters validation step."
+                )
 
         # Initialize record with NaN
         record = np.full(shape, np.nan)
 
         # Generate random indices for observation placement
         # Flatten the multi-dimensional index space
-        flat_indices = self._rng.choice(
+        flat_indices = rng.choice(
             total_grid_points,
-            size=self.num_obs,
+            size=num_obs,
             replace=False
         )
 
@@ -384,10 +445,17 @@ class GenerateData:
         # num_obs=len(flat_indices) number of points where observations are known
         multi_indices = np.unravel_index(flat_indices, shape)
 
-        # Assign observation values to selected points
-        record[multi_indices] = self._observations
+        # Generate or use provided observations
+        if observations is None:
+            observations = rng.uniform(0, 1, size=num_obs)
 
-        self._record = record
+        # Assign observation values to selected points
+        record[multi_indices] = observations
+
+        # Store as instance variable only for serial workflow
+        if self.NTASKS == 1:
+            self._record = record
+
         return record
 
     def _generate_par(self) -> None:
@@ -416,10 +484,9 @@ class GenerateData:
                 per_chunk_obs[idx]=chunk_points[idx]
 
         mp_obs = per_chunk_obs.sum()
-        if mp_obs.is_integer():
-            mp_obs = int(mp_obs)
-        else:
+        if not mp_obs.is_integer():
             raise ValueError(f"Got non integer value of observations {mp_obs}.")
+        mp_obs = int(mp_obs)
         sparsity = mp_obs/total_points
         print(f"Multiprocessing approximations lead to {mp_obs} total observation (goal: {total_obs}).")
         print(f"Updated sparsity is {sparsity} (was: {self.sparsity}).")
@@ -455,76 +522,85 @@ class GenerateData:
         )
 
 
-    def _generate_record_par(self, chunk_id : int, obs_in_chunk : int) -> None:
-        """Processor-level generation of sparse record array for a given block,
-        consistently with global array.
+    def _generate_record_par(self, chunk_id : int, obs_in_chunk : int) -> Tuple[int, int]:
+        """Generate sparse record array for a single chunk in parallel processing.
+
+        This method generates a chunk of the full array by:
+        1. Setting up chunk-specific and global random generators
+        2. Generating coordinates (using global RNG for shared dims, local for split dim)
+        3. Generating the sparse record array for this chunk
+        4. Creating and saving DataArray and DataFrame representations
+
+        Args:
+            chunk_id: Identifier for this chunk
+            obs_in_chunk: Number of observations to generate in this chunk
+
+        Returns:
+            Tuple of (chunk_id, number of observations stored)
         """
         logging.basicConfig(
             level=logging.DEBUG,
             format='%(asctime)s %(process)d %(levelname)s %(message)s',
-            filename=f'dask_worker_{chunk_id}.log',  # or use None for stdout
+            filename=f'dask_worker_{chunk_id}.log',
         )
         logging.debug("")
         logging.debug("######------ NEW CHUNK ------######")
 
         # Generate two distinct generators:
-        # global_rng: needs to be identical across tasks, and it's used to
-        # generate the coordinates along non-split dimensions
-        # task_rng: is used to draw the coordinates along the split dimension
-        # (which differ per chunk), and the position (within the chunk) and
-        # value of the observations
+        # global_rng: identical across tasks, used for coordinates along non-split dimensions
+        # task_rng: unique per task, used for split dimension coordinates and observations
         global_rng = np.random.default_rng(self.seed)
         task_rng = np.random.default_rng(self.seed + chunk_id)
 
-        # range of values and size of chunk along split dimension
+        # Determine chunk dimensions and range along split dimension
         task_range = (self.div_points[chunk_id], self.div_points[chunk_id+1])
         task_size  = self.section_sizes[chunk_id]
-        task_shape = self.shape
+        task_shape = self.shape.copy()
         task_shape[self.dim_split] = task_size
         logging.debug("task_range: %s", task_range)
         logging.debug("task_size: %s", task_size)
         logging.debug("task_shape: %s", task_shape)
 
-        # get total number of points in a slice for a given index along the
-        # split dimension
         total_chunk_points = np.prod(task_shape)
         if not total_chunk_points.is_integer():
-            raise ValueError("total_slice_points must be an int")
+            raise ValueError("total_chunk_points must be an int")
         total_chunk_points = int(total_chunk_points)
         logging.debug("total_chunk_points: %s", total_chunk_points)
 
-        # initialize coordinates, record
-        # coordinates along non-split dimensions need to be identical across
-        # chunks, so the same global random generator is used for them, while a
-        # task-based local generator is used for the split dimension, which must
-        # not have same coordinates across chunks (and must not affect draws for
-        # the other dimensions)
-        coordinates = {}
-        for idx, n_coords in enumerate(task_shape):
-            dim_name = f"x{idx}"
-            low  = 0
-            high = 1
-            rng = global_rng
-            if idx == self.dim_split:
-                low  = task_range[0]/self.max_dim_size
-                high = task_range[1]/self.max_dim_size
-                rng = task_rng
-            coordinates[dim_name] = np.sort(
-                rng.uniform(low, high, size=n_coords)
+        # Build dimension ranges and RNGs for coordinate generation
+        # Non-split dimensions use [0, 1) with global_rng
+        # Split dimension uses normalized chunk range with task_rng
+        dim_ranges = {
+            self.dim_split: (
+                task_range[0]/self.max_dim_size,
+                task_range[1]/self.max_dim_size
             )
+        }
+        dim_rngs = {}
+        for idx in range(len(task_shape)):
+            if idx == self.dim_split:
+                dim_rngs[idx] = task_rng
+            else:
+                dim_rngs[idx] = global_rng
 
-        record = np.full(task_shape, np.nan)
+        # Generate coordinates using generalized method
+        coordinates = self._generate_coordinates(
+            shape=task_shape,
+            rng=global_rng,
+            dim_ranges=dim_ranges,
+            dim_rngs=dim_rngs
+        )
 
         logging.debug("obs in chunk: %s", obs_in_chunk)
         logging.debug("total chunk points: %s", total_chunk_points)
 
-        flat_indices = self._rng.choice(
-            total_chunk_points,
-            size=obs_in_chunk,
-            replace=False
+        # Generate record using generalized method
+        record = self._generate_record(
+            shape=task_shape,
+            num_obs=obs_in_chunk,
+            observations=None,  # Will be generated inside _generate_record
+            rng=task_rng
         )
-        multi_indices = np.unravel_index(flat_indices, task_shape)
-        record[multi_indices] = task_rng.uniform(0, 1, size=obs_in_chunk)
 
         logging.debug("chunk id: %s", chunk_id)
         logging.debug("record.shape: %s", record.shape)
@@ -533,28 +609,29 @@ class GenerateData:
         logging.debug("dims: %s", list(coordinates.keys()))
         logging.debug("coords: %s", coordinates)
 
-        # Create DataArray with coordinates
-        dataarray = xr.DataArray(
-            record,
-            coords=coordinates,
-            dims=list(coordinates.keys()),
-            name="record",
-            attrs={
-                "description": "Sparse observation data",
-                "chunk id": chunk_id,
-                "global num_obs": self.num_obs,
-                "global num_dims": self.num_dims,
-                "global ratio_dims": self.ratio_dims,
-                "global sparsity": self.sparsity,
-                "global seed": self.seed
-            }
+        # Create DataArray with chunk-specific attributes using generalized method
+        chunk_attrs = {
+            "description": "Sparse observation data",
+            "chunk_id": chunk_id,
+            "global_num_obs": self.num_obs,
+            "global_num_dims": self.num_dims,
+            "global_ratio_dims": self.ratio_dims,
+            "global_sparsity": self.sparsity,
+            "global_seed": self.seed
+        }
+        dataarray = self._create_dataarray(
+            record=record,
+            coordinates=coordinates,
+            attrs=chunk_attrs
         )
 
+        # Save to NetCDF
         fpath = f'./nc/test_{chunk_id}.nc'
         self.save_to_netcdf(fpath, dataarray=dataarray, overwrite=True)
 
+        # Create and save DataFrame using generalized method
         dataframe = dd.from_pandas(
-            self._create_dataframe(record=record,coordinates=coordinates)
+            self._create_dataframe(record=record, coordinates=coordinates)
         )
 
         dirpath = './parquet_tmp/'
@@ -568,11 +645,21 @@ class GenerateData:
         return chunk_id, np.sum( ~np.isnan(record) )
 
 
-    def _create_dataarray(self) -> xr.DataArray:
+    def _create_dataarray(
+        self,
+        record: np.ndarray = None,
+        coordinates: dict = None,
+        attrs: dict = None
+    ) -> xr.DataArray:
         """Create xarray DataArray from generated data.
 
-        Constructs an xarray DataArray with the generated coordinates
-        and record data.
+        Constructs an xarray DataArray with coordinates and record data.
+
+        Args:
+            record: The record array to use. If None, uses self._record
+            coordinates: Dictionary of coordinates. If None, uses self._coordinates
+            attrs: Dictionary of attributes for the DataArray. If None, creates
+                   default attributes from instance parameters.
 
         Returns:
             xarray DataArray containing the sparse observation data
@@ -580,19 +667,19 @@ class GenerateData:
         Raises:
             RuntimeError: If required data has not been generated yet
         """
-        if self._coordinates is None:
-            raise RuntimeError("Coordinates must be generated first")
+        if coordinates is None:
+            if self._coordinates is None:
+                raise RuntimeError("Coordinates must be generated first")
+            coordinates = self._coordinates
 
-        if self._record is None:
-            raise RuntimeError("Record must be generated first")
+        if record is None:
+            if self._record is None:
+                raise RuntimeError("Record must be generated first")
+            record = self._record
 
-        # Create DataArray with coordinates
-        dataarray = xr.DataArray(
-            self._record,
-            coords=self._coordinates,
-            dims=list(self._coordinates.keys()),
-            name="record",
-            attrs={
+        # Create default attributes if not provided
+        if attrs is None:
+            attrs = {
                 "description": "Sparse observation data",
                 "num_obs": self.num_obs,
                 "num_dims": self.num_dims,
@@ -600,21 +687,36 @@ class GenerateData:
                 "sparsity": self.sparsity,
                 "seed": self.seed
             }
+
+        # Create DataArray with coordinates
+        dataarray = xr.DataArray(
+            record,
+            coords=coordinates,
+            dims=list(coordinates.keys()),
+            name="record",
+            attrs=attrs
         )
 
-        self._dataarray = dataarray
+        # Store as instance variable only for serial workflow
+        if self.NTASKS == 1:
+            self._dataarray = dataarray
+
         return dataarray
 
     def _create_dataframe(
             self,
-            record : xr.DataArray = None,
+            record : np.ndarray = None,
             coordinates : dict = None,
     ) -> pd.DataFrame:
         """Create pandas DataFrame from generated data.
 
-        Constructs a pandas DataFrame with num_obs rows and num_dims + 1 columns.
-        Each row contains the coordinates of an observation point and the
-        corresponding record value.
+        Constructs a pandas DataFrame where each row contains the coordinates
+        of an observation point and the corresponding record value. Only non-NaN
+        points from the record are included.
+
+        Args:
+            record: The record array to use. If None, uses self._record
+            coordinates: Dictionary of coordinates. If None, uses self._coordinates
 
         Returns:
             pandas DataFrame with observation coordinates and values
@@ -625,14 +727,12 @@ class GenerateData:
         if coordinates is None:
             if self._coordinates is None:
                 raise RuntimeError("Coordinates must be generated first")
-            else:
-                coordinates = self._coordinates
+            coordinates = self._coordinates
 
         if record is None:
             if self._record is None:
                 raise RuntimeError("Record must be generated first")
-            else:
-                record = self._record
+            record = self._record
 
         # Find non-NaN points in record
         #
@@ -676,7 +776,7 @@ class GenerateData:
         # Create DataFrame
         dataframe = pd.DataFrame(data_dict)
 
-        if self.NTASKS==1:
+        if self.NTASKS == 1:
             self._dataframe = dataframe
 
         return dataframe
@@ -697,13 +797,12 @@ class GenerateData:
                     "DataArray must be created before saving. "
                     "Call generate() first."
                 )
-            else:
-                dataarray = self._dataarray
+            dataarray = self._dataarray
 
         ds_utils.check_nc(filepath, overwrite)
         dataarray.to_netcdf(filepath)
 
-    def save_to_parquet(self, dirname: str, dataframe: Union[pd.Dataframe, dd.Dataframe] = None, filename: str = None, overwrite: bool = False) -> None:
+    def save_to_parquet(self, dirname: str, dataframe: Union[pd.DataFrame, dd.DataFrame] = None, filename: str = None, overwrite: bool = False) -> None:
         """Save data to Parquet file format.
 
         Args:
@@ -717,8 +816,7 @@ class GenerateData:
         if dataframe is None:
             if self._dataframe is None:
                 raise RuntimeError("DataFrame must be created before saving.")
-            else:
-                dataframe=self._dataframe
+            dataframe=self._dataframe
 
         if isinstance(dataframe, pd.DataFrame):
             ddf = dd.from_pandas(dataframe)
@@ -728,7 +826,11 @@ class GenerateData:
         nb_digits = len(str(ddf.npartitions))
         if filename is None:
             filename = 'test'
-        name_function = lambda x: f"{filename}_{x:0{nb_digits}d}.parquet"
+
+        def name_function(partition_idx):
+            """Generate filename for a parquet partition."""
+            return f"{filename}_{partition_idx:0{nb_digits}d}.parquet"
+
         ds_utils.check_parquet(
             dirname,
             overwrite=overwrite
@@ -788,9 +890,8 @@ class GenerateData:
 
             return dataarray, dataframe
 
-        elif self.NTASKS > 1:
+        if self.NTASKS > 1:
             self._generate_par()
+            return None, None
 
-
-        else:
-            raise ValueError(f"NTASKS must positive, got {self.NTASKS} instead.")
+        raise ValueError(f"NTASKS must positive, got {self.NTASKS} instead.")
