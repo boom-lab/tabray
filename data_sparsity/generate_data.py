@@ -4,6 +4,8 @@ This module provides the GenerateData class for creating dummy observations
 and storing them in both array (netCDF) and tabular (Parquet) formats.
 """
 
+import h5netcdf
+import gc
 import logging
 from typing import Tuple, Union
 import dask.dataframe as dd
@@ -627,7 +629,9 @@ class GenerateData:
 
         # Save to NetCDF
         fpath = f'./nc/test_{chunk_id}.nc'
-        self.save_to_netcdf(fpath, dataarray=dataarray, overwrite=True)
+        self.save_to_netcdf(fpath, dataarray=dataarray, overwrite=False)
+        del dataarray
+        gc.collect()
 
         # Create and save DataFrame using generalized method
         dataframe = dd.from_pandas(
@@ -799,8 +803,11 @@ class GenerateData:
                 )
             dataarray = self._dataarray
 
-        ds_utils.check_nc(filepath, overwrite)
-        dataarray.to_netcdf(filepath)
+        dataarray.to_netcdf(
+            filepath,
+            engine="h5netcdf",
+            mode='w'
+        )
 
     def save_to_parquet(self, dirname: str, dataframe: Union[pd.DataFrame, dd.DataFrame] = None, filename: str = None, overwrite: bool = False) -> None:
         """Save data to Parquet file format.
@@ -831,10 +838,10 @@ class GenerateData:
             """Generate filename for a parquet partition."""
             return f"{filename}_{partition_idx:0{nb_digits}d}.parquet"
 
-        ds_utils.check_parquet(
-            dirname,
-            overwrite=overwrite
-        )
+        # ds_utils.check_parquet(
+        #     dirname,
+        #     overwrite=overwrite
+        # )
 
         write_metadata_file = True
         if self.NTASKS > 1:
