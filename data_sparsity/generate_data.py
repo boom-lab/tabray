@@ -4,6 +4,7 @@ This module provides the GenerateData class for creating dummy observations
 and storing them in both array (netCDF) and tabular (Parquet) formats.
 """
 
+import os
 import h5netcdf
 import gc
 import logging
@@ -518,7 +519,7 @@ class GenerateData:
         ddf = dd.read_parquet('./parquet_tmp/')
         ddf = ddf.repartition(partition_size="300MB")
         self.save_to_parquet(
-            './pqt/',
+            self.parquet_filepath,
             ddf,
             overwrite=True
         )
@@ -628,7 +629,8 @@ class GenerateData:
         )
 
         # Save to NetCDF
-        fpath = f'./nc/test_{chunk_id}.nc'
+        nb_digits = len(str(self.NTASKS))
+        fpath = f"{self.netcdf_filepath[:-3]}_{chunk_id:0{nb_digits}d}.nc"
         self.save_to_netcdf(fpath, dataarray=dataarray, overwrite=False)
         del dataarray
         gc.collect()
@@ -638,12 +640,11 @@ class GenerateData:
             self._create_dataframe(record=record, coordinates=coordinates)
         )
 
-        dirpath = './parquet_tmp/'
         self.save_to_parquet(
-            dirpath,
+            self.parquet_tmp,
             dataframe,
-            filename=f'test_{chunk_id}',
-            overwrite=False
+            overwrite=False,
+            chunk_id=chunk_id
         )
 
         return chunk_id, np.sum( ~np.isnan(record) )
@@ -809,12 +810,12 @@ class GenerateData:
             mode='w'
         )
 
-    def save_to_parquet(self, dirname: str, dataframe: Union[pd.DataFrame, dd.DataFrame] = None, filename: str = None, overwrite: bool = False) -> None:
+    def save_to_parquet(self, filepath: str, dataframe: Union[pd.DataFrame, dd.DataFrame] = None, overwrite: bool = False, chunk_id: int = None) -> None:
         """Save data to Parquet file format.
 
         Args:
-            dirname: path to directory to store parquet dataset to
-            filename: basename for all parquet files in the dataset
+            filepath: path with filename to store parquet dataset to
+            dataframe: dask or pandas dataframe to store
             overwrite: overwrites existing datasets
 
         Raises:
@@ -831,23 +832,22 @@ class GenerateData:
             ddf = dataframe
 
         nb_digits = len(str(ddf.npartitions))
+        dirpath = os.path.dirname(filepath)
+        filename = os.path.basename(filepath)
         if filename is None:
             filename = 'test'
+        if chunk_id is not None:
+            filename += f"_{chunk_id}"
 
-        def name_function(partition_idx):
+        def name_function(partition_idx: int = None):
             """Generate filename for a parquet partition."""
             return f"{filename}_{partition_idx:0{nb_digits}d}.parquet"
-
-        # ds_utils.check_parquet(
-        #     dirname,
-        #     overwrite=overwrite
-        # )
 
         write_metadata_file = True
         if self.NTASKS > 1:
             write_metadata_file = False
         ddf.to_parquet(
-            dirname,
+            dirpath,
             engine="pyarrow",
             name_function=name_function,
             append=False,
@@ -859,7 +859,8 @@ class GenerateData:
     def generate(
         self,
         netcdf_filepath: str = None,
-        parquet_filepath: str = None
+        parquet_filepath: str = None,
+        parquet_tmp: str = None,
     ) -> Tuple[xr.DataArray, pd.DataFrame]:
         """Generate all data and optionally save to files.
 
@@ -880,6 +881,22 @@ class GenerateData:
             Tuple of (DataArray, DataFrame) containing the generated data
         """
 
+        if netcdf_filepath is None:
+            netcdf_filepath = "./nc/test.nc"
+        if parquet_filepath is None:
+            parquet_filepath = "./parquet/test.parquet"
+        if parquet_tmp is None:
+            parquet_tmp = "./parquet_tmp/test_tmp.parquet"
+        self.netcdf_filepath = netcdf_filepath
+        self.parquet_filepath = parquet_filepath
+        self.parquet_tmp = parquet_tmp
+
+        ds_utils.set_up_paths(
+            netcdf_filepath=self.netcdf_filepath,
+            parquet_filepath=self.parquet_filepath,
+            parquet_tmp=self.parquet_tmp
+        )
+
         # Execute generation pipeline for single process
         if self.NTASKS == 1:
             self._generate_coordinates()
@@ -890,10 +907,10 @@ class GenerateData:
 
             # Save files if paths provided
             if netcdf_filepath is not None:
-                self.save_to_netcdf(netcdf_filepath)
+                self.save_to_netcdf(self.netcdf_filepath)
 
             if parquet_filepath is not None:
-                self.save_to_parquet(parquet_filepath)
+                self.save_to_parquet(self.parquet_filepath)
 
             return dataarray, dataframe
 
