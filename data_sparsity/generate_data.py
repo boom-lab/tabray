@@ -93,6 +93,13 @@ class GenerateData:
         # Initialize random number generator early (needed for validation)
         self._rng = np.random.default_rng(seed)
 
+        # Initialize attributes that will be set during validation
+        self.var_sparsities = None
+        self.var_num_obs = None
+        self.var_dims_indices = None
+        self.overlap_target = None
+        self.overlap_actual = None
+
         # Validate all parameters
         self._validate_parameters()
         # Store global variables
@@ -119,6 +126,8 @@ class GenerateData:
         self._record = None
         self._dataarray = None
         self._dataframe = None
+        self._records = None  # For multi-variable
+        self._dataset = None  # For multi-variable
 
     def _validate_parameters(self) -> None:
         """Validate initialization parameters.
@@ -294,6 +303,10 @@ class GenerateData:
                     f"Sparsity value {sparsity_for_grid} out of bounds "
                     f"[{self.sparsity_zero},1]"
                 )
+            # Update sparsity for use in multi-variable validation
+            # For single-value sparsity, update it
+            if isinstance(self.sparsity, (float, int)):
+                self.sparsity = sparsity_for_grid
 
         # Check that seed is a non-negative integer
         if not isinstance(self.seed, int):
@@ -308,6 +321,7 @@ class GenerateData:
             raise ValueError(f"num_vars must be positive, got {self.num_vars}")
 
         # Validate and process sparsity for multiple variables
+        # NOTE: This must come after sparsity adjustment above
         self._validate_and_setup_sparsity()
 
         # Validate and process var_dims
@@ -721,10 +735,16 @@ class GenerateData:
         total_grid_points = np.prod(shape)
         if shape == self.shape:
             s_estim = num_obs / total_grid_points
-            if s_estim != self.sparsity:
+            # For single variable, check against the stored sparsity value
+            if self.num_vars == 1:
+                expected_sparsity = self.var_sparsities[0]
+            else:
+                # For multi-var, this check is not applicable
+                expected_sparsity = s_estim
+            if not np.isclose(s_estim, expected_sparsity):
                 raise ValueError(
                     f"Sparsity {s_estim} determined from number "
-                    f"of coordinates differs from sparsity {self.sparsity} "
+                    f"of coordinates differs from sparsity {expected_sparsity} "
                     "determined during parameters validation step."
                 )
 
@@ -792,9 +812,6 @@ class GenerateData:
 
         if rng is None:
             rng = self._rng
-
-        # Get total grid points
-        total_grid_points = np.prod(shape)
 
         # Initialize record arrays for all variables
         records = {}
@@ -1050,7 +1067,6 @@ class GenerateData:
         for var_idx in range(self.num_vars):
             var_name = f"record{var_idx}"
             var_dims = self.var_dims_indices[var_idx]
-            var_shape = [shape[d] for d in var_dims]
             record = records[var_name]
 
             # Find non-NaN indices
@@ -1573,7 +1589,7 @@ class GenerateData:
             var_data = {}
 
             # Add all coordinate columns (use NaN for dimensions not in this variable)
-            for coord_idx, coord_name in enumerate(coordinates.keys()):
+            for coord_name in coordinates.keys():
                 if coord_name in var_dim_names:
                     # This dimension is used by this variable
                     local_dim_idx = var_dim_names.index(coord_name)
