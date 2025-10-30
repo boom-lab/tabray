@@ -831,6 +831,14 @@ class GenerateData:
                 var_num_obs = self.var_num_obs[var_idx]
                 var_total_points = np.prod(var_shape)
 
+                # Ensure we don't exceed available points
+                if var_num_obs > var_total_points:
+                    var_num_obs = var_total_points
+                    print(
+                        f"WARNING: Variable {var_idx} limited to {var_total_points} "
+                        f"observations (requested {self.var_num_obs[var_idx]})"
+                    )
+
                 # Create a separate RNG for this variable
                 var_rng = np.random.default_rng(self.seed + var_idx + 1000)
 
@@ -909,6 +917,15 @@ class GenerateData:
         first_var_num_obs = self.var_num_obs[first_var_idx]
         first_var_total_points = np.prod(first_var_shape)
 
+        # Ensure we don't try to place more observations than points available
+        if first_var_num_obs > first_var_total_points:
+            first_var_num_obs = first_var_total_points
+            print(
+                f"WARNING: Variable {first_var_idx} has more observations "
+                f"({self.var_num_obs[first_var_idx]}) than available points "
+                f"({first_var_total_points}), limiting to {first_var_total_points}"
+            )
+
         # Use shared RNG for the first variable
         first_flat_indices = shared_rng.choice(
             first_var_total_points,
@@ -929,6 +946,15 @@ class GenerateData:
             var_shape = [shape[d] for d in var_dims]
             var_num_obs = self.var_num_obs[var_idx]
             var_total_points = np.prod(var_shape)
+
+            # Ensure we don't try to place more observations than points available
+            if var_num_obs > var_total_points:
+                var_num_obs = var_total_points
+                print(
+                    f"WARNING: Variable {var_idx} has more observations "
+                    f"({self.var_num_obs[var_idx]}) than available points "
+                    f"({var_total_points}), limiting to {var_total_points}"
+                )
 
             # Determine how many observations should overlap
             num_overlap = int(np.round(self.overlap_target * var_num_obs))
@@ -979,9 +1005,10 @@ class GenerateData:
 
                 flat_indices = np.concatenate([overlap_indices, non_overlap_indices])
 
-            # Place observations
+            # Place observations - use actual number of indices
+            actual_num_obs = len(flat_indices)
             multi_indices = np.unravel_index(flat_indices, var_shape)
-            observations = var_rngs[var_idx].uniform(0, 1, size=var_num_obs)
+            observations = var_rngs[var_idx].uniform(0, 1, size=actual_num_obs)
             records[var_name][multi_indices] = observations
             var_indices_dict[var_idx] = flat_indices
 
