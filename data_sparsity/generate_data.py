@@ -4,11 +4,10 @@ This module provides the GenerateData class for creating dummy observations
 and storing them in both array (netCDF) and tabular (Parquet) formats.
 """
 
-import os
-import h5netcdf
 import gc
 import logging
-from typing import Tuple, Union
+import os
+from typing import List, Tuple, Union
 import dask.dataframe as dd
 from dask.distributed import Client, LocalCluster, as_completed
 import numpy as np
@@ -33,6 +32,9 @@ class GenerateData:
                     of the other dimensions to the first one
         sparsity: Sparsity of observation (between smin>0. and 1.)
         seed: Random seed for reproducibility
+        num_vars: Number of variables in the dataset
+        var_dims: Dimensions for each variable
+        overlap: Overlap between variables (0-1 or 'random')
 
     """
 
@@ -40,15 +42,26 @@ class GenerateData:
         self,
         num_obs: int,
         num_dims: int,
-        ratio_dims: Union[int,ArrayLike],
-        sparsity: Union[int,float],
+        ratio_dims: Union[int, ArrayLike],
+        sparsity: Union[int, float, List, Tuple],
         seed: int,
         max_obs: int = None,
+        num_vars: int = 1,
+        var_dims: Union[int, List, Tuple] = None,
+        overlap: Union[float, str] = 'random',
     ) -> None:
         """Initialize the data generator with validation.
 
         Args:
-            see attributes above
+            num_obs: Number of observations to generate
+            num_dims: Number of dimensions in the coordinate space
+            ratio_dims: Tuple of relative sizes for each dimension
+            sparsity: Sparsity of observations (scalar, 2-element, or num_vars-element)
+            seed: Random seed for reproducibility
+            max_obs: Maximum observations per chunk for parallel generation
+            num_vars: Number of variables in the dataset (default=1)
+            var_dims: Dimensions for each variable (default=num_dims for all)
+            overlap: Overlap between variables (0-1 or 'random', default='random')
 
         Raises:
             TypeError: If arguments are not of expected types
@@ -61,6 +74,9 @@ class GenerateData:
         self.ratio_dims = ratio_dims
         self.sparsity = sparsity
         self.seed = seed
+        self.num_vars = num_vars
+        self.var_dims = var_dims if var_dims is not None else num_dims
+        self.overlap = overlap
 
         print("Input configuration:")
         print(f"  Number of observations: {self.num_obs}")
@@ -68,8 +84,14 @@ class GenerateData:
         print(f"  Ratio of dimensions: {self.ratio_dims}")
         print(f"  Sparsity: {self.sparsity}")
         print(f"  Random seed: {self.seed}")
+        print(f"  Number of variables: {self.num_vars}")
+        print(f"  Variable dimensions: {self.var_dims}")
+        print(f"  Overlap: {self.overlap}")
 
         self.ratio_dims_prod = np.prod(self.ratio_dims)
+
+        # Initialize random number generator early (needed for validation)
+        self._rng = np.random.default_rng(seed)
 
         # Validate all parameters
         self._validate_parameters()
@@ -83,11 +105,13 @@ class GenerateData:
         print(f"  Total grid poitns: {self.total_grid_points}")
         print(f"  Sparsity: {self.sparsity}")
         print(f"  Random seed: {self.seed}")
+        print(f"  Number of variables: {self.num_vars}")
+        print(f"  Variable dimensions: {self.var_dims}")
+        print(f"  Variable sparsities: {self.var_sparsities}")
+        print(f"  Variable observations: {self.var_num_obs}")
+        print(f"  Overlap: {self.overlap}")
 
         self._multiprocessing_setup(max_obs=max_obs)
-
-        # Initialize random number generator with seed
-        self._rng = np.random.default_rng(seed)
 
         # Storage for generated data
         self._coordinates = None
@@ -127,14 +151,21 @@ class GenerateData:
         if self.num_obs <= 0:
             raise ValueError(f"num_obs must be positive, got {self.num_obs}")
 
-        # Check that sparsity is positive and <= 1
-        if not isinstance(self.sparsity, (float, int)):
+        # Check that sparsity is valid type and store representative value
+        # for grid calculations (we'll process it fully later)
+        if isinstance(self.sparsity, (float, int)):
+            sparsity_for_grid = float(self.sparsity)
+        elif isinstance(self.sparsity, (list, tuple)):
+            # Use max sparsity for grid calculation (most observations)
+            sparsity_for_grid = float(max(self.sparsity))
+        else:
             raise TypeError(
-                f"sparsity must be a number, got {type(self.sparsity)}"
+                f"sparsity must be a number, list, or tuple, got {type(self.sparsity)}"
             )
-        if not 0.0 <= self.sparsity <= 1.0:
+        if not 0.0 <= sparsity_for_grid <= 1.0:
             raise ValueError(
-                f"sparsity must be between positive and less than or equal to 1.0, got {self.sparsity}"
+                f"sparsity values must be between 0 and 1.0, "
+                f"got max={sparsity_for_grid}"
             )
 
         # Check num_dims and ratio_dims consistency
@@ -146,7 +177,8 @@ class GenerateData:
             if self.num_dims != len(self.ratio_dims):
                 raise ValueError(
                     "num_dims must be equivalent to the number of elements in ratio_dims "
-                    f"(if this is not 1), got {self.num_dims} and {len(self.ratio_dims)}, respectively."
+                    f"(if this is not 1), got {self.num_dims} and "
+                    f"{len(self.ratio_dims)}, respectively."
                 )
 
         # Check ratio_dims type and convert to np array
@@ -156,7 +188,8 @@ class GenerateData:
                 self.ratio_dims = self.num_dims*[1]
         elif not isinstance(self.ratio_dims, (list, tuple, np.ndarray)):
             raise TypeError(
-                f"ratio_dims must be a tuple, list, or numpy array, got {type(self.ratio_dims)}"
+                f"ratio_dims must be a tuple, list, or numpy array, "
+                f"got {type(self.ratio_dims)}"
             )
         self.ratio_dims = np.asarray(self.ratio_dims)
 
@@ -165,10 +198,13 @@ class GenerateData:
             raise TypeError(f"num_dims must be an integer, got {type(self.num_dims)}")
         if self.num_dims <= 0:
             raise ValueError(f"num_dims must be positive, got {self.num_dims}")
-        base = self.num_obs / (self.sparsity*self.ratio_dims_prod)
+        base = self.num_obs / (sparsity_for_grid*self.ratio_dims_prod)
         self.nb_coords_dim1 = np.power( base, 1/self.num_dims )
         if self.nb_coords_dim1 < 1:
-            raise ValueError(f"number of elements for dimension 1 must be larger than 1, got {self.nb_coords_dim1}")
+            raise ValueError(
+                f"number of elements for dimension 1 must be larger than 1, "
+                f"got {self.nb_coords_dim1}"
+            )
 
         # Enforce nb_coords_dim1 to be an integer
         print(
@@ -218,34 +254,45 @@ class GenerateData:
 
         # Check that sparsity is larger than minimum allowed for this set of parameters
         self.sparsity_zero = 1/np.min(self.nb_coords_per_dim)
-        print(f"Minimum sparsity value for the current set of dimensions: {self.sparsity_zero}")
-        if self.sparsity == 0.:
-            self.sparsity = self.sparsity_zero
-            print(f"Input sparsity is zero, imposing minimum value: {self.sparsity_zero}")
-        elif self.sparsity < self.sparsity_zero:
+        print(
+            f"Minimum sparsity value for the current set of dimensions: "
+            f"{self.sparsity_zero}"
+        )
+        if sparsity_for_grid == 0.:
+            sparsity_for_grid = self.sparsity_zero
+            print(
+                f"Input sparsity is zero, imposing minimum value: "
+                f"{self.sparsity_zero}"
+            )
+            # Update the original sparsity too
+            if isinstance(self.sparsity, (float, int)):
+                self.sparsity = self.sparsity_zero
+        elif sparsity_for_grid < self.sparsity_zero:
             raise ValueError(
-                f"Provided sparsity value of {self.sparsity} is lower than minimum value"
-                f" of {self.sparsity_zero}. If you want to impose the minimum value possible"
-                ", set sparsity to 0. as input."
+                f"Provided sparsity value of {sparsity_for_grid} is lower than "
+                f"minimum value of {self.sparsity_zero}. If you want to impose "
+                "the minimum value possible, set sparsity to 0. as input."
             )
 
-        # Check that num_obs is consistent with sparsity and dimensions size, else update it
-        num_obs_exp = self.sparsity*np.prod(self.nb_coords_per_dim)
+        # Check that num_obs is consistent with sparsity and dimensions size
+        num_obs_exp = sparsity_for_grid*np.prod(self.nb_coords_per_dim)
         if num_obs_exp != self.num_obs:
             print(
-                f"Input number of observations num_obs ({self.num_obs}) does not match the "
-                f"number of observations num_obs_exp {num_obs_exp} expected from values of "
-                "sparsity and the number of elements per dimension. This can happen due to"
-                " rounding operations and is not necessarily an issue, so we are enforcing "
-                "num_obs to match num_obs_exp and rounding it."
+                f"Input number of observations num_obs ({self.num_obs}) does not "
+                f"match the number of observations num_obs_exp {num_obs_exp} "
+                "expected from values of sparsity and the number of elements per "
+                "dimension. This can happen due to rounding operations and is not "
+                "necessarily an issue, so we are enforcing num_obs to match "
+                "num_obs_exp and rounding it."
             )
             self.num_obs = np.rint(num_obs_exp).astype(int)
             print(f"New number of observations is {self.num_obs}")
-            self.sparsity = self.num_obs/np.prod(self.nb_coords_per_dim)
-            print(f"Actual sparsity is now {self.sparsity}")
-            if self.sparsity < self.sparsity_zero or self.sparsity > 1:
+            sparsity_for_grid = self.num_obs/np.prod(self.nb_coords_per_dim)
+            print(f"Actual sparsity for grid is now {sparsity_for_grid}")
+            if sparsity_for_grid < self.sparsity_zero or sparsity_for_grid > 1:
                 raise ValueError(
-                    f"Sparsity value {self.sparsity} out of bounds [{self.sparsity_zero},1]"
+                    f"Sparsity value {sparsity_for_grid} out of bounds "
+                    f"[{self.sparsity_zero},1]"
                 )
 
         # Check that seed is a non-negative integer
@@ -253,6 +300,259 @@ class GenerateData:
             raise TypeError(f"seed must be an integer, got {type(self.seed)}")
         if self.seed < 0:
             raise ValueError(f"seed must be non-negative, got {self.seed}")
+
+        # Validate num_vars
+        if not isinstance(self.num_vars, int):
+            raise TypeError(f"num_vars must be an integer, got {type(self.num_vars)}")
+        if self.num_vars <= 0:
+            raise ValueError(f"num_vars must be positive, got {self.num_vars}")
+
+        # Validate and process sparsity for multiple variables
+        self._validate_and_setup_sparsity()
+
+        # Validate and process var_dims
+        self._validate_and_setup_var_dims()
+
+        # Validate overlap
+        self._validate_and_setup_overlap()
+
+    def _validate_and_setup_sparsity(self) -> None:
+        """Validate and setup sparsity for multiple variables.
+
+        This method processes the sparsity parameter which can be:
+        - A scalar: all variables get the same sparsity
+        - A 2-element list/tuple: one var gets min, one gets max, rest are random
+        - A num_vars-element list/tuple: each var gets its corresponding sparsity
+
+        Sets self.var_sparsities and self.var_num_obs
+        """
+        # Store the original sparsity value for the main variable
+        # (used for grid calculations which have already been done)
+        original_sparsity = self.sparsity
+
+        if isinstance(self.sparsity, (float, int)):
+            # Scalar: all variables get the same sparsity
+            self.var_sparsities = np.array([original_sparsity] * self.num_vars)
+        elif isinstance(self.sparsity, (list, tuple)):
+            sparsity_list = list(self.sparsity)
+            if len(sparsity_list) == 2:
+                # Two elements: assign min and max, randomize the rest
+                min_spar = min(sparsity_list)
+                max_spar = max(sparsity_list)
+                if self.num_vars == 1:
+                    self.var_sparsities = np.array([max_spar])
+                elif self.num_vars == 2:
+                    # Randomly assign which gets min and which gets max
+                    if self._rng.random() < 0.5:
+                        self.var_sparsities = np.array([min_spar, max_spar])
+                    else:
+                        self.var_sparsities = np.array([max_spar, min_spar])
+                else:
+                    # Generate random values for all except 2
+                    random_sparsities = self._rng.uniform(
+                        min_spar, max_spar, size=self.num_vars - 2
+                    )
+                    # Combine and shuffle
+                    all_sparsities = np.concatenate(
+                        [[min_spar, max_spar], random_sparsities]
+                    )
+                    self._rng.shuffle(all_sparsities)
+                    self.var_sparsities = all_sparsities
+            elif len(sparsity_list) == self.num_vars:
+                # One sparsity per variable
+                self.var_sparsities = np.array(sparsity_list)
+            else:
+                raise ValueError(
+                    f"sparsity list must have 2 or {self.num_vars} elements, "
+                    f"got {len(sparsity_list)}"
+                )
+        else:
+            raise TypeError(
+                f"sparsity must be a scalar, list, or tuple, got {type(self.sparsity)}"
+            )
+
+        # Validate all sparsity values and clip to minimum
+        for i, spar in enumerate(self.var_sparsities):
+            if not 0.0 <= spar <= 1.0:
+                raise ValueError(
+                    f"Variable {i} sparsity {spar} must be between 0 and 1"
+                )
+            if spar < self.sparsity_zero:
+                print(
+                    f"WARNING: Variable {i} sparsity {spar} is below minimum "
+                    f"{self.sparsity_zero}, clipping to minimum"
+                )
+                self.var_sparsities[i] = self.sparsity_zero
+
+        # Compute number of observations for each variable
+        # The variable with the highest sparsity has num_obs observations
+        max_sparsity = np.max(self.var_sparsities)
+        self.var_num_obs = np.rint(
+            (self.var_sparsities / max_sparsity) * self.num_obs
+        ).astype(int)
+
+        # Ensure at least 1 observation per variable
+        self.var_num_obs = np.maximum(self.var_num_obs, 1)
+
+    def _validate_and_setup_var_dims(self) -> None:
+        """Validate and setup dimensions for each variable.
+
+        This method processes the var_dims parameter which can be:
+        - An int: all variables have this many dimensions (randomly selected)
+        - A list/tuple of ints: each var has that many dims (randomly selected)
+        - A list/tuple of lists/tuples: each var has explicitly specified dims
+
+        Sets self.var_dims_indices
+        """
+        if isinstance(self.var_dims, int):
+            # Same number of dimensions for all variables
+            if self.var_dims > self.num_dims:
+                raise ValueError(
+                    f"var_dims {self.var_dims} cannot exceed num_dims {self.num_dims}"
+                )
+            if self.var_dims == self.num_dims:
+                # All variables use all dimensions
+                self.var_dims_indices = [list(range(self.num_dims))] * self.num_vars
+            else:
+                # Randomly select dimensions for each variable
+                self.var_dims_indices = []
+                for _ in range(self.num_vars):
+                    dims = sorted(
+                        self._rng.choice(
+                            self.num_dims, size=self.var_dims, replace=False
+                        ).tolist()
+                    )
+                    self.var_dims_indices.append(dims)
+        elif isinstance(self.var_dims, (list, tuple)):
+            if len(self.var_dims) != self.num_vars:
+                raise ValueError(
+                    f"var_dims list must have {self.num_vars} elements, "
+                    f"got {len(self.var_dims)}"
+                )
+            self.var_dims_indices = []
+            for i, vd in enumerate(self.var_dims):
+                if isinstance(vd, int):
+                    if vd > self.num_dims:
+                        raise ValueError(
+                            f"Variable {i} var_dims {vd} cannot exceed "
+                            f"num_dims {self.num_dims}"
+                        )
+                    if vd == self.num_dims:
+                        self.var_dims_indices.append(list(range(self.num_dims)))
+                    else:
+                        dims = sorted(
+                            self._rng.choice(
+                                self.num_dims, size=vd, replace=False
+                            ).tolist()
+                        )
+                        self.var_dims_indices.append(dims)
+                elif isinstance(vd, (list, tuple)):
+                    dims = list(vd)
+                    if len(dims) == 0 or len(dims) > self.num_dims:
+                        raise ValueError(
+                            f"Variable {i} dim indices must have 1 to "
+                            f"{self.num_dims} elements, got {len(dims)}"
+                        )
+                    if not all(0 <= d < self.num_dims for d in dims):
+                        raise ValueError(
+                            f"Variable {i} dim indices {dims} must be in "
+                            f"range [0, {self.num_dims})"
+                        )
+                    if len(set(dims)) != len(dims):
+                        raise ValueError(
+                            f"Variable {i} dim indices {dims} contain duplicates"
+                        )
+                    self.var_dims_indices.append(sorted(dims))
+                else:
+                    raise TypeError(
+                        f"Variable {i} var_dims must be int or list/tuple, "
+                        f"got {type(vd)}"
+                    )
+        else:
+            raise TypeError(
+                f"var_dims must be int, list, or tuple, got {type(self.var_dims)}"
+            )
+
+    def _validate_and_setup_overlap(self) -> None:
+        """Validate and setup overlap parameter.
+
+        This method validates the overlap parameter and computes constraints.
+        Sets self.overlap_target and self.overlap_actual
+        """
+        if self.num_vars == 1:
+            if self.overlap != 'random':
+                raise ValueError(
+                    "overlap has no meaning when num_vars=1; use 'random' or omit"
+                )
+            self.overlap_target = None
+            self.overlap_actual = None
+            return
+
+        if isinstance(self.overlap, str):
+            if self.overlap != 'random':
+                raise ValueError(
+                    f"overlap string must be 'random', got '{self.overlap}'"
+                )
+            self.overlap_target = 'random'
+        elif isinstance(self.overlap, (float, int)):
+            if not 0.0 <= self.overlap <= 1.0:
+                raise ValueError(
+                    f"overlap must be between 0 and 1, got {self.overlap}"
+                )
+            self.overlap_target = float(self.overlap)
+
+            # Check for sparsity=1 case
+            if np.all(self.var_sparsities == 1.0):
+                if self.overlap_target != 1.0:
+                    print(
+                        "WARNING: All variables have sparsity=1, "
+                        "so overlap will be 1 regardless of target"
+                    )
+                    self.overlap_target = 1.0
+
+            # Compute minimum possible overlap
+            min_overlap = self._compute_min_overlap()
+            if self.overlap_target < min_overlap:
+                print(
+                    f"WARNING: Requested overlap {self.overlap_target} is below "
+                    f"minimum possible {min_overlap:.4f} for this configuration. "
+                    f"Using minimum overlap instead."
+                )
+                self.overlap_target = min_overlap
+        else:
+            raise TypeError(
+                f"overlap must be float or 'random', got {type(self.overlap)}"
+            )
+
+        self.overlap_actual = None  # Will be computed after generation
+
+    def _compute_min_overlap(self) -> float:
+        """Compute the minimum possible overlap given the configuration.
+
+        Returns:
+            Minimum overlap value (0.0 to 1.0)
+        """
+        # Get total sites available
+        total_sites = self.total_grid_points
+
+        # Get observation counts for all variables
+        sorted_obs = np.sort(self.var_num_obs)[::-1]  # Descending order
+
+        # The variable with most observations sets the baseline
+        max_obs = sorted_obs[0]
+
+        # Sum of all other observations
+        other_obs = np.sum(sorted_obs[1:])
+
+        # If total_sites >= max_obs + other_obs, min overlap is 0
+        if total_sites >= max_obs + other_obs:
+            return 0.0
+
+        # Otherwise, compute how many must overlap
+        must_overlap = max_obs + other_obs - total_sites
+        min_overlap = must_overlap / other_obs if other_obs > 0 else 1.0
+
+        return np.clip(min_overlap, 0.0, 1.0)
 
     def _multiprocessing_setup(self, max_obs : int = None) -> None:
         """Set up multiprocessing environment with dask
