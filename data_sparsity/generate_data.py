@@ -761,6 +761,361 @@ class GenerateData:
 
         return record
 
+    def _generate_multi_var_records(
+        self,
+        shape: list = None,
+        rng: np.random.Generator = None
+    ) -> dict:
+        """Generate sparse record arrays for multiple variables with overlap control.
+
+        Creates a multi-dimensional array for each variable with the specified shape,
+        then randomly selects positions and assigns observation values to those points
+        for each variable. Overlap is controlled by using shared and separate RNGs.
+
+        Args:
+            shape: Shape of the record arrays. If None, uses self.shape
+            rng: Base random number generator. If None, uses self._rng
+
+        Returns:
+            Dictionary mapping variable names to record arrays
+
+        Raises:
+            RuntimeError: If coordinates have not been generated
+        """
+        if shape is None:
+            if self._coordinates is None:
+                raise RuntimeError(
+                    "Coordinates must be generated before records. "
+                    "Call _generate_coordinates() first."
+                )
+            shape = self.shape
+
+        if rng is None:
+            rng = self._rng
+
+        # Get total grid points
+        total_grid_points = np.prod(shape)
+
+        # Initialize record arrays for all variables
+        records = {}
+        for var_idx in range(self.num_vars):
+            var_name = f"record{var_idx}"
+            var_dims = self.var_dims_indices[var_idx]
+            var_shape = [shape[d] for d in var_dims]
+            records[var_name] = np.full(var_shape, np.nan)
+
+        # For overlap control, we need to carefully place observations
+        if self.overlap_target == 'random' or self.num_vars == 1:
+            # No overlap constraints: generate each variable independently
+            for var_idx in range(self.num_vars):
+                var_name = f"record{var_idx}"
+                var_dims = self.var_dims_indices[var_idx]
+                var_shape = [shape[d] for d in var_dims]
+                var_num_obs = self.var_num_obs[var_idx]
+                var_total_points = np.prod(var_shape)
+
+                # Create a separate RNG for this variable
+                var_rng = np.random.default_rng(self.seed + var_idx + 1000)
+
+                # Generate random indices
+                flat_indices = var_rng.choice(
+                    var_total_points,
+                    size=var_num_obs,
+                    replace=False
+                )
+                multi_indices = np.unravel_index(flat_indices, var_shape)
+
+                # Generate observations
+                observations = var_rng.uniform(0, 1, size=var_num_obs)
+
+                # Assign to record
+                records[var_name][multi_indices] = observations
+        else:
+            # Overlap is constrained: use shared and separate RNGs
+            records = self._generate_with_overlap_control(shape, rng)
+
+        # Store as instance variable only for serial workflow
+        if self.NTASKS == 1:
+            self._records = records
+
+        # Compute actual overlap
+        self._compute_actual_overlap(records, shape)
+
+        return records
+
+    def _generate_with_overlap_control(
+        self,
+        shape: list,
+        rng: np.random.Generator
+    ) -> dict:
+        """Generate multi-variable records with overlap control.
+
+        Args:
+            shape: Shape of the full coordinate space
+            rng: Base random number generator
+
+        Returns:
+            Dictionary mapping variable names to record arrays
+        """
+        # Create shared RNG for overlapping observations
+        shared_rng = np.random.default_rng(self.seed + 9999)
+
+        # Create separate RNGs for each variable's non-overlapping observations
+        var_rngs = [
+            np.random.default_rng(self.seed + var_idx + 2000)
+            for var_idx in range(self.num_vars)
+        ]
+
+        # Initialize records
+        records = {}
+        var_indices_dict = {}  # Track which indices are used for each variable
+
+        for var_idx in range(self.num_vars):
+            var_name = f"record{var_idx}"
+            var_dims = self.var_dims_indices[var_idx]
+            var_shape = [shape[d] for d in var_dims]
+            records[var_name] = np.full(var_shape, np.nan)
+            var_indices_dict[var_idx] = []
+
+        # Strategy: First place observations for the variable with most observations,
+        # then for each subsequent variable, place a portion at the same locations
+        # (shared) and the rest at different locations (non-shared)
+
+        # Sort variables by number of observations (descending)
+        sorted_var_indices = np.argsort(self.var_num_obs)[::-1]
+
+        # Generate observations for the first (largest) variable
+        first_var_idx = sorted_var_indices[0]
+        first_var_name = f"record{first_var_idx}"
+        first_var_dims = self.var_dims_indices[first_var_idx]
+        first_var_shape = [shape[d] for d in first_var_dims]
+        first_var_num_obs = self.var_num_obs[first_var_idx]
+        first_var_total_points = np.prod(first_var_shape)
+
+        # Use shared RNG for the first variable
+        first_flat_indices = shared_rng.choice(
+            first_var_total_points,
+            size=first_var_num_obs,
+            replace=False
+        )
+        first_multi_indices = np.unravel_index(first_flat_indices, first_var_shape)
+        first_observations = var_rngs[first_var_idx].uniform(
+            0, 1, size=first_var_num_obs
+        )
+        records[first_var_name][first_multi_indices] = first_observations
+        var_indices_dict[first_var_idx] = first_flat_indices
+
+        # For remaining variables, determine overlap
+        for var_idx in sorted_var_indices[1:]:
+            var_name = f"record{var_idx}"
+            var_dims = self.var_dims_indices[var_idx]
+            var_shape = [shape[d] for d in var_dims]
+            var_num_obs = self.var_num_obs[var_idx]
+            var_total_points = np.prod(var_shape)
+
+            # Determine how many observations should overlap
+            num_overlap = int(np.round(self.overlap_target * var_num_obs))
+            num_non_overlap = var_num_obs - num_overlap
+
+            # Find shared dimensions with first variable
+            shared_dims = sorted(
+                set(var_dims).intersection(set(first_var_dims))
+            )
+
+            if len(shared_dims) == 0 or num_overlap == 0:
+                # No shared dimensions or no overlap requested: all independent
+                flat_indices = var_rngs[var_idx].choice(
+                    var_total_points,
+                    size=var_num_obs,
+                    replace=False
+                )
+            else:
+                # Sample from first variable's indices for overlap
+                # Map first variable indices to this variable's space
+                overlap_indices = self._map_indices_for_overlap(
+                    first_flat_indices,
+                    first_var_shape,
+                    first_var_dims,
+                    var_shape,
+                    var_dims,
+                    shared_dims,
+                    num_overlap,
+                    shared_rng
+                )
+
+                # Generate non-overlapping indices
+                non_overlap_indices = []
+                attempts = 0
+                while len(non_overlap_indices) < num_non_overlap and attempts < 1000:
+                    candidate = var_rngs[var_idx].choice(var_total_points)
+                    if candidate not in overlap_indices and candidate not in non_overlap_indices:
+                        non_overlap_indices.append(candidate)
+                    attempts += 1
+
+                if len(non_overlap_indices) < num_non_overlap:
+                    # If we can't find enough non-overlapping indices, just sample
+                    non_overlap_indices = var_rngs[var_idx].choice(
+                        var_total_points,
+                        size=num_non_overlap,
+                        replace=False
+                    )
+
+                flat_indices = np.concatenate([overlap_indices, non_overlap_indices])
+
+            # Place observations
+            multi_indices = np.unravel_index(flat_indices, var_shape)
+            observations = var_rngs[var_idx].uniform(0, 1, size=var_num_obs)
+            records[var_name][multi_indices] = observations
+            var_indices_dict[var_idx] = flat_indices
+
+        return records
+
+    def _map_indices_for_overlap(
+        self,
+        source_flat_indices: np.ndarray,
+        source_shape: list,
+        source_dims: list,
+        target_shape: list,
+        target_dims: list,
+        shared_dims: list,
+        num_needed: int,
+        rng: np.random.Generator
+    ) -> np.ndarray:
+        """Map indices from source variable to target variable for overlap.
+
+        Args:
+            source_flat_indices: Flat indices in source variable
+            source_shape: Shape of source variable
+            source_dims: Dimension indices of source variable
+            target_shape: Shape of target variable
+            target_dims: Dimension indices of target variable
+            shared_dims: Dimensions shared between source and target
+            num_needed: Number of overlapping indices needed
+            rng: Random number generator
+
+        Returns:
+            Array of flat indices in target variable space
+        """
+        # For simplicity, we'll sample from the target space at positions
+        # that correspond to the source positions along shared dimensions
+        # This is a simplified implementation
+
+        # Sample from source indices
+        sampled_source = rng.choice(
+            source_flat_indices,
+            size=min(num_needed, len(source_flat_indices)),
+            replace=False
+        )
+
+        # Convert to multi-dimensional indices
+        source_multi = np.unravel_index(sampled_source, source_shape)
+
+        # Map to target space
+        target_flat = []
+        for idx in range(len(sampled_source)):
+            # Build target coordinates
+            target_coords = []
+            for dim_idx, target_dim in enumerate(target_dims):
+                if target_dim in shared_dims:
+                    # Find position in source
+                    source_dim_idx = source_dims.index(target_dim)
+                    target_coords.append(source_multi[source_dim_idx][idx])
+                else:
+                    # Random position for non-shared dimensions
+                    target_coords.append(rng.integers(0, target_shape[dim_idx]))
+
+            # Convert to flat index
+            flat_idx = np.ravel_multi_index(target_coords, target_shape)
+            target_flat.append(flat_idx)
+
+        return np.array(target_flat)
+
+    def _compute_actual_overlap(
+        self,
+        records: dict,
+        shape: list
+    ) -> None:
+        """Compute and store the actual overlap achieved.
+
+        Args:
+            records: Dictionary of variable records
+            shape: Shape of the full coordinate space
+        """
+        if self.num_vars == 1:
+            self.overlap_actual = None
+            return
+
+        # For each variable, find which coordinates have observations
+        var_coords_sets = []
+        for var_idx in range(self.num_vars):
+            var_name = f"record{var_idx}"
+            var_dims = self.var_dims_indices[var_idx]
+            var_shape = [shape[d] for d in var_dims]
+            record = records[var_name]
+
+            # Find non-NaN indices
+            non_nan_indices = np.where(~np.isnan(record))
+
+            # Convert to coordinate tuples along shared dimensions
+            # For overlap, we only consider shared dimensions
+            coords_set = set()
+            for obs_idx in range(len(non_nan_indices[0])):
+                coord_tuple = tuple(
+                    non_nan_indices[dim_idx][obs_idx]
+                    for dim_idx in range(len(var_dims))
+                )
+                # Map back to global dimensions
+                global_coord = [None] * self.num_dims
+                for local_dim_idx, global_dim_idx in enumerate(var_dims):
+                    global_coord[global_dim_idx] = coord_tuple[local_dim_idx]
+                coords_set.add(tuple(global_coord))
+
+            var_coords_sets.append(coords_set)
+
+        # Compute overlap: count observations at same coordinates
+        # Get the variable with most observations
+        sorted_indices = np.argsort(self.var_num_obs)[::-1]
+        reference_set = var_coords_sets[sorted_indices[0]]
+
+        # Count overlaps with reference
+        overlap_count = 0
+        total_other_obs = 0
+
+        for idx in sorted_indices[1:]:
+            var_set = var_coords_sets[idx]
+            total_other_obs += len(var_set)
+
+            # Find shared dimensions between reference and this variable
+            ref_dims = self.var_dims_indices[sorted_indices[0]]
+            var_dims = self.var_dims_indices[idx]
+            shared_dims = sorted(set(ref_dims).intersection(set(var_dims)))
+
+            if len(shared_dims) == 0:
+                # No shared dimensions, no overlap possible
+                continue
+
+            # Project coordinates onto shared dimensions
+            ref_projected = set()
+            for coord in reference_set:
+                proj_coord = tuple(coord[d] for d in shared_dims if coord[d] is not None)
+                ref_projected.add(proj_coord)
+
+            var_projected = set()
+            for coord in var_set:
+                proj_coord = tuple(coord[d] for d in shared_dims if coord[d] is not None)
+                var_projected.add(proj_coord)
+
+            # Count matches
+            overlap_count += len(ref_projected.intersection(var_projected))
+
+        # Compute overlap ratio
+        if total_other_obs > 0:
+            self.overlap_actual = overlap_count / total_other_obs
+        else:
+            self.overlap_actual = 0.0
+
+        print(f"Actual overlap achieved: {self.overlap_actual:.4f}")
+
     def _generate_par(self) -> None:
         """Generate sparse record array with observations using parallel
         processing.
@@ -1086,6 +1441,167 @@ class GenerateData:
 
         return dataframe
 
+    def _create_dataset(
+        self,
+        records: dict = None,
+        coordinates: dict = None,
+        attrs: dict = None
+    ) -> xr.Dataset:
+        """Create xarray Dataset from multiple variable records.
+
+        Constructs an xarray Dataset with multiple data variables.
+
+        Args:
+            records: Dictionary mapping variable names to record arrays.
+                    If None, uses self._records
+            coordinates: Dictionary of coordinates. If None, uses self._coordinates
+            attrs: Dictionary of attributes. If None, creates defaults.
+
+        Returns:
+            xarray Dataset containing multiple sparse observation variables
+
+        Raises:
+            RuntimeError: If required data has not been generated yet
+        """
+        if coordinates is None:
+            if self._coordinates is None:
+                raise RuntimeError("Coordinates must be generated first")
+            coordinates = self._coordinates
+
+        if records is None:
+            if not hasattr(self, '_records') or self._records is None:
+                raise RuntimeError("Records must be generated first")
+            records = self._records
+
+        # Create default attributes if not provided
+        if attrs is None:
+            attrs = {
+                "description": "Multi-variable sparse observation data",
+                "num_obs": self.num_obs,
+                "num_dims": self.num_dims,
+                "num_vars": self.num_vars,
+                "ratio_dims": self.ratio_dims.tolist(),
+                "var_sparsities": self.var_sparsities.tolist(),
+                "var_num_obs": self.var_num_obs.tolist(),
+                "seed": self.seed,
+                "overlap_target": self.overlap_target if isinstance(
+                    self.overlap_target, str
+                ) else float(self.overlap_target),
+                "overlap_actual": float(self.overlap_actual) if self.overlap_actual is not None else None
+            }
+
+        # Create data variables dict
+        data_vars = {}
+        for var_idx in range(self.num_vars):
+            var_name = f"record{var_idx}"
+            var_dims = self.var_dims_indices[var_idx]
+            var_dim_names = [f"x{d}" for d in var_dims]
+            var_coords = {
+                name: coordinates[name]
+                for name in var_dim_names
+            }
+
+            data_vars[var_name] = xr.DataArray(
+                records[var_name],
+                coords=var_coords,
+                dims=var_dim_names,
+                attrs={
+                    "variable_index": var_idx,
+                    "sparsity": float(self.var_sparsities[var_idx]),
+                    "num_obs": int(self.var_num_obs[var_idx]),
+                    "dimensions": var_dims
+                }
+            )
+
+        # Create Dataset
+        dataset = xr.Dataset(
+            data_vars=data_vars,
+            coords=coordinates,
+            attrs=attrs
+        )
+
+        # Store as instance variable
+        if self.NTASKS == 1:
+            self._dataset = dataset
+
+        return dataset
+
+    def _create_multi_var_dataframe(
+        self,
+        records: dict = None,
+        coordinates: dict = None
+    ) -> pd.DataFrame:
+        """Create pandas DataFrame from multiple variable records.
+
+        Constructs a DataFrame where each row contains coordinates, the record value,
+        and a variable identifier. Only non-NaN points are included.
+
+        Args:
+            records: Dictionary of variable records. If None, uses self._records
+            coordinates: Dictionary of coordinates. If None, uses self._coordinates
+
+        Returns:
+            pandas DataFrame with observation coordinates, values, and variable IDs
+
+        Raises:
+            RuntimeError: If required data has not been generated yet
+        """
+        if coordinates is None:
+            if self._coordinates is None:
+                raise RuntimeError("Coordinates must be generated first")
+            coordinates = self._coordinates
+
+        if records is None:
+            if not hasattr(self, '_records') or self._records is None:
+                raise RuntimeError("Records must be generated first")
+            records = self._records
+
+        # Collect all observations across variables
+        all_data = []
+
+        for var_idx in range(self.num_vars):
+            var_name = f"record{var_idx}"
+            var_dims = self.var_dims_indices[var_idx]
+            var_dim_names = [f"x{d}" for d in var_dims]
+            record = records[var_name]
+
+            # Find non-NaN points
+            non_nan_mask = ~np.isnan(record)
+            non_nan_indices = np.where(non_nan_mask)
+
+            # Build rows for this variable
+            var_data = {}
+
+            # Add all coordinate columns (use NaN for dimensions not in this variable)
+            for coord_idx, coord_name in enumerate(coordinates.keys()):
+                if coord_name in var_dim_names:
+                    # This dimension is used by this variable
+                    local_dim_idx = var_dim_names.index(coord_name)
+                    var_data[coord_name] = coordinates[coord_name][
+                        non_nan_indices[local_dim_idx]
+                    ]
+                else:
+                    # This dimension is not used by this variable
+                    var_data[coord_name] = [np.nan] * len(non_nan_indices[0])
+
+            # Add record values
+            var_data["record"] = record[non_nan_mask]
+
+            # Add variable identifier
+            var_data["variable"] = [var_name] * len(non_nan_indices[0])
+
+            # Create DataFrame for this variable
+            var_df = pd.DataFrame(var_data)
+            all_data.append(var_df)
+
+        # Concatenate all variables
+        dataframe = pd.concat(all_data, ignore_index=True)
+
+        if self.NTASKS == 1:
+            self._dataframe = dataframe
+
+        return dataframe
+
     def save_to_netcdf(self, filepath: str, dataarray: np.array = None, overwrite: str = False) -> None:
         """Save data to NetCDF file format.
 
@@ -1200,17 +1716,26 @@ class GenerateData:
         # Execute generation pipeline for single process
         if self.NTASKS == 1:
             self._generate_coordinates()
-            self._generate_observations()
-            self._generate_record()
-            dataarray = self._create_dataarray()
-            dataframe = self._create_dataframe()
+
+            if self.num_vars == 1:
+                # Single variable: use original workflow
+                self._generate_observations()
+                self._generate_record()
+                dataarray = self._create_dataarray()
+                dataframe = self._create_dataframe()
+            else:
+                # Multiple variables: use new workflow
+                self._generate_multi_var_records()
+                dataset = self._create_dataset()
+                dataframe = self._create_multi_var_dataframe()
+                dataarray = dataset  # Return dataset instead of dataarray
 
             # Save files if paths provided
             if netcdf_filepath is not None:
-                self.save_to_netcdf(self.netcdf_filepath)
+                self.save_to_netcdf(self.netcdf_filepath, dataarray=dataarray)
 
             if parquet_filepath is not None:
-                self.save_to_parquet(self.parquet_filepath)
+                self.save_to_parquet(self.parquet_filepath, dataframe=dataframe)
 
             return dataarray, dataframe
 
