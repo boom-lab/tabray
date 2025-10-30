@@ -79,6 +79,43 @@ print(dataarray)
 print(dataframe.head())
 ```
 
+### Parallel Generation for Large Datasets
+
+When generating datasets larger than available memory, the tool automatically uses parallel processing to split the data into manageable chunks:
+
+```python
+from data_sparsity import GenerateData
+
+# Generate a large dataset with parallel processing
+gen = GenerateData(
+    num_obs=50_000_000,     # 50 million observations
+    num_dims=3,
+    ratio_dims=(2.0, 1.5, 1.0),
+    sparsity=0.05,
+    seed=42,
+    max_obs=10_000_000      # Split into chunks of 10M observations each
+)
+
+# Data is automatically split and processed in parallel
+gen.generate(
+    netcdf_filepath="large_data.nc",
+    parquet_filepath="large_data.parquet"
+)
+```
+
+**How it works:**
+- The dataset is split along the largest dimension into multiple chunks
+- Each chunk is generated independently using parallel processing with Dask
+- For NetCDF: Multiple files are created (e.g., `large_data_0.nc`, `large_data_1.nc`, etc.)
+- For Parquet: Chunks are generated, then repartitioned and consolidated into a single dataset
+- Coordinates along shared dimensions are identical across chunks (using the same seed)
+- Coordinates along the split dimension are unique per chunk
+
+**Memory Management:**
+- Set `max_obs` based on available memory (default: 10 million observations)
+- Lower values create more chunks but use less memory per chunk
+- Higher values reduce overhead but require more memory
+
 ### Parameters
 
 - **num_obs** (int): Number of observations to generate (must be positive)
@@ -86,3 +123,4 @@ print(dataframe.head())
 - **ratio_dims** (tuple): Tuple with `num_dims` elements defining the relative size of each dimension (all must be positive)
 - **sparsity** (float): Fraction of grid points that contain observations, range [0.0, 1.0]
 - **seed** (int): Random seed for reproducibility (non-negative integer)
+- **max_obs** (int, optional): Maximum number of observations per chunk when using parallel generation (default: 10,000,000). When `num_obs` exceeds this value, the dataset is automatically split into chunks and generated in parallel.
