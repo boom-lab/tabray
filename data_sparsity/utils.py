@@ -18,7 +18,7 @@ def check_or_create_folder(folder_path: str, overwrite: bool = False) -> None:
                     for filename in os.listdir(folder_path)
                     if filename.endswith('.nc') or filename.endswith('.parquet') or filename.endswith('_metadata')
                 ]
-                for filename in rm_files.sort():
+                for filename in sorted(rm_files):
                     file_path = os.path.join(folder_path, filename)
                     try:
                         if os.path.isfile(file_path) or os.path.islink(file_path):
