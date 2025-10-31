@@ -320,15 +320,19 @@ class GenerateData:
         if self.num_vars <= 0:
             raise ValueError(f"num_vars must be positive, got {self.num_vars}")
 
-        # Validate and process sparsity for multiple variables
+        # Validate and process parameters for multiple variables
         # NOTE: This must come after sparsity adjustment above
-        self._validate_and_setup_sparsity()
-
-        # Validate and process var_dims
-        self._validate_and_setup_var_dims()
-
-        # Validate overlap
-        self._validate_and_setup_overlap()
+        if self.num_vars > 1:
+            self._validate_and_setup_sparsity()
+            self._validate_and_setup_var_dims()
+            self._validate_and_setup_overlap()
+        else:
+            # For single variable, set up simple values
+            self.var_sparsities = np.array([sparsity_for_grid])
+            self.var_num_obs = np.array([self.num_obs])
+            self.var_dims_indices = [list(range(self.num_dims))]
+            self.overlap_target = None
+            self.overlap_actual = None
 
     def _validate_and_setup_sparsity(self) -> None:
         """Validate and setup sparsity for multiple variables.
@@ -353,9 +357,7 @@ class GenerateData:
                 # Two elements: assign min and max, randomize the rest
                 min_spar = min(sparsity_list)
                 max_spar = max(sparsity_list)
-                if self.num_vars == 1:
-                    self.var_sparsities = np.array([max_spar])
-                elif self.num_vars == 2:
+                if self.num_vars == 2:
                     # Randomly assign which gets min and which gets max
                     if self._rng.random() < 0.5:
                         self.var_sparsities = np.array([min_spar, max_spar])
@@ -386,17 +388,17 @@ class GenerateData:
             )
 
         # Validate all sparsity values and clip to minimum
-        for i, spar in enumerate(self.var_sparsities):
+        for j, spar in enumerate(self.var_sparsities):
             if not 0.0 <= spar <= 1.0:
                 raise ValueError(
-                    f"Variable {i} sparsity {spar} must be between 0 and 1"
+                    f"Variable {j} sparsity {spar} must be between 0 and 1"
                 )
             if spar < self.sparsity_zero:
                 print(
-                    f"WARNING: Variable {i} sparsity {spar} is below minimum "
+                    f"WARNING: Variable {j} sparsity {spar} is below minimum "
                     f"{self.sparsity_zero}, clipping to minimum"
                 )
-                self.var_sparsities[i] = self.sparsity_zero
+                self.var_sparsities[j] = self.sparsity_zero
 
         # Compute number of observations for each variable
         # The variable with the highest sparsity has num_obs observations
@@ -428,15 +430,38 @@ class GenerateData:
                 # All variables use all dimensions
                 self.var_dims_indices = [list(range(self.num_dims))] * self.num_vars
             else:
-                # Randomly select dimensions for each variable
+                # Ensure all dimensions are covered across variables by cycling through
+                all_dims = list(range(self.num_dims))
                 self.var_dims_indices = []
-                for _ in range(self.num_vars):
-                    dims = sorted(
-                        self._rng.choice(
-                            self.num_dims, size=self.var_dims, replace=False
-                        ).tolist()
-                    )
-                    self.var_dims_indices.append(dims)
+                
+                # First, ensure each dimension appears at least once
+                for var_idx in range(self.num_vars):
+                    if var_idx < self.num_dims:
+                        # For the first num_dims variables, ensure dimension coverage
+                        # Start with the dimension that matches the variable index
+                        start_dim = var_idx
+                        available_dims = [start_dim] + [
+                            d for d in all_dims if d != start_dim
+                        ]
+                        # Randomly select remaining dimensions
+                        selected = [start_dim]
+                        remaining_needed = self.var_dims - 1
+                        if remaining_needed > 0:
+                            other_dims = self._rng.choice(
+                                [d for d in available_dims if d != start_dim],
+                                size=min(remaining_needed, len(available_dims) - 1),
+                                replace=False
+                            ).tolist()
+                            selected.extend(other_dims)
+                        self.var_dims_indices.append(sorted(selected))
+                    else:
+                        # For additional variables, just random selection
+                        dims = sorted(
+                            self._rng.choice(
+                                self.num_dims, size=self.var_dims, replace=False
+                            ).tolist()
+                        )
+                        self.var_dims_indices.append(dims)
         elif isinstance(self.var_dims, (list, tuple)):
             if len(self.var_dims) != self.num_vars:
                 raise ValueError(
@@ -444,11 +469,11 @@ class GenerateData:
                     f"got {len(self.var_dims)}"
                 )
             self.var_dims_indices = []
-            for i, vd in enumerate(self.var_dims):
+            for j, vd in enumerate(self.var_dims):
                 if isinstance(vd, int):
                     if vd > self.num_dims:
                         raise ValueError(
-                            f"Variable {i} var_dims {vd} cannot exceed "
+                            f"Variable {j} var_dims {vd} cannot exceed "
                             f"num_dims {self.num_dims}"
                         )
                     if vd == self.num_dims:
@@ -464,22 +489,22 @@ class GenerateData:
                     dims = list(vd)
                     if len(dims) == 0 or len(dims) > self.num_dims:
                         raise ValueError(
-                            f"Variable {i} dim indices must have 1 to "
+                            f"Variable {j} dim indices must have 1 to "
                             f"{self.num_dims} elements, got {len(dims)}"
                         )
                     if not all(0 <= d < self.num_dims for d in dims):
                         raise ValueError(
-                            f"Variable {i} dim indices {dims} must be in "
+                            f"Variable {j} dim indices {dims} must be in "
                             f"range [0, {self.num_dims})"
                         )
                     if len(set(dims)) != len(dims):
                         raise ValueError(
-                            f"Variable {i} dim indices {dims} contain duplicates"
+                            f"Variable {j} dim indices {dims} contain duplicates"
                         )
                     self.var_dims_indices.append(sorted(dims))
                 else:
                     raise TypeError(
-                        f"Variable {i} var_dims must be int or list/tuple, "
+                        f"Variable {j} var_dims must be int or list/tuple, "
                         f"got {type(vd)}"
                     )
         else:
@@ -493,15 +518,6 @@ class GenerateData:
         This method validates the overlap parameter and computes constraints.
         Sets self.overlap_target and self.overlap_actual
         """
-        if self.num_vars == 1:
-            if self.overlap != 'random':
-                raise ValueError(
-                    "overlap has no meaning when num_vars=1; use 'random' or omit"
-                )
-            self.overlap_target = None
-            self.overlap_actual = None
-            return
-
         if isinstance(self.overlap, str):
             if self.overlap != 'random':
                 raise ValueError(
@@ -543,6 +559,10 @@ class GenerateData:
     def _compute_min_overlap(self) -> float:
         """Compute the minimum possible overlap given the configuration.
 
+        The minimum overlap is determined by the available grid points and the
+        number of observations. If there are fewer grid points than the sum of
+        all observations, some observations must overlap.
+
         Returns:
             Minimum overlap value (0.0 to 1.0)
         """
@@ -558,15 +578,21 @@ class GenerateData:
         # Sum of all other observations
         other_obs = np.sum(sorted_obs[1:])
 
+        # If there are no other observations (shouldn't happen with num_vars>1),
+        # return 0
+        if other_obs == 0:
+            return 0.0
+
         # If total_sites >= max_obs + other_obs, min overlap is 0
         if total_sites >= max_obs + other_obs:
             return 0.0
 
         # Otherwise, compute how many must overlap
         must_overlap = max_obs + other_obs - total_sites
-        min_overlap = must_overlap / other_obs if other_obs > 0 else 1.0
+        min_overlap = must_overlap / other_obs
 
-        return np.clip(min_overlap, 0.0, 1.0)
+        # Clip to valid range (though mathematically it should always be in [0,1])
+        return min(max(min_overlap, 0.0), 1.0)
 
     def _multiprocessing_setup(self, max_obs : int = None) -> None:
         """Set up multiprocessing environment with dask
@@ -824,40 +850,10 @@ class GenerateData:
         # For overlap control, we need to carefully place observations
         if self.overlap_target == 'random' or self.num_vars == 1:
             # No overlap constraints: generate each variable independently
-            for var_idx in range(self.num_vars):
-                var_name = f"record{var_idx}"
-                var_dims = self.var_dims_indices[var_idx]
-                var_shape = [shape[d] for d in var_dims]
-                var_num_obs = self.var_num_obs[var_idx]
-                var_total_points = np.prod(var_shape)
-
-                # Ensure we don't exceed available points
-                if var_num_obs > var_total_points:
-                    var_num_obs = var_total_points
-                    print(
-                        f"WARNING: Variable {var_idx} limited to {var_total_points} "
-                        f"observations (requested {self.var_num_obs[var_idx]})"
-                    )
-
-                # Create a separate RNG for this variable
-                var_rng = np.random.default_rng(self.seed + var_idx + 1000)
-
-                # Generate random indices
-                flat_indices = var_rng.choice(
-                    var_total_points,
-                    size=var_num_obs,
-                    replace=False
-                )
-                multi_indices = np.unravel_index(flat_indices, var_shape)
-
-                # Generate observations
-                observations = var_rng.uniform(0, 1, size=var_num_obs)
-
-                # Assign to record
-                records[var_name][multi_indices] = observations
+            records = self._generate_without_overlap(shape, records)
         else:
-            # Overlap is constrained: use shared and separate RNGs
-            records = self._generate_with_overlap_control(shape, rng)
+            # Overlap is constrained: use shared and separate RNGs for coordinates
+            records = self._generate_with_overlap(shape, rng, records)
 
         # Store as instance variable only for serial workflow
         if self.NTASKS == 1:
@@ -868,21 +864,77 @@ class GenerateData:
 
         return records
 
-    def _generate_with_overlap_control(
+    def _generate_without_overlap(
         self,
         shape: list,
-        rng: np.random.Generator
+        records: dict
     ) -> dict:
-        """Generate multi-variable records with overlap control.
+        """Generate multi-variable records without overlap constraints.
+
+        Each variable's observations are placed independently using separate RNGs.
 
         Args:
             shape: Shape of the full coordinate space
-            rng: Base random number generator
+            records: Pre-initialized dictionary of empty record arrays
 
         Returns:
-            Dictionary mapping variable names to record arrays
+            Dictionary mapping variable names to record arrays with observations
         """
-        # Create shared RNG for overlapping observations
+        for var_idx in range(self.num_vars):
+            var_name = f"record{var_idx}"
+            var_dims = self.var_dims_indices[var_idx]
+            var_shape = [shape[d] for d in var_dims]
+            var_num_obs = self.var_num_obs[var_idx]
+            var_total_points = np.prod(var_shape)
+
+            # Ensure we don't exceed available points
+            if var_num_obs > var_total_points:
+                var_num_obs = var_total_points
+                print(
+                    f"WARNING: Variable {var_idx} limited to {var_total_points} "
+                    f"observations (requested {self.var_num_obs[var_idx]})"
+                )
+
+            # Create a separate RNG for this variable
+            var_rng = np.random.default_rng(self.seed + var_idx + 1000)
+
+            # Generate random indices
+            flat_indices = var_rng.choice(
+                var_total_points,
+                size=var_num_obs,
+                replace=False
+            )
+            multi_indices = np.unravel_index(flat_indices, var_shape)
+
+            # Generate observations
+            observations = var_rng.uniform(0, 1, size=var_num_obs)
+
+            # Assign to record
+            records[var_name][multi_indices] = observations
+
+        return records
+
+    def _generate_with_overlap(
+        self,
+        shape: list,
+        rng: np.random.Generator,
+        records: dict
+    ) -> dict:
+        """Generate multi-variable records with overlap control.
+
+        Uses a shared RNG for coordinates of overlapping observations and separate
+        RNGs for non-overlapping observations to achieve the target overlap level.
+
+        Args:
+            shape: Shape of the full coordinate space
+            rng: Base random number generator (unused, kept for signature compatibility)
+            records: Pre-initialized dictionary of empty record arrays
+
+        Returns:
+            Dictionary mapping variable names to record arrays with observations
+        """
+        # Create shared RNG for selecting coordinates of overlapping sites/points
+        # This ensures overlapping observations are at the same spatial locations
         shared_rng = np.random.default_rng(self.seed + 9999)
 
         # Create separate RNGs for each variable's non-overlapping observations
@@ -891,16 +943,17 @@ class GenerateData:
             for var_idx in range(self.num_vars)
         ]
 
-        # Initialize records
-        records = {}
-        var_indices_dict = {}  # Track which indices are used for each variable
+        # Track which indices are used for each variable (for overlap calculation)
+        var_indices_dict = {}
 
+        # Pre-compute variable shapes and total points to avoid recalculation
+        var_shapes = {}
+        var_total_points = {}
         for var_idx in range(self.num_vars):
-            var_name = f"record{var_idx}"
             var_dims = self.var_dims_indices[var_idx]
             var_shape = [shape[d] for d in var_dims]
-            records[var_name] = np.full(var_shape, np.nan)
-            var_indices_dict[var_idx] = []
+            var_shapes[var_idx] = var_shape
+            var_total_points[var_idx] = np.prod(var_shape)
 
         # Strategy: First place observations for the variable with most observations,
         # then for each subsequent variable, place a portion at the same locations
@@ -913,9 +966,9 @@ class GenerateData:
         first_var_idx = sorted_var_indices[0]
         first_var_name = f"record{first_var_idx}"
         first_var_dims = self.var_dims_indices[first_var_idx]
-        first_var_shape = [shape[d] for d in first_var_dims]
+        first_var_shape = var_shapes[first_var_idx]
         first_var_num_obs = self.var_num_obs[first_var_idx]
-        first_var_total_points = np.prod(first_var_shape)
+        first_var_total_points = var_total_points[first_var_idx]
 
         # Ensure we don't try to place more observations than points available
         if first_var_num_obs > first_var_total_points:
@@ -943,17 +996,17 @@ class GenerateData:
         for var_idx in sorted_var_indices[1:]:
             var_name = f"record{var_idx}"
             var_dims = self.var_dims_indices[var_idx]
-            var_shape = [shape[d] for d in var_dims]
+            var_shape = var_shapes[var_idx]
             var_num_obs = self.var_num_obs[var_idx]
-            var_total_points = np.prod(var_shape)
+            var_total = var_total_points[var_idx]
 
             # Ensure we don't try to place more observations than points available
-            if var_num_obs > var_total_points:
-                var_num_obs = var_total_points
+            if var_num_obs > var_total:
+                var_num_obs = var_total
                 print(
                     f"WARNING: Variable {var_idx} has more observations "
                     f"({self.var_num_obs[var_idx]}) than available points "
-                    f"({var_total_points}), limiting to {var_total_points}"
+                    f"({var_total}), limiting to {var_total}"
                 )
 
             # Determine how many observations should overlap
@@ -965,10 +1018,21 @@ class GenerateData:
                 set(var_dims).intersection(set(first_var_dims))
             )
 
-            if len(shared_dims) == 0 or num_overlap == 0:
-                # No shared dimensions or no overlap requested: all independent
+            if len(shared_dims) == 0:
+                # No shared dimensions: cannot have overlap
+                print(
+                    f"WARNING: Variable {var_idx} shares no dimensions with "
+                    f"variable {first_var_idx}, generating independently"
+                )
                 flat_indices = var_rngs[var_idx].choice(
-                    var_total_points,
+                    var_total,
+                    size=var_num_obs,
+                    replace=False
+                )
+            elif num_overlap == 0:
+                # No overlap requested: all independent
+                flat_indices = var_rngs[var_idx].choice(
+                    var_total,
                     size=var_num_obs,
                     replace=False
                 )
@@ -986,22 +1050,24 @@ class GenerateData:
                     shared_rng
                 )
 
-                # Generate non-overlapping indices
-                non_overlap_indices = []
-                attempts = 0
-                while len(non_overlap_indices) < num_non_overlap and attempts < 1000:
-                    candidate = var_rngs[var_idx].choice(var_total_points)
-                    if candidate not in overlap_indices and candidate not in non_overlap_indices:
-                        non_overlap_indices.append(candidate)
-                    attempts += 1
-
-                if len(non_overlap_indices) < num_non_overlap:
-                    # If we can't find enough non-overlapping indices, just sample
+                # Generate non-overlapping indices by sampling from available space
+                # First, get all possible indices and remove the overlap ones
+                all_indices = set(range(var_total))
+                available_indices = list(all_indices - set(overlap_indices))
+                
+                if len(available_indices) >= num_non_overlap:
+                    # We have enough non-overlapping indices
                     non_overlap_indices = var_rngs[var_idx].choice(
-                        var_total_points,
+                        available_indices,
                         size=num_non_overlap,
                         replace=False
                     )
+                else:
+                    # Not enough non-overlapping space, just sample what we can
+                    if len(available_indices) > 0:
+                        non_overlap_indices = available_indices
+                    else:
+                        non_overlap_indices = []
 
                 flat_indices = np.concatenate([overlap_indices, non_overlap_indices])
 
@@ -1055,20 +1121,27 @@ class GenerateData:
         source_multi = np.unravel_index(sampled_source, source_shape)
 
         # Map to target space
+        # For each sampled source observation, we build the corresponding target coordinates
         target_flat = []
         for idx in range(len(sampled_source)):
-            # Build target coordinates
+            # Build target coordinates by mapping from source coordinates
             target_coords = []
             for dim_idx, target_dim in enumerate(target_dims):
                 if target_dim in shared_dims:
-                    # Find position in source
+                    # This dimension is shared between source and target
+                    # Use the same coordinate value from the source observation
+                    # Find which position in source_multi corresponds to this dimension
                     source_dim_idx = source_dims.index(target_dim)
+                    # Extract the coordinate value: source_multi[source_dim_idx][idx]
+                    # gives the coordinate along dimension target_dim for observation idx
                     target_coords.append(source_multi[source_dim_idx][idx])
                 else:
-                    # Random position for non-shared dimensions
+                    # This dimension exists in target but not in source
+                    # Randomly assign a coordinate along this dimension
                     target_coords.append(rng.integers(0, target_shape[dim_idx]))
 
-            # Convert to flat index
+            # Convert multi-dimensional coordinates to a flat index
+            # This flat index identifies a unique position in the target variable's space
             flat_idx = np.ravel_multi_index(target_coords, target_shape)
             target_flat.append(flat_idx)
 
@@ -1081,6 +1154,14 @@ class GenerateData:
     ) -> None:
         """Compute and store the actual overlap achieved.
 
+        The overlap is computed as the fraction of observations (excluding the variable
+        with the most observations) that are co-located with observations from other
+        variables along their shared dimensions.
+
+        For example, with 3 variables having 100, 100, and 20 observations:
+        - If all of variable 2's points match variable 1's: overlap = 100/120 = 0.83
+        - If only 30 points total match: overlap = 30/120 = 0.25
+
         Args:
             records: Dictionary of variable records
             shape: Shape of the full coordinate space
@@ -1090,24 +1171,28 @@ class GenerateData:
             return
 
         # For each variable, find which coordinates have observations
+        # We build a set of coordinate tuples for each variable
         var_coords_sets = []
         for var_idx in range(self.num_vars):
             var_name = f"record{var_idx}"
             var_dims = self.var_dims_indices[var_idx]
             record = records[var_name]
 
-            # Find non-NaN indices
+            # Find non-NaN indices (where observations exist)
             non_nan_indices = np.where(~np.isnan(record))
 
-            # Convert to coordinate tuples along shared dimensions
-            # For overlap, we only consider shared dimensions
+            # Convert local coordinates to global coordinate system
+            # Each observation is represented as a tuple of coordinates across all dimensions
+            # Dimensions not used by this variable will have None
             coords_set = set()
             for obs_idx in range(len(non_nan_indices[0])):
+                # Get local coordinates for this observation
                 coord_tuple = tuple(
                     non_nan_indices[dim_idx][obs_idx]
                     for dim_idx in range(len(var_dims))
                 )
                 # Map back to global dimensions
+                # global_coord[d] is the coordinate along dimension d (or None if unused)
                 global_coord = [None] * self.num_dims
                 for local_dim_idx, global_dim_idx in enumerate(var_dims):
                     global_coord[global_dim_idx] = coord_tuple[local_dim_idx]
@@ -1115,12 +1200,13 @@ class GenerateData:
 
             var_coords_sets.append(coords_set)
 
-        # Compute overlap: count observations at same coordinates
-        # Get the variable with most observations
+        # Compute overlap: count how many observations from other variables
+        # are co-located with observations from the reference (largest) variable
+        # Get the variable with most observations as reference
         sorted_indices = np.argsort(self.var_num_obs)[::-1]
         reference_set = var_coords_sets[sorted_indices[0]]
 
-        # Count overlaps with reference
+        # Count overlaps with reference across all other variables
         overlap_count = 0
         total_other_obs = 0
 
@@ -1576,15 +1662,16 @@ class GenerateData:
     ) -> pd.DataFrame:
         """Create pandas DataFrame from multiple variable records.
 
-        Constructs a DataFrame where each row contains coordinates, the record value,
-        and a variable identifier. Only non-NaN points are included.
+        Constructs a DataFrame where each row represents a unique coordinate point,
+        with separate columns for each variable's observations. Variables that don't
+        have observations at a coordinate get pd.NA.
 
         Args:
             records: Dictionary of variable records. If None, uses self._records
             coordinates: Dictionary of coordinates. If None, uses self._coordinates
 
         Returns:
-            pandas DataFrame with observation coordinates, values, and variable IDs
+            pandas DataFrame with coordinate columns and one column per variable
 
         Raises:
             RuntimeError: If required data has not been generated yet
@@ -1599,46 +1686,62 @@ class GenerateData:
                 raise RuntimeError("Records must be generated first")
             records = self._records
 
-        # Collect all observations across variables
-        all_data = []
+        # Build a dictionary mapping coordinate tuples to variable observations
+        # Key: tuple of coordinates, Value: dict of {var_name: observation_value}
+        coord_to_obs = {}
 
         for var_idx in range(self.num_vars):
             var_name = f"record{var_idx}"
             var_dims = self.var_dims_indices[var_idx]
-            var_dim_names = [f"x{d}" for d in var_dims]
             record = records[var_name]
 
             # Find non-NaN points
             non_nan_mask = ~np.isnan(record)
             non_nan_indices = np.where(non_nan_mask)
 
-            # Build rows for this variable
-            var_data = {}
+            # For each observation, build the full coordinate tuple
+            for obs_idx in range(len(non_nan_indices[0])):
+                # Build full coordinate tuple across all dimensions
+                full_coords = []
+                for dim_idx in range(self.num_dims):
+                    coord_name = f"x{dim_idx}"
+                    if dim_idx in var_dims:
+                        # This dimension is used by this variable
+                        local_dim_idx = var_dims.index(dim_idx)
+                        coord_val = coordinates[coord_name][
+                            non_nan_indices[local_dim_idx][obs_idx]
+                        ]
+                        full_coords.append(coord_val)
+                    else:
+                        # This dimension is not used by this variable
+                        full_coords.append(None)
 
-            # Add all coordinate columns (use NaN for dimensions not in this variable)
-            for coord_name in coordinates.keys():
-                if coord_name in var_dim_names:
-                    # This dimension is used by this variable
-                    local_dim_idx = var_dim_names.index(coord_name)
-                    var_data[coord_name] = coordinates[coord_name][
-                        non_nan_indices[local_dim_idx]
-                    ]
-                else:
-                    # This dimension is not used by this variable
-                    var_data[coord_name] = [np.nan] * len(non_nan_indices[0])
+                coord_tuple = tuple(full_coords)
+                
+                # Initialize dict for this coordinate if needed
+                if coord_tuple not in coord_to_obs:
+                    coord_to_obs[coord_tuple] = {}
+                
+                # Store the observation value
+                coord_to_obs[coord_tuple][var_name] = record[non_nan_mask][obs_idx]
 
-            # Add record values
-            var_data["record"] = record[non_nan_mask]
+        # Convert to DataFrame
+        rows = []
+        for coord_tuple, var_obs in coord_to_obs.items():
+            row = {}
+            # Add coordinate columns
+            for dim_idx in range(self.num_dims):
+                coord_name = f"x{dim_idx}"
+                row[coord_name] = coord_tuple[dim_idx]
+            
+            # Add variable columns
+            for var_idx in range(self.num_vars):
+                var_name = f"record{var_idx}"
+                row[var_name] = var_obs.get(var_name, pd.NA)
+            
+            rows.append(row)
 
-            # Add variable identifier
-            var_data["variable"] = [var_name] * len(non_nan_indices[0])
-
-            # Create DataFrame for this variable
-            var_df = pd.DataFrame(var_data)
-            all_data.append(var_df)
-
-        # Concatenate all variables
-        dataframe = pd.concat(all_data, ignore_index=True)
+        dataframe = pd.DataFrame(rows)
 
         if self.NTASKS == 1:
             self._dataframe = dataframe
