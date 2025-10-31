@@ -578,10 +578,12 @@ class GenerateData:
         # Sum of all other observations
         other_obs = np.sum(sorted_obs[1:])
 
-        # If there are no other observations (shouldn't happen with num_vars>1),
-        # return 0
+        # If there are no other observations, this is an error
+        # (shouldn't happen with num_vars>1 after validation)
         if other_obs == 0:
-            return 0.0
+            raise ValueError(
+                "Cannot compute minimum overlap: no observations in non-reference variables"
+            )
 
         # If total_sites >= max_obs + other_obs, min overlap is 0
         if total_sites >= max_obs + other_obs:
@@ -591,8 +593,7 @@ class GenerateData:
         must_overlap = max_obs + other_obs - total_sites
         min_overlap = must_overlap / other_obs
 
-        # Clip to valid range (though mathematically it should always be in [0,1])
-        return min(max(min_overlap, 0.0), 1.0)
+        return min_overlap
 
     def _multiprocessing_setup(self, max_obs : int = None) -> None:
         """Set up multiprocessing environment with dask
@@ -998,15 +999,15 @@ class GenerateData:
             var_dims = self.var_dims_indices[var_idx]
             var_shape = var_shapes[var_idx]
             var_num_obs = self.var_num_obs[var_idx]
-            var_total = var_total_points[var_idx]
+            var_total_points = var_total_points[var_idx]
 
             # Ensure we don't try to place more observations than points available
-            if var_num_obs > var_total:
-                var_num_obs = var_total
+            if var_num_obs > var_total_points:
+                var_num_obs = var_total_points
                 print(
                     f"WARNING: Variable {var_idx} has more observations "
                     f"({self.var_num_obs[var_idx]}) than available points "
-                    f"({var_total}), limiting to {var_total}"
+                    f"({var_total_points}), limiting to {var_total_points}"
                 )
 
             # Determine how many observations should overlap
@@ -1025,14 +1026,14 @@ class GenerateData:
                     f"variable {first_var_idx}, generating independently"
                 )
                 flat_indices = var_rngs[var_idx].choice(
-                    var_total,
+                    var_total_points,
                     size=var_num_obs,
                     replace=False
                 )
             elif num_overlap == 0:
                 # No overlap requested: all independent
                 flat_indices = var_rngs[var_idx].choice(
-                    var_total,
+                    var_total_points,
                     size=var_num_obs,
                     replace=False
                 )
@@ -1052,7 +1053,7 @@ class GenerateData:
 
                 # Generate non-overlapping indices by sampling from available space
                 # First, get all possible indices and remove the overlap ones
-                all_indices = set(range(var_total))
+                all_indices = set(range(var_total_points))
                 available_indices = list(all_indices - set(overlap_indices))
                 
                 if len(available_indices) >= num_non_overlap:
@@ -1063,11 +1064,13 @@ class GenerateData:
                         replace=False
                     )
                 else:
-                    # Not enough non-overlapping space, just sample what we can
-                    if len(available_indices) > 0:
-                        non_overlap_indices = available_indices
-                    else:
-                        non_overlap_indices = []
+                    # Not enough non-overlapping space - raise error
+                    # By now we should have already corrected for incompatible user inputs
+                    raise RuntimeError(
+                        f"Variable {var_idx}: Cannot place {num_non_overlap} "
+                        f"non-overlapping observations, only {len(available_indices)} "
+                        f"positions available. This indicates a validation error."
+                    )
 
                 flat_indices = np.concatenate([overlap_indices, non_overlap_indices])
 
@@ -1159,7 +1162,8 @@ class GenerateData:
         variables along their shared dimensions.
 
         For example, with 3 variables having 100, 100, and 20 observations:
-        - If all of variable 2's points match variable 1's: overlap = 100/120 = 0.83
+        - If all of variable 2's points match variable 1's and variable 3's points don't
+          overlap with variable 1 or 2: overlap = 100/120 = 0.83
         - If only 30 points total match: overlap = 30/120 = 0.25
 
         Args:
