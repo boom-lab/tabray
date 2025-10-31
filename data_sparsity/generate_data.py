@@ -1167,10 +1167,9 @@ class GenerateData:
                     # Target has constant dim here, use 0
                     target_coords.append(0)
                 elif source_shape[d] == 1:
-                    # Source has constant dim, target varies - we can't directly map
-                    # Skip this for simplicity (will rarely happen with overlap constraints)
-                    valid = False
-                    break
+                    # Source has constant dim, target varies
+                    # Use a random coordinate value for target
+                    target_coords.append(rng.integers(0, target_shape[d]))
                 else:
                     # Both vary - use source coordinate if it fits
                     if coords[d] < target_shape[d]:
@@ -1192,14 +1191,14 @@ class GenerateData:
                 size=num_needed,
                 replace=False
             )
-            return np.array([corresponding_target_flat[i] for i in selected_indices])
+            return np.array([corresponding_target_flat[i] for i in selected_indices], dtype=np.int64)
         else:
             # Not enough valid mappings - return what we have
             print(
                 f"WARNING: Only {len(corresponding_target_flat)} valid overlap mappings "
                 f"found, needed {num_needed}. Using all available."
             )
-            return np.array(corresponding_target_flat)
+            return np.array(corresponding_target_flat, dtype=np.int64)
 
     def _compute_actual_overlap(
         self,
