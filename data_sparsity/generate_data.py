@@ -332,7 +332,6 @@ class GenerateData:
             self.var_num_obs = np.array([self.num_obs])
             self.var_dims_indices = [list(range(self.num_dims))]  # All dimensions vary
             self.var_constant_dims = [[]]  # No constant dimensions
-            self.var_constant_values = [{}]  # No constant values
             self.overlap_target = None
             self.overlap_actual = None
 
@@ -517,21 +516,15 @@ class GenerateData:
                 f"var_dims must be int, list, or tuple, got {type(self.var_dims)}"
             )
 
-        # Set up constant dimensions and their values for each variable
+        # Set up constant dimensions for each variable
+        # Constant dimensions will have shape=1, and we'll randomly select
+        # a coordinate value from the available coordinates
         self.var_constant_dims = []
-        self.var_constant_values = []
+        self.var_shapes = []  # Full shape where constant dims have size 1
         for var_idx in range(self.num_vars):
             varying_dims = self.var_dims_indices[var_idx]
             constant_dims = [d for d in range(self.num_dims) if d not in varying_dims]
-            
-            # For constant dimensions, pick the middle coordinate value
-            constant_vals = {}
-            for d in constant_dims:
-                # Use middle of the range for constant dimensions
-                constant_vals[d] = self.shape[d] // 2 if hasattr(self, 'shape') else 0
-            
             self.var_constant_dims.append(constant_dims)
-            self.var_constant_values.append(constant_vals)
 
     def _validate_and_setup_overlap(self) -> None:
         """Validate and setup overlap parameter.
@@ -905,16 +898,16 @@ class GenerateData:
         """
         for var_idx in range(self.num_vars):
             var_name = f"record{var_idx}"
-            varying_dims = self.var_dims_indices[var_idx]
-            constant_dims = self.var_constant_dims[var_idx]
-            constant_values = self.var_constant_values[var_idx]
             
-            # Calculate available points considering only varying dimensions
-            var_shape_varying = [shape[d] for d in varying_dims]
+            # Build variable shape: varying dims use full size, constant dims use size 1
+            var_shape = list(shape)
+            for const_dim in self.var_constant_dims[var_idx]:
+                var_shape[const_dim] = 1
+            
             var_num_obs = self.var_num_obs[var_idx]
-            var_total_points = np.prod(var_shape_varying)
+            var_total_points = np.prod(var_shape)
 
-            # Ensure we don't exceed available points in the varying dimensions
+            # Ensure we don't exceed available points
             if var_num_obs > var_total_points:
                 var_num_obs = var_total_points
                 print(
@@ -925,22 +918,21 @@ class GenerateData:
             # Create a separate RNG for this variable
             var_rng = np.random.default_rng(self.seed + var_idx + 1000)
 
-            # Generate random indices for VARYING dimensions only
+            # Generate random indices in the full space (with size 1 for constant dims)
             flat_indices = var_rng.choice(
                 var_total_points,
                 size=var_num_obs,
                 replace=False
             )
-            varying_multi_indices = np.unravel_index(flat_indices, var_shape_varying)
+            multi_indices = np.unravel_index(flat_indices, var_shape)
 
-            # Build full coordinates by combining varying and constant dimensions
-            full_coords = [None] * self.num_dims
-            for dim_idx, global_dim in enumerate(varying_dims):
-                full_coords[global_dim] = varying_multi_indices[dim_idx]
-            for const_dim, const_val in constant_values.items():
+            # For constant dimensions (size=1), randomly select actual coordinate values
+            full_coords = list(multi_indices)
+            for const_dim in self.var_constant_dims[var_idx]:
+                # Randomly select a coordinate value from available coordinates
+                const_val = var_rng.integers(0, shape[const_dim])
                 full_coords[const_dim] = np.full(var_num_obs, const_val)
 
-            # Convert to tuple for indexing
             full_multi_indices = tuple(full_coords)
 
             # Generate observations
@@ -961,7 +953,8 @@ class GenerateData:
 
         Uses a shared RNG for coordinates of overlapping observations and separate
         RNGs for non-overlapping observations to achieve the target overlap level.
-        All variables exist in full num_dims space with constant dimensions held fixed.
+        All variables exist in full num_dims space with constant dimensions held at
+        randomly selected coordinate values.
 
         Args:
             shape: Shape of the full coordinate space
@@ -976,19 +969,34 @@ class GenerateData:
         shared_rng = np.random.default_rng(self.seed + 9999)
 
         # Create separate RNGs for each variable's non-overlapping observations
+        # and for selecting constant dimension coordinate values
         var_rngs = [
             np.random.default_rng(self.seed + var_idx + 2000)
             for var_idx in range(self.num_vars)
         ]
 
-        # Pre-compute variable shapes and total points for VARYING dimensions only
-        var_shapes_varying = {}
-        var_total_points_varying = {}
+        # Pre-compute variable shapes: varying dims use full size, constant dims use size 1
+        var_shapes = {}
+        var_total_points = {}
+        var_constant_coords = {}  # Store selected constant coordinate values
+        
         for var_idx in range(self.num_vars):
-            varying_dims = self.var_dims_indices[var_idx]
-            var_shape = [shape[d] for d in varying_dims]
-            var_shapes_varying[var_idx] = var_shape
-            var_total_points_varying[var_idx] = np.prod(var_shape)
+            var_shape = list(shape)
+            constant_dims = self.var_constant_dims[var_idx]
+            
+            # Set constant dimensions to size 1
+            for const_dim in constant_dims:
+                var_shape[const_dim] = 1
+            
+            var_shapes[var_idx] = var_shape
+            var_total_points[var_idx] = np.prod(var_shape)
+            
+            # Randomly select constant coordinate values for this variable
+            # These will be the actual coordinate values in the full space
+            const_coords = {}
+            for const_dim in constant_dims:
+                const_coords[const_dim] = var_rngs[var_idx].integers(0, shape[const_dim])
+            var_constant_coords[var_idx] = const_coords
 
         # Strategy: First place observations for the variable with most observations,
         # then for each subsequent variable, place a portion at the same locations
@@ -1000,11 +1008,9 @@ class GenerateData:
         # Generate observations for the first (largest) variable
         first_var_idx = sorted_var_indices[0]
         first_var_name = f"record{first_var_idx}"
-        first_varying_dims = self.var_dims_indices[first_var_idx]
-        first_constant_values = self.var_constant_values[first_var_idx]
-        first_var_shape_varying = var_shapes_varying[first_var_idx]
+        first_var_shape = var_shapes[first_var_idx]
         first_var_num_obs = self.var_num_obs[first_var_idx]
-        first_var_total_points = var_total_points_varying[first_var_idx]
+        first_var_total_points = var_total_points[first_var_idx]
 
         # Ensure we don't try to place more observations than points available
         if first_var_num_obs > first_var_total_points:
@@ -1015,19 +1021,17 @@ class GenerateData:
                 f"({first_var_total_points}), limiting to {first_var_total_points}"
             )
 
-        # Use shared RNG for the first variable's varying coordinates
-        first_flat_indices_varying = shared_rng.choice(
+        # Use shared RNG for the first variable
+        first_flat_indices = shared_rng.choice(
             first_var_total_points,
             size=first_var_num_obs,
             replace=False
         )
-        first_varying_multi = np.unravel_index(first_flat_indices_varying, first_var_shape_varying)
+        first_multi = np.unravel_index(first_flat_indices, first_var_shape)
         
-        # Build full coordinates for first variable
-        first_full_coords = [None] * self.num_dims
-        for dim_idx, global_dim in enumerate(first_varying_dims):
-            first_full_coords[global_dim] = first_varying_multi[dim_idx]
-        for const_dim, const_val in first_constant_values.items():
+        # Convert to full coordinates (expanding size-1 dims to actual values)
+        first_full_coords = list(first_multi)
+        for const_dim, const_val in var_constant_coords[first_var_idx].items():
             first_full_coords[const_dim] = np.full(first_var_num_obs, const_val)
         first_full_multi = tuple(first_full_coords)
         
@@ -1038,68 +1042,56 @@ class GenerateData:
         # For remaining variables, determine overlap
         for var_idx in sorted_var_indices[1:]:
             var_name = f"record{var_idx}"
-            varying_dims = self.var_dims_indices[var_idx]
-            constant_dims = self.var_constant_dims[var_idx]
-            constant_values = self.var_constant_values[var_idx]
-            var_shape_varying = var_shapes_varying[var_idx]
+            var_shape = var_shapes[var_idx]
             var_num_obs = self.var_num_obs[var_idx]
-            var_total_points = var_total_points_varying[var_idx]
+            var_total = var_total_points[var_idx]
 
             # Ensure we don't try to place more observations than points available
-            if var_num_obs > var_total_points:
-                var_num_obs = var_total_points
+            if var_num_obs > var_total:
+                var_num_obs = var_total
                 print(
                     f"WARNING: Variable {var_idx} has more observations "
                     f"({self.var_num_obs[var_idx]}) than available points "
-                    f"({var_total_points}), limiting to {var_total_points}"
+                    f"({var_total}), limiting to {var_total}"
                 )
 
             # Determine how many observations should overlap
             num_overlap = int(np.round(self.overlap_target * var_num_obs))
             num_non_overlap = var_num_obs - num_overlap
 
-            # Find shared VARYING dimensions with first variable
-            shared_varying_dims = sorted(
-                set(varying_dims).intersection(set(first_varying_dims))
-            )
+            # Check if overlap is possible: need at least one varying dimension in common
+            first_varying_dims = set(d for d in range(self.num_dims) 
+                                     if d not in self.var_constant_dims[first_var_idx])
+            var_varying_dims = set(d for d in range(self.num_dims) 
+                                   if d not in self.var_constant_dims[var_idx])
+            shared_varying_dims = first_varying_dims.intersection(var_varying_dims)
 
-            if len(shared_varying_dims) == 0:
-                # No shared varying dimensions: cannot have overlap
-                print(
-                    f"WARNING: Variable {var_idx} shares no varying dimensions with "
-                    f"variable {first_var_idx}, generating independently"
-                )
+            if len(shared_varying_dims) == 0 or num_overlap == 0:
+                # No shared varying dimensions or no overlap requested
+                if len(shared_varying_dims) == 0 and num_overlap > 0:
+                    print(
+                        f"WARNING: Variable {var_idx} shares no varying dimensions with "
+                        f"variable {first_var_idx}, generating independently"
+                    )
                 # Generate all observations independently
-                flat_indices_varying = var_rngs[var_idx].choice(
-                    var_total_points,
-                    size=var_num_obs,
-                    replace=False
-                )
-            elif num_overlap == 0:
-                # No overlap requested: all independent
-                flat_indices_varying = var_rngs[var_idx].choice(
-                    var_total_points,
+                flat_indices = var_rngs[var_idx].choice(
+                    var_total,
                     size=var_num_obs,
                     replace=False
                 )
             else:
-                # Map first variable's coordinates to this variable's varying space for overlap
-                overlap_indices_varying = self._map_indices_for_overlap_fullspace(
-                    first_flat_indices_varying,
-                    first_var_shape_varying,
-                    first_varying_dims,
-                    first_constant_values,
-                    var_shape_varying,
-                    varying_dims,
-                    constant_values,
-                    shared_varying_dims,
+                # Map first variable's coordinates to this variable's space for overlap
+                overlap_indices = self._map_indices_for_overlap(
+                    first_flat_indices,
+                    first_var_shape,
+                    var_shape,
                     num_overlap,
                     shared_rng
                 )
 
                 # Generate non-overlapping indices
-                all_indices = set(range(var_total_points))
-                available_indices = list(all_indices - set(overlap_indices_varying))
+                all_indices = set(range(var_total))
+                available_indices = list(all_indices - set(overlap_indices))
                 
                 if len(available_indices) >= num_non_overlap:
                     non_overlap_indices = var_rngs[var_idx].choice(
@@ -1114,156 +1106,100 @@ class GenerateData:
                         f"positions available. This indicates a validation error."
                     )
 
-                flat_indices_varying = np.concatenate([overlap_indices_varying, non_overlap_indices])
+                flat_indices = np.concatenate([overlap_indices, non_overlap_indices])
 
-            # Convert varying flat indices to multi-dimensional
-            varying_multi = np.unravel_index(flat_indices_varying, var_shape_varying)
+            # Convert to multi-dimensional coordinates
+            multi = np.unravel_index(flat_indices, var_shape)
             
-            # Build full coordinates
-            full_coords = [None] * self.num_dims
-            for dim_idx, global_dim in enumerate(varying_dims):
-                full_coords[global_dim] = varying_multi[dim_idx]
-            for const_dim, const_val in constant_values.items():
-                full_coords[const_dim] = np.full(len(flat_indices_varying), const_val)
+            # Convert to full coordinates (expanding size-1 dims to actual values)
+            full_coords = list(multi)
+            for const_dim, const_val in var_constant_coords[var_idx].items():
+                full_coords[const_dim] = np.full(len(flat_indices), const_val)
             full_multi = tuple(full_coords)
 
             # Generate and assign observations
-            actual_num_obs = len(flat_indices_varying)
+            actual_num_obs = len(flat_indices)
             observations = var_rngs[var_idx].uniform(0, 1, size=actual_num_obs)
             records[var_name][full_multi] = observations
 
         return records
 
-    def _map_indices_for_overlap_fullspace(
-        self,
-        source_flat_indices_varying: np.ndarray,
-        source_shape_varying: list,
-        source_varying_dims: list,
-        source_constant_values: dict,
-        target_shape_varying: list,
-        target_varying_dims: list,
-        target_constant_values: dict,
-        shared_varying_dims: list,
-        num_needed: int,
-        rng: np.random.Generator
-    ) -> np.ndarray:
-        """Map indices from source to target variable space for overlap in fullspace.
-
-        Since all variables are now in full dimensional space, we map coordinates
-        along shared VARYING dimensions and use constant values for the rest.
-
-        Args:
-            source_flat_indices_varying: Flat indices in source's varying subspace
-            source_shape_varying: Shape of source's varying dimensions
-            source_varying_dims: Which dimensions vary for source
-            source_constant_values: Constant dimension values for source
-            target_shape_varying: Shape of target's varying dimensions
-            target_varying_dims: Which dimensions vary for target
-            target_constant_values: Constant dimension values for target
-            shared_varying_dims: Dimensions that vary in both source and target
-            num_needed: Number of overlapping indices needed
-            rng: Random number generator
-
-        Returns:
-            Array of flat indices in target's varying subspace
-        """
-        # Sample from source indices
-        sampled_source = rng.choice(
-            source_flat_indices_varying,
-            size=min(num_needed, len(source_flat_indices_varying)),
-            replace=False
-        )
-
-        # Convert to multi-dimensional indices in source's varying space
-        source_multi_varying = np.unravel_index(sampled_source, source_shape_varying)
-
-        # Map to target's varying space
-        target_flat = []
-        for idx in range(len(sampled_source)):
-            # Build target coordinates in target's varying space
-            target_coords_varying = []
-            for dim_idx, target_dim in enumerate(target_varying_dims):
-                if target_dim in shared_varying_dims:
-                    # This dimension varies in both - use source's coordinate
-                    source_dim_idx = source_varying_dims.index(target_dim)
-                    target_coords_varying.append(source_multi_varying[source_dim_idx][idx])
-                else:
-                    # This dimension varies in target but not source (or is not shared)
-                    # Random position along this dimension
-                    target_coords_varying.append(rng.integers(0, target_shape_varying[dim_idx]))
-
-            # Convert to flat index in target's varying space
-            flat_idx = np.ravel_multi_index(target_coords_varying, target_shape_varying)
-            target_flat.append(flat_idx)
-
-        return np.array(target_flat)
-
     def _map_indices_for_overlap(
         self,
         source_flat_indices: np.ndarray,
         source_shape: list,
-        source_dims: list,
         target_shape: list,
-        target_dims: list,
-        shared_dims: list,
         num_needed: int,
         rng: np.random.Generator
     ) -> np.ndarray:
-        """Map indices from source variable to target variable for overlap.
-
+        """Map indices from source to target variable space for overlap.
+        
+        Simplified version that works with full shapes where constant dimensions have size 1.
+        
         Args:
-            source_flat_indices: Flat indices in source variable
-            source_shape: Shape of source variable
-            source_dims: Dimension indices of source variable
-            target_shape: Shape of target variable
-            target_dims: Dimension indices of target variable
-            shared_dims: Dimensions shared between source and target
-            num_needed: Number of overlapping indices needed
-            rng: Random number generator
-
+            source_flat_indices: Flat indices in source variable's space
+            source_shape: Shape of source variable (with size 1 for constant dims)
+            target_shape: Shape of target variable (with size 1 for constant dims)
+            num_needed: Number of overlapping observations needed
+            rng: Random number generator for selection
+            
         Returns:
-            Array of flat indices in target variable space
+            Array of flat indices in target variable's space that correspond to
+            overlapping locations in source variable's space
         """
-        # For simplicity, we'll sample from the target space at positions
-        # that correspond to the source positions along shared dimensions
-        # This is a simplified implementation
-
-        # Sample from source indices
-        sampled_source = rng.choice(
-            source_flat_indices,
-            size=min(num_needed, len(source_flat_indices)),
-            replace=False
-        )
-
-        # Convert to multi-dimensional indices
-        source_multi = np.unravel_index(sampled_source, source_shape)
-
-        # Map to target space
-        # For each sampled source observation, we build the corresponding target coordinates
-        target_flat = []
-        for idx in range(len(sampled_source)):
-            # Build target coordinates by mapping from source coordinates
+        # Convert source flat indices to multi-dimensional
+        source_multi = np.unravel_index(source_flat_indices, source_shape)
+        
+        # Find which source observations can be mapped to target space
+        # An observation can be mapped if all its non-size-1 coordinates fit in target
+        valid_source_indices = []
+        corresponding_target_flat = []
+        
+        for i in range(len(source_flat_indices)):
+            # Get coordinates for this observation
+            coords = [source_multi[d][i] for d in range(len(source_multi))]
+            
+            # Check if this coordinate is valid in target space
+            valid = True
             target_coords = []
-            for dim_idx, target_dim in enumerate(target_dims):
-                if target_dim in shared_dims:
-                    # This dimension is shared between source and target
-                    # Use the same coordinate value from the source observation
-                    # Find which position in source_multi corresponds to this dimension
-                    source_dim_idx = source_dims.index(target_dim)
-                    # Extract the coordinate value: source_multi[source_dim_idx][idx]
-                    # gives the coordinate along dimension target_dim for observation idx
-                    target_coords.append(source_multi[source_dim_idx][idx])
+            for d in range(len(coords)):
+                if target_shape[d] == 1:
+                    # Target has constant dim here, use 0
+                    target_coords.append(0)
+                elif source_shape[d] == 1:
+                    # Source has constant dim, target varies - we can't directly map
+                    # Skip this for simplicity (will rarely happen with overlap constraints)
+                    valid = False
+                    break
                 else:
-                    # This dimension exists in target but not in source
-                    # Randomly assign a coordinate along this dimension
-                    target_coords.append(rng.integers(0, target_shape[dim_idx]))
-
-            # Convert multi-dimensional coordinates to a flat index
-            # This flat index identifies a unique position in the target variable's space
-            flat_idx = np.ravel_multi_index(target_coords, target_shape)
-            target_flat.append(flat_idx)
-
-        return np.array(target_flat)
+                    # Both vary - use source coordinate if it fits
+                    if coords[d] < target_shape[d]:
+                        target_coords.append(coords[d])
+                    else:
+                        valid = False
+                        break
+            
+            if valid:
+                # Convert target coords to flat index
+                target_flat = np.ravel_multi_index(target_coords, target_shape)
+                valid_source_indices.append(i)
+                corresponding_target_flat.append(target_flat)
+        
+        # Select from valid mappings
+        if len(corresponding_target_flat) >= num_needed:
+            selected_indices = rng.choice(
+                len(corresponding_target_flat),
+                size=num_needed,
+                replace=False
+            )
+            return np.array([corresponding_target_flat[i] for i in selected_indices])
+        else:
+            # Not enough valid mappings - return what we have
+            print(
+                f"WARNING: Only {len(corresponding_target_flat)} valid overlap mappings "
+                f"found, needed {num_needed}. Using all available."
+            )
+            return np.array(corresponding_target_flat)
 
     def _compute_actual_overlap(
         self,
