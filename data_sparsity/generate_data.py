@@ -1462,9 +1462,13 @@ class GenerateData:
             coordinates = self._coordinates
 
         if record is None:
-            if self._record is None:
+            # For single variable, extract from multi-var records structure
+            if hasattr(self, '_records') and self._records is not None:
+                record = self._records.get('record0')
+            elif self._record is not None:
+                record = self._record
+            else:
                 raise RuntimeError("Record must be generated first")
-            record = self._record
 
         # Create default attributes if not provided
         if attrs is None:
@@ -1472,8 +1476,8 @@ class GenerateData:
                 "description": "Sparse observation data",
                 "num_obs": self.num_obs,
                 "num_dims": self.num_dims,
-                "ratio_dims": self.ratio_dims,
-                "sparsity": self.sparsity,
+                "ratio_dims": self.ratio_dims.tolist() if isinstance(self.ratio_dims, np.ndarray) else self.ratio_dims,
+                "sparsity": float(self.var_sparsities[0]) if hasattr(self, 'var_sparsities') else self.sparsity,
                 "seed": self.seed
             }
 
@@ -1519,9 +1523,13 @@ class GenerateData:
             coordinates = self._coordinates
 
         if record is None:
-            if self._record is None:
+            # For single variable, extract from multi-var records structure
+            if hasattr(self, '_records') and self._records is not None:
+                record = self._records.get('record0')
+            elif self._record is not None:
+                record = self._record
+            else:
                 raise RuntimeError("Record must be generated first")
-            record = self._record
 
         # Find non-NaN points in record
         #
@@ -1863,18 +1871,19 @@ class GenerateData:
         if self.NTASKS == 1:
             self._generate_coordinates()
 
+            # Use unified multi-variable workflow for both single and multiple variables
+            # This simplifies the codebase and ensures consistency
+            self._generate_multi_var_records()
+            
             if self.num_vars == 1:
-                # Single variable: use original workflow
-                self._generate_observations()
-                self._generate_record()
+                # For single variable, return DataArray and use standard DataFrame
                 dataarray = self._create_dataarray()
                 dataframe = self._create_dataframe()
             else:
-                # Multiple variables: use new workflow
-                self._generate_multi_var_records()
+                # For multiple variables, return Dataset with multi-var DataFrame
                 dataset = self._create_dataset()
                 dataframe = self._create_multi_var_dataframe()
-                dataarray = dataset  # Return dataset instead of dataarray
+                dataarray = dataset  # Return dataset for consistency
 
             # Save files if paths provided
             if netcdf_filepath is not None:
