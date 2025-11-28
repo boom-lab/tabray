@@ -97,6 +97,8 @@ class GenerateData:
         self.var_sparsities = None
         self.var_num_obs = None
         self.var_dims_indices = None
+        self.var_constant_dims = None
+        self.var_constant_coord_indices = None
         self.overlap_target = None
         self.overlap_actual = None
 
@@ -113,7 +115,9 @@ class GenerateData:
         print(f"  Sparsity: {self.sparsity}")
         print(f"  Random seed: {self.seed}")
         print(f"  Number of variables: {self.num_vars}")
-        print(f"  Variable dimensions: {self.var_dims}")
+        if self.num_vars > 1:
+            print(f"  Variable varying dimensions: {self.var_dims_indices}")
+            print(f"  Variable constant dimensions: {self.var_constant_dims}")
         print(f"  Variable sparsities: {self.var_sparsities}")
         print(f"  Variable observations: {self.var_num_obs}")
         print(f"  Overlap: {self.overlap}")
@@ -422,7 +426,8 @@ class GenerateData:
         All variables are measured in the full num_dims space. Dimensions not in
         var_dims_indices are held constant for that variable.
 
-        Sets self.var_dims_indices (varying dimensions) and self.var_constant_dims
+        Sets self.var_dims_indices (varying dimensions), self.var_constant_dims,
+        and self.var_constant_coord_indices (pre-selected constant coordinate indices)
         """
         if isinstance(self.var_dims, int):
             # Same number of dimensions for all variables
@@ -437,10 +442,13 @@ class GenerateData:
                 # Randomly select varying dimensions for each variable
                 # Note: All variables are measured in full num_dims space,
                 # var_dims_indices just indicates which dimensions VARY
+                # Use per-variable RNG for reproducibility
                 self.var_dims_indices = []
                 for var_idx in range(self.num_vars):
+                    # Use derived seed for reproducible dimension selection per variable
+                    var_dim_rng = np.random.default_rng(self.seed + 5000 + var_idx)
                     dims = sorted(
-                        self._rng.choice(
+                        var_dim_rng.choice(
                             self.num_dims, size=self.var_dims, replace=False
                         ).tolist()
                     )
@@ -462,8 +470,10 @@ class GenerateData:
                     if vd == self.num_dims:
                         self.var_dims_indices.append(list(range(self.num_dims)))
                     else:
+                        # Use per-variable RNG for reproducibility
+                        var_dim_rng = np.random.default_rng(self.seed + 5000 + j)
                         dims = sorted(
-                            self._rng.choice(
+                            var_dim_rng.choice(
                                 self.num_dims, size=vd, replace=False
                             ).tolist()
                         )
@@ -496,13 +506,29 @@ class GenerateData:
             )
 
         # Set up constant dimensions for each variable
-        # Constant dimensions will have shape=1, and we'll randomly select
-        # a coordinate value from the available coordinates
+        # Pre-select constant coordinate indices during validation for reproducibility
+        # and easier debugging
         self.var_constant_dims = []
+        self.var_constant_coord_indices = {}
+        
         for var_idx in range(self.num_vars):
             varying_dims = self.var_dims_indices[var_idx]
             constant_dims = [d for d in range(self.num_dims) if d not in varying_dims]
             self.var_constant_dims.append(constant_dims)
+            
+            # Pre-select constant coordinate indices using per-variable RNG
+            # Note: actual coordinate values will be determined during coordinate generation
+            # This stores the INDEX into the coordinate array, not the coordinate value itself
+            if constant_dims:
+                var_const_rng = np.random.default_rng(self.seed + 6000 + var_idx)
+                const_coord_indices = {}
+                for const_dim in constant_dims:
+                    # Store index that will be used to select from coordinate array
+                    # Coordinate array doesn't exist yet, so we'll use this during generation
+                    const_coord_indices[const_dim] = var_const_rng
+                self.var_constant_coord_indices[var_idx] = const_coord_indices
+            else:
+                self.var_constant_coord_indices[var_idx] = {}
 
     def _validate_and_setup_overlap(self) -> None:
         """Validate and setup overlap parameter.
@@ -917,11 +943,12 @@ class GenerateData:
             )
             multi_indices = np.unravel_index(flat_indices, var_shape)
 
-            # For constant dimensions (size=1), randomly select actual coordinate values
+            # For constant dimensions (size=1), use pre-selected coordinate indices
             full_coords = list(multi_indices)
             for const_dim in self.var_constant_dims[var_idx]:
-                # Randomly select a coordinate value from available coordinates
-                const_val = var_rng.integers(0, shape[const_dim])
+                # Use the pre-selected RNG for this variable's constant dimensions
+                const_rng = self.var_constant_coord_indices[var_idx][const_dim]
+                const_val = const_rng.integers(0, shape[const_dim])
                 full_coords[const_dim] = np.full(var_num_obs, const_val)
 
             full_multi_indices = tuple(full_coords)
@@ -982,11 +1009,12 @@ class GenerateData:
             var_shapes[var_idx] = var_shape
             var_total_points[var_idx] = np.prod(var_shape)
 
-            # Randomly select constant coordinate values for this variable
+            # Use pre-selected RNGs for constant coordinate values
             # These will be the actual coordinate values in the full space
             const_coords = {}
             for const_dim in constant_dims:
-                const_coords[const_dim] = var_rngs[var_idx].integers(0, shape[const_dim])
+                const_rng = self.var_constant_coord_indices[var_idx][const_dim]
+                const_coords[const_dim] = const_rng.integers(0, shape[const_dim])
             var_constant_coords[var_idx] = const_coords
 
         # Strategy: First place observations for the variable with most observations,
