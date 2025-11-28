@@ -1845,10 +1845,14 @@ class GenerateData:
         nb_digits = len(str(ddf.npartitions))
         dirpath = os.path.dirname(filepath)
         filename = os.path.basename(filepath)
-        if filename is None:
+        if not filename:
             filename = 'test'
         if chunk_id is not None:
             filename += f"_{chunk_id}"
+        
+        # Handle case where filepath has no directory component
+        if not dirpath:
+            dirpath = '.'
 
         def name_function(partition_idx: int = None):
             """Generate filename for a parquet partition."""
