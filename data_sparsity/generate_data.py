@@ -1115,19 +1115,23 @@ class GenerateData:
                     shared_rng
                 )
 
+                # If we got fewer overlap indices than requested, compensate by adding more non-overlap
+                actual_num_overlap = len(overlap_indices)
+                adjusted_num_non_overlap = var_num_obs - actual_num_overlap
+
                 # Generate non-overlapping indices
                 all_indices = set(range(var_total))
                 available_indices = list(all_indices - set(overlap_indices))
 
-                if len(available_indices) >= num_non_overlap:
+                if len(available_indices) >= adjusted_num_non_overlap:
                     non_overlap_indices = var_rngs[var_idx].choice(
                         available_indices,
-                        size=num_non_overlap,
+                        size=adjusted_num_non_overlap,
                         replace=False
                     )
                 else:
                     raise RuntimeError(
-                        f"Variable {var_idx}: Cannot place {num_non_overlap} "
+                        f"Variable {var_idx}: Cannot place {adjusted_num_non_overlap} "
                         f"non-overlapping observations, only {len(available_indices)} "
                         f"positions available. This indicates a validation error."
                     )
@@ -1176,9 +1180,14 @@ class GenerateData:
         # Convert source flat indices to multi-dimensional
         source_multi = np.unravel_index(source_flat_indices, source_shape)
 
+        # Identify dimensions where source is constant but target varies
+        # These need random assignment, which can cause duplicates
+        random_assign_dims = [d for d in range(len(source_shape))
+                             if source_shape[d] == 1 and target_shape[d] > 1]
+
         # Find which source observations can be mapped to target space
-        # An observation can be mapped if all its non-size-1 coordinates fit in target
-        valid_source_indices = []
+        # Track used target indices to prevent duplicates
+        used_target_indices = set()
         corresponding_target_flat = []
 
         for i in range(len(source_flat_indices)):
@@ -1194,8 +1203,8 @@ class GenerateData:
                     target_coords.append(0)
                 elif source_shape[d] == 1:
                     # Source has constant dim, target varies
-                    # Use a random coordinate value for target
-                    target_coords.append(rng.integers(0, target_shape[d]))
+                    # Mark with None for now, will assign randomly
+                    target_coords.append(None)
                 else:
                     # Both vary - use source coordinate if it fits
                     if coords[d] < target_shape[d]:
@@ -1204,11 +1213,33 @@ class GenerateData:
                         valid = False
                         break
 
-            if valid:
-                # Convert target coords to flat index
+            if not valid:
+                continue
+
+            # If there are dimensions needing random assignment, try to find unused index
+            if random_assign_dims:
+                # Try multiple random assignments to find an unused target index
+                max_attempts = min(100, np.prod([target_shape[d] for d in random_assign_dims]))
+                found = False
+                for _ in range(max_attempts):
+                    trial_coords = target_coords.copy()
+                    for d in random_assign_dims:
+                        trial_coords[d] = rng.integers(0, target_shape[d])
+                    
+                    target_flat = np.ravel_multi_index(trial_coords, target_shape)
+                    
+                    if target_flat not in used_target_indices:
+                        used_target_indices.add(target_flat)
+                        corresponding_target_flat.append(target_flat)
+                        found = True
+                        break
+                # If max_attempts exhausted, skip this source point
+            else:
+                # No random dimensions, direct mapping
                 target_flat = np.ravel_multi_index(target_coords, target_shape)
-                valid_source_indices.append(i)
-                corresponding_target_flat.append(target_flat)
+                if target_flat not in used_target_indices:
+                    used_target_indices.add(target_flat)
+                    corresponding_target_flat.append(target_flat)
 
         # Select from valid mappings
         if len(corresponding_target_flat) >= num_needed:
