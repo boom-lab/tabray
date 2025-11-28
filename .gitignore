@@ -214,3 +214,8 @@ __marimo__/
 *.zarr
 *.h5
 *.hdf5
+_common_metadata
+_metadata
+parquet_tmp/
+nc/
+parquet/
