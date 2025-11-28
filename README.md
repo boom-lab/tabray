@@ -81,12 +81,12 @@ print(dataframe.head())
 
 ### Parallel Generation for Large Datasets
 
-When generating datasets larger than available memory, the tool automatically uses parallel processing to split the data into manageable chunks:
+When generating datasets larger than available memory, the tool automatically uses parallel processing to split the data into manageable chunks. **This now works for both single-variable and multi-variable datasets:**
 
 ```python
 from data_sparsity import GenerateData
 
-# Generate a large dataset with parallel processing
+# Generate a large single-variable dataset with parallel processing
 gen = GenerateData(
     num_obs=50_000_000,     # 50 million observations
     num_dims=3,
@@ -101,6 +101,24 @@ gen.generate(
     netcdf_filepath="large_data.nc",
     parquet_filepath="large_data.parquet"
 )
+
+# Generate a large multi-variable dataset with parallel processing
+gen_multi = GenerateData(
+    num_obs=30_000_000,     # 30 million observations (for highest sparsity variable)
+    num_dims=4,
+    ratio_dims=(2.0, 1.5, 1.0, 1.0),
+    sparsity=[0.05, 0.10],  # Multiple variables with different sparsities
+    seed=42,
+    max_obs=10_000_000,
+    num_vars=3,
+    var_dims=[[0,1,2], [1,2,3], [0,2,3]],
+    overlap=0.5             # 50% overlap between variables
+)
+
+gen_multi.generate(
+    netcdf_filepath="large_multivar_data.nc",
+    parquet_filepath="large_multivar_data.parquet"
+)
 ```
 
 **How it works:**
@@ -110,9 +128,12 @@ gen.generate(
 - For Parquet: Chunks are generated, then repartitioned and consolidated into a single dataset
 - Coordinates along shared dimensions are identical across chunks (using the same seed)
 - Coordinates along the split dimension are unique per chunk
+- **Multi-variable support:** All variables are generated for each chunk with proper overlap control
+- **Overlap in parallel:** When overlap is specified, it's maintained within each chunk using consistent RNG strategies
 
 **Memory Management:**
 - Set `max_obs` based on available memory (default: 10 million observations)
+- For multi-variable datasets, `max_obs` refers to the observations of the variable with highest sparsity
 - Lower values create more chunks but use less memory per chunk
 - Higher values reduce overhead but require more memory
 
