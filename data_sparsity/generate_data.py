@@ -109,7 +109,7 @@ class GenerateData:
         print(f"  Number of dimensions: {self.num_dims}")
         print(f"  Ratio of dimensions: {self.ratio_dims}")
         print(f"  Dimensions shape: {self.shape}")
-        print(f"  Total grid poitns: {self.total_grid_points}")
+        print(f"  Total grid points: {self.total_grid_points}")
         print(f"  Sparsity: {self.sparsity}")
         print(f"  Random seed: {self.seed}")
         print(f"  Number of variables: {self.num_vars}")
