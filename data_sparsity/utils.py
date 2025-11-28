@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
+"""Utility functions for file path setup and folder management."""
 
 import os
-from typing import Any, Dict, List, Tuple
 
 def check_or_create_folder(folder_path: str, overwrite: bool = False) -> None:
     """Check if folder exists, if not, create it."""
@@ -44,24 +44,27 @@ def check_nc(file_path: str, overwrite: bool = False) -> None:
         )
 
     netcdf_dir = os.path.dirname(file_path)
-    # create folder to store nc file in
-    check_or_create_folder(
-        netcdf_dir,
-        overwrite
-    )
+    # create folder to store nc file in (only if directory is specified)
+    if netcdf_dir:
+        check_or_create_folder(
+            netcdf_dir,
+            overwrite
+        )
 
 
 def check_parquet(file_path: str, overwrite: bool = False) -> None:
     """Check if tree to path exists or generate it"""
-    # create folder to store parquet dataset in
+    # create folder to store parquet dataset in (only if directory is specified)
     parquet_dir = os.path.dirname(file_path)
-    check_or_create_folder(
-        parquet_dir,
-        overwrite
-    )
+    if parquet_dir:
+        check_or_create_folder(
+            parquet_dir,
+            overwrite
+        )
 
 
 def set_up_paths(netcdf_filepath: str = None, parquet_filepath: str = None, parquet_tmp: str = None) -> None:
+    """Set up file paths for netCDF and Parquet storage."""
 
     print(f"Setting up netcdf paths {netcdf_filepath}")
     check_nc(
