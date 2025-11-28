@@ -109,7 +109,7 @@ class GenerateData:
         print(f"  Number of dimensions: {self.num_dims}")
         print(f"  Ratio of dimensions: {self.ratio_dims}")
         print(f"  Dimensions shape: {self.shape}")
-        print(f"  Total grid points: {self.total_grid_points}")
+        print(f"  Maximum available grid sites: {self.total_grid_points}")
         print(f"  Sparsity: {self.sparsity}")
         print(f"  Random seed: {self.seed}")
         print(f"  Number of variables: {self.num_vars}")
@@ -434,38 +434,17 @@ class GenerateData:
                 # All variables use all dimensions
                 self.var_dims_indices = [list(range(self.num_dims))] * self.num_vars
             else:
-                # Ensure all dimensions are covered across variables by cycling through
-                all_dims = list(range(self.num_dims))
+                # Randomly select varying dimensions for each variable
+                # Note: All variables are measured in full num_dims space,
+                # var_dims_indices just indicates which dimensions VARY
                 self.var_dims_indices = []
-                
-                # First, ensure each dimension appears at least once
                 for var_idx in range(self.num_vars):
-                    if var_idx < self.num_dims:
-                        # For the first num_dims variables, ensure dimension coverage
-                        # Start with the dimension that matches the variable index
-                        start_dim = var_idx
-                        available_dims = [start_dim] + [
-                            d for d in all_dims if d != start_dim
-                        ]
-                        # Randomly select remaining dimensions
-                        selected = [start_dim]
-                        remaining_needed = self.var_dims - 1
-                        if remaining_needed > 0:
-                            other_dims = self._rng.choice(
-                                [d for d in available_dims if d != start_dim],
-                                size=min(remaining_needed, len(available_dims) - 1),
-                                replace=False
-                            ).tolist()
-                            selected.extend(other_dims)
-                        self.var_dims_indices.append(sorted(selected))
-                    else:
-                        # For additional variables, just random selection
-                        dims = sorted(
-                            self._rng.choice(
-                                self.num_dims, size=self.var_dims, replace=False
-                            ).tolist()
-                        )
-                        self.var_dims_indices.append(dims)
+                    dims = sorted(
+                        self._rng.choice(
+                            self.num_dims, size=self.var_dims, replace=False
+                        ).tolist()
+                    )
+                    self.var_dims_indices.append(dims)
         elif isinstance(self.var_dims, (list, tuple)):
             if len(self.var_dims) != self.num_vars:
                 raise ValueError(
@@ -520,7 +499,6 @@ class GenerateData:
         # Constant dimensions will have shape=1, and we'll randomly select
         # a coordinate value from the available coordinates
         self.var_constant_dims = []
-        self.var_shapes = []  # Full shape where constant dims have size 1
         for var_idx in range(self.num_vars):
             varying_dims = self.var_dims_indices[var_idx]
             constant_dims = [d for d in range(self.num_dims) if d not in varying_dims]
@@ -648,6 +626,19 @@ class GenerateData:
         print(f"  Number of blocks: {self.NTASKS}")
         print(f"  Dataset split along {self.dim_split}-th dimension")
         print(f"  Block dimensions along it: {self.section_sizes}")
+
+    def _format_var_name(self, var_idx: int) -> str:
+        """Format a variable name with zero-padding based on num_vars.
+
+        Args:
+            var_idx: Index of the variable (0-based)
+
+        Returns:
+            Formatted variable name (e.g., 'record03' if num_vars >= 10)
+        """
+        # Calculate number of digits needed based on num_vars
+        num_digits = len(str(self.num_vars - 1))
+        return f"record{var_idx:0{num_digits}d}"
 
 
     def _generate_coordinates(
@@ -858,7 +849,7 @@ class GenerateData:
         # ALL variables are now in the full num_dims space
         records = {}
         for var_idx in range(self.num_vars):
-            var_name = f"record{var_idx}"
+            var_name = self._format_var_name(var_idx)
             # All records have the same full shape
             records[var_name] = np.full(shape, np.nan)
 
@@ -897,13 +888,13 @@ class GenerateData:
             Dictionary mapping variable names to record arrays with observations
         """
         for var_idx in range(self.num_vars):
-            var_name = f"record{var_idx}"
-            
+            var_name = self._format_var_name(var_idx)
+
             # Build variable shape: varying dims use full size, constant dims use size 1
             var_shape = list(shape)
             for const_dim in self.var_constant_dims[var_idx]:
                 var_shape[const_dim] = 1
-            
+
             var_num_obs = self.var_num_obs[var_idx]
             var_total_points = np.prod(var_shape)
 
@@ -979,18 +970,18 @@ class GenerateData:
         var_shapes = {}
         var_total_points = {}
         var_constant_coords = {}  # Store selected constant coordinate values
-        
+
         for var_idx in range(self.num_vars):
             var_shape = list(shape)
             constant_dims = self.var_constant_dims[var_idx]
-            
+
             # Set constant dimensions to size 1
             for const_dim in constant_dims:
                 var_shape[const_dim] = 1
-            
+
             var_shapes[var_idx] = var_shape
             var_total_points[var_idx] = np.prod(var_shape)
-            
+
             # Randomly select constant coordinate values for this variable
             # These will be the actual coordinate values in the full space
             const_coords = {}
@@ -1006,42 +997,46 @@ class GenerateData:
         sorted_var_indices = np.argsort(self.var_num_obs)[::-1]
 
         # Generate observations for the first (largest) variable
-        first_var_idx = sorted_var_indices[0]
-        first_var_name = f"record{first_var_idx}"
-        first_var_shape = var_shapes[first_var_idx]
-        first_var_num_obs = self.var_num_obs[first_var_idx]
-        first_var_total_points = var_total_points[first_var_idx]
+        # Using 'refvar' prefix to indicate this is the reference variable for overlap
+        refvar_idx = sorted_var_indices[0]
+        refvar_name = self._format_var_name(refvar_idx)
+        refvar_shape = var_shapes[refvar_idx]
+        refvar_num_obs = self.var_num_obs[refvar_idx]
+        refvar_total_points = var_total_points[refvar_idx]
 
         # Ensure we don't try to place more observations than points available
-        if first_var_num_obs > first_var_total_points:
-            first_var_num_obs = first_var_total_points
+        if refvar_num_obs > refvar_total_points:
+            refvar_num_obs = refvar_total_points
             print(
-                f"WARNING: Variable {first_var_idx} has more observations "
-                f"({self.var_num_obs[first_var_idx]}) than available points "
-                f"({first_var_total_points}), limiting to {first_var_total_points}"
+                f"WARNING: Variable {refvar_idx} has more observations "
+                f"({self.var_num_obs[refvar_idx]}) than available points "
+                f"({refvar_total_points}), limiting to {refvar_total_points}"
             )
 
-        # Use shared RNG for the first variable
-        first_flat_indices = shared_rng.choice(
-            first_var_total_points,
-            size=first_var_num_obs,
+        # Use shared RNG for the reference variable
+        refvar_flat_indices = shared_rng.choice(
+            refvar_total_points,
+            size=refvar_num_obs,
             replace=False
         )
-        first_multi = np.unravel_index(first_flat_indices, first_var_shape)
-        
-        # Convert to full coordinates (expanding size-1 dims to actual values)
-        first_full_coords = list(first_multi)
-        for const_dim, const_val in var_constant_coords[first_var_idx].items():
-            first_full_coords[const_dim] = np.full(first_var_num_obs, const_val)
-        first_full_multi = tuple(first_full_coords)
-        
-        # Generate and assign observations
-        first_observations = var_rngs[first_var_idx].uniform(0, 1, size=first_var_num_obs)
-        records[first_var_name][first_full_multi] = first_observations
+        refvar_multi = np.unravel_index(refvar_flat_indices, refvar_shape)
 
-        # For remaining variables, determine overlap
+        # Convert to full coordinates (expanding size-1 dims to actual values)
+        # refvar_multi contains coordinates in the reduced shape (constant dims have size=1)
+        # We need to expand these to full coordinates by replacing the index 0 for
+        # constant dims with the actual randomly-selected constant coordinate value
+        refvar_full_coords = list(refvar_multi)
+        for const_dim, const_val in var_constant_coords[refvar_idx].items():
+            refvar_full_coords[const_dim] = np.full(refvar_num_obs, const_val)
+        refvar_full_multi = tuple(refvar_full_coords)
+
+        # Generate and assign observations
+        refvar_observations = var_rngs[refvar_idx].uniform(0, 1, size=refvar_num_obs)
+        records[refvar_name][refvar_full_multi] = refvar_observations
+
+        # For remaining variables (target variables), determine overlap
         for var_idx in sorted_var_indices[1:]:
-            var_name = f"record{var_idx}"
+            var_name = self._format_var_name(var_idx)
             var_shape = var_shapes[var_idx]
             var_num_obs = self.var_num_obs[var_idx]
             var_total = var_total_points[var_idx]
@@ -1060,18 +1055,21 @@ class GenerateData:
             num_non_overlap = var_num_obs - num_overlap
 
             # Check if overlap is possible: need at least one varying dimension in common
-            first_varying_dims = set(d for d in range(self.num_dims) 
-                                     if d not in self.var_constant_dims[first_var_idx])
-            var_varying_dims = set(d for d in range(self.num_dims) 
+            # Note: Although all variables exist in the full dimensional space, they may
+            # have different VARYING dimensions. If refvar varies along [0,1] and targetvar
+            # varies along [2,3], they share no varying dimensions and cannot overlap.
+            refvar_varying_dims = set(d for d in range(self.num_dims)
+                                     if d not in self.var_constant_dims[refvar_idx])
+            targetvar_varying_dims = set(d for d in range(self.num_dims)
                                    if d not in self.var_constant_dims[var_idx])
-            shared_varying_dims = first_varying_dims.intersection(var_varying_dims)
+            shared_varying_dims = refvar_varying_dims.intersection(targetvar_varying_dims)
 
             if len(shared_varying_dims) == 0 or num_overlap == 0:
                 # No shared varying dimensions or no overlap requested
                 if len(shared_varying_dims) == 0 and num_overlap > 0:
                     print(
                         f"WARNING: Variable {var_idx} shares no varying dimensions with "
-                        f"variable {first_var_idx}, generating independently"
+                        f"variable {refvar_idx}, generating independently"
                     )
                 # Generate all observations independently
                 flat_indices = var_rngs[var_idx].choice(
@@ -1080,10 +1078,10 @@ class GenerateData:
                     replace=False
                 )
             else:
-                # Map first variable's coordinates to this variable's space for overlap
+                # Map reference variable's coordinates to this variable's space for overlap
                 overlap_indices = self._map_indices_for_overlap(
-                    first_flat_indices,
-                    first_var_shape,
+                    refvar_flat_indices,
+                    refvar_shape,
                     var_shape,
                     num_overlap,
                     shared_rng
@@ -1092,7 +1090,7 @@ class GenerateData:
                 # Generate non-overlapping indices
                 all_indices = set(range(var_total))
                 available_indices = list(all_indices - set(overlap_indices))
-                
+
                 if len(available_indices) >= num_non_overlap:
                     non_overlap_indices = var_rngs[var_idx].choice(
                         available_indices,
@@ -1110,7 +1108,7 @@ class GenerateData:
 
             # Convert to multi-dimensional coordinates
             multi = np.unravel_index(flat_indices, var_shape)
-            
+
             # Convert to full coordinates (expanding size-1 dims to actual values)
             full_coords = list(multi)
             for const_dim, const_val in var_constant_coords[var_idx].items():
@@ -1133,32 +1131,32 @@ class GenerateData:
         rng: np.random.Generator
     ) -> np.ndarray:
         """Map indices from source to target variable space for overlap.
-        
+
         Simplified version that works with full shapes where constant dimensions have size 1.
-        
+
         Args:
             source_flat_indices: Flat indices in source variable's space
             source_shape: Shape of source variable (with size 1 for constant dims)
             target_shape: Shape of target variable (with size 1 for constant dims)
             num_needed: Number of overlapping observations needed
             rng: Random number generator for selection
-            
+
         Returns:
             Array of flat indices in target variable's space that correspond to
             overlapping locations in source variable's space
         """
         # Convert source flat indices to multi-dimensional
         source_multi = np.unravel_index(source_flat_indices, source_shape)
-        
+
         # Find which source observations can be mapped to target space
         # An observation can be mapped if all its non-size-1 coordinates fit in target
         valid_source_indices = []
         corresponding_target_flat = []
-        
+
         for i in range(len(source_flat_indices)):
             # Get coordinates for this observation
             coords = [source_multi[d][i] for d in range(len(source_multi))]
-            
+
             # Check if this coordinate is valid in target space
             valid = True
             target_coords = []
@@ -1177,13 +1175,13 @@ class GenerateData:
                     else:
                         valid = False
                         break
-            
+
             if valid:
                 # Convert target coords to flat index
                 target_flat = np.ravel_multi_index(target_coords, target_shape)
                 valid_source_indices.append(i)
                 corresponding_target_flat.append(target_flat)
-        
+
         # Select from valid mappings
         if len(corresponding_target_flat) >= num_needed:
             selected_indices = rng.choice(
@@ -1228,7 +1226,7 @@ class GenerateData:
         # For each variable, find which full coordinates have observations
         var_coords_sets = []
         for var_idx in range(self.num_vars):
-            var_name = f"record{var_idx}"
+            var_name = self._format_var_name(var_idx)
             record = records[var_name]
 
             # Find non-NaN indices (where observations exist) in full space
@@ -1680,7 +1678,7 @@ class GenerateData:
         data_vars = {}
         all_dim_names = [f"x{d}" for d in range(self.num_dims)]
         for var_idx in range(self.num_vars):
-            var_name = f"record{var_idx}"
+            var_name = self._format_var_name(var_idx)
             varying_dims = self.var_dims_indices[var_idx]
             constant_dims = self.var_constant_dims[var_idx]
 
@@ -1747,7 +1745,7 @@ class GenerateData:
         coord_to_obs = {}
 
         for var_idx in range(self.num_vars):
-            var_name = f"record{var_idx}"
+            var_name = self._format_var_name(var_idx)
             record = records[var_name]
 
             # Find non-NaN points (all records are now in full dimensional space)
@@ -1766,11 +1764,11 @@ class GenerateData:
                     full_coords.append(coord_val)
 
                 coord_tuple = tuple(full_coords)
-                
+
                 # Initialize dict for this coordinate if needed
                 if coord_tuple not in coord_to_obs:
                     coord_to_obs[coord_tuple] = {}
-                
+
                 # Store the observation value
                 coord_to_obs[coord_tuple][var_name] = record[non_nan_mask][obs_idx]
 
@@ -1782,12 +1780,12 @@ class GenerateData:
             for dim_idx in range(self.num_dims):
                 coord_name = f"x{dim_idx}"
                 row[coord_name] = coord_tuple[dim_idx]
-            
+
             # Add variable columns
             for var_idx in range(self.num_vars):
-                var_name = f"record{var_idx}"
+                var_name = self._format_var_name(var_idx)
                 row[var_name] = var_obs.get(var_name, pd.NA)
-            
+
             rows.append(row)
 
         dataframe = pd.DataFrame(rows)
@@ -1849,7 +1847,7 @@ class GenerateData:
             filename = 'test'
         if chunk_id is not None:
             filename += f"_{chunk_id}"
-        
+
         # Handle case where filepath has no directory component
         if not dirpath:
             dirpath = '.'
@@ -1919,7 +1917,7 @@ class GenerateData:
             # Use unified multi-variable workflow for both single and multiple variables
             # This simplifies the codebase and ensures consistency
             self._generate_multi_var_records()
-            
+
             if self.num_vars == 1:
                 # For single variable, return DataArray and use standard DataFrame
                 dataarray = self._create_dataarray()
