@@ -273,7 +273,7 @@ class GenerateData:
 
         # Setup overlap configuration
         self.overlap_target = MultiVarOverlapConfig.setup_from_parameter(
-            self.overlap, self.num_vars, self.var_dims_indices
+            self.overlap, self.num_vars, self.total_grid_points, self.var_num_obs
         )
 
     def _multiprocessing_setup(self, max_obs: int = None) -> None:

@@ -50,68 +50,75 @@ class TestValidateOverlapValue:
 class TestComputeMinOverlap:
     """Tests for compute_min_overlap method."""
     
-    def test_no_shared_dimensions_returns_zero(self):
-        """No shared dimensions should return 0."""
-        var_dims_indices = [[0], [1]]
-        result = MultiVarOverlapConfig.compute_min_overlap(var_dims_indices)
+    def test_sufficient_grid_points_returns_zero(self):
+        """Sufficient grid points for all observations should return 0."""
+        total_grid_points = 1000
+        var_num_obs = np.array([300, 200, 100])
+        result = MultiVarOverlapConfig.compute_min_overlap(total_grid_points, var_num_obs)
         assert result == 0.0
     
-    def test_all_shared_dimensions_returns_one(self):
-        """All shared dimensions should return 1."""
-        var_dims_indices = [[0, 1, 2], [0, 1, 2]]
-        result = MultiVarOverlapConfig.compute_min_overlap(var_dims_indices)
-        assert result == 1.0
+    def test_insufficient_grid_points_computes_overlap(self):
+        """Insufficient grid points should compute required overlap."""
+        total_grid_points = 100
+        var_num_obs = np.array([80, 50])  # max=80, other=50, total=130 > 100
+        # must_overlap = 130 - 100 = 30, min_overlap = 30/50 = 0.6
+        result = MultiVarOverlapConfig.compute_min_overlap(total_grid_points, var_num_obs)
+        assert result == pytest.approx(0.6)
     
-    def test_partial_overlap_correct_ratio(self):
-        """Partial overlap should return correct ratio."""
-        var_dims_indices = [[0, 1], [0, 1, 2]]
-        result = MultiVarOverlapConfig.compute_min_overlap(var_dims_indices)
-        assert result == pytest.approx(2.0/3.0)
+    def test_exact_fit_returns_zero(self):
+        """Exact fit (total_sites == max + others) should return 0."""
+        total_grid_points = 150
+        var_num_obs = np.array([100, 50])
+        result = MultiVarOverlapConfig.compute_min_overlap(total_grid_points, var_num_obs)
+        assert result == 0.0
     
     def test_two_variables(self):
-        """Two variables should work."""
-        var_dims_indices = [[0], [0, 1]]
-        result = MultiVarOverlapConfig.compute_min_overlap(var_dims_indices)
-        assert result == 0.5
+        """Two variables should work correctly."""
+        total_grid_points = 80
+        var_num_obs = np.array([60, 40])  # max=60, other=40, total=100 > 80
+        # must_overlap = 100 - 80 = 20, min_overlap = 20/40 = 0.5
+        result = MultiVarOverlapConfig.compute_min_overlap(total_grid_points, var_num_obs)
+        assert result == pytest.approx(0.5)
     
     def test_many_variables(self):
         """Many variables should compute correctly."""
-        var_dims_indices = [[0, 1], [0, 2], [1, 2]]
-        result = MultiVarOverlapConfig.compute_min_overlap(var_dims_indices)
-        assert 0.0 <= result <= 1.0
-    
-    def test_different_dimension_combinations(self):
-        """Different combinations should give different results."""
-        var_dims_1 = [[0], [1]]
-        var_dims_2 = [[0], [0, 1]]
-        result1 = MultiVarOverlapConfig.compute_min_overlap(var_dims_1)
-        result2 = MultiVarOverlapConfig.compute_min_overlap(var_dims_2)
-        assert result1 != result2
-    
-    def test_single_variable_returns_zero(self):
-        """Single variable should return 0."""
-        var_dims_indices = [[0, 1, 2]]
-        result = MultiVarOverlapConfig.compute_min_overlap(var_dims_indices)
-        assert result == 0.0
-    
-    def test_empty_list_returns_zero(self):
-        """Empty list should return 0."""
-        var_dims_indices = []
-        result = MultiVarOverlapConfig.compute_min_overlap(var_dims_indices)
-        assert result == 0.0
-    
-    def test_complex_scenario(self):
-        """Complex scenario should compute correctly."""
-        var_dims_indices = [[0, 2], [1, 2], [2]]
-        result = MultiVarOverlapConfig.compute_min_overlap(var_dims_indices)
-        # Should be based on smallest shared dimension set
-        assert 0.0 <= result <= 1.0
-    
-    def test_edge_case_one_var_one_dim_other_all_dims(self):
-        """One var with 1 dim, other with all dims."""
-        var_dims_indices = [[0], [0, 1, 2]]
-        result = MultiVarOverlapConfig.compute_min_overlap(var_dims_indices)
+        total_grid_points = 100
+        var_num_obs = np.array([50, 30, 25, 20])  # max=50, others=75, total=125 > 100
+        # must_overlap = 125 - 100 = 25, min_overlap = 25/75 = 1/3
+        result = MultiVarOverlapConfig.compute_min_overlap(total_grid_points, var_num_obs)
         assert result == pytest.approx(1.0/3.0)
+    
+    def test_very_tight_space(self):
+        """Very limited grid points should give high overlap."""
+        total_grid_points = 10
+        var_num_obs = np.array([20, 10, 5])  # max=20, others=15, total=35 > 10
+        # must_overlap = 35 - 10 = 25, min_overlap = 25/15 = 5/3 > 1.0
+        result = MultiVarOverlapConfig.compute_min_overlap(total_grid_points, var_num_obs)
+        assert result > 1.0
+    
+    def test_single_other_observation(self):
+        """Single observation in non-max variable."""
+        total_grid_points = 50
+        var_num_obs = np.array([100, 1])  # max=100, other=1, total=101 > 50
+        # must_overlap = 101 - 50 = 51, min_overlap = 51/1 = 51.0
+        result = MultiVarOverlapConfig.compute_min_overlap(total_grid_points, var_num_obs)
+        assert result == 51.0
+    
+    def test_zero_other_observations_raises(self):
+        """Zero observations in non-max variables should raise ValueError."""
+        total_grid_points = 100
+        var_num_obs = np.array([100, 0])
+        with pytest.raises(ValueError, match="no observations in non-reference"):
+            MultiVarOverlapConfig.compute_min_overlap(total_grid_points, var_num_obs)
+    
+    def test_unsorted_input(self):
+        """Unsorted observation array should work correctly."""
+        total_grid_points = 100
+        var_num_obs = np.array([30, 80, 20])  # Will be sorted internally
+        # max=80, others=50, total=130 > 100
+        # must_overlap = 130 - 100 = 30, min_overlap = 30/50 = 0.6
+        result = MultiVarOverlapConfig.compute_min_overlap(total_grid_points, var_num_obs)
+        assert result == pytest.approx(0.6)
 
 
 class TestValidateOverlapFeasibility:
@@ -119,8 +126,11 @@ class TestValidateOverlapFeasibility:
     
     def test_feasible_overlap_passes(self):
         """Feasible overlap should pass."""
-        var_dims_indices = [[0, 1], [0, 2]]
-        min_overlap = MultiVarOverlapConfig.compute_min_overlap(var_dims_indices)
+        total_grid_points = 100
+        var_num_obs = np.array([80, 50])
+        min_overlap = MultiVarOverlapConfig.compute_min_overlap(
+            total_grid_points, var_num_obs
+        )
         MultiVarOverlapConfig.validate_overlap_feasibility(
             min_overlap + 0.1, min_overlap, 2
         )
@@ -148,16 +158,18 @@ class TestSetupFromParameter:
     
     def test_float_overlap(self):
         """Float overlap should work."""
-        var_dims_indices = [[0, 1], [0, 2]]
+        total_grid_points = 1000
+        var_num_obs = np.array([300, 200])
         result = MultiVarOverlapConfig.setup_from_parameter(
-            0.5, 2, var_dims_indices
+            0.5, 2, total_grid_points, var_num_obs
         )
         assert result == 0.5
     
     def test_random_overlap(self):
         """Random overlap should return 'random'."""
-        var_dims_indices = [[0, 1], [0, 2]]
+        total_grid_points = 1000
+        var_num_obs = np.array([300, 200])
         result = MultiVarOverlapConfig.setup_from_parameter(
-            'random', 2, var_dims_indices
+            'random', 2, total_grid_points, var_num_obs
         )
         assert result == 'random'
