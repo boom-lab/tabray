@@ -1,0 +1,407 @@
+"""Tests for MultiVarRecordGenerator class."""
+
+import pytest
+import numpy as np
+from data_sparsity.generators.multi_var_record_generator import MultiVarRecordGenerator
+
+
+class TestComputeVarShapes:
+    """Tests for _compute_var_shapes method."""
+    
+    def test_no_constant_dims_same_as_full_shape(self):
+        """Should return full shape when no constant dims."""
+        shape = [10, 20, 30]
+        var_constant_dims = [[], []]
+        result = MultiVarRecordGenerator._compute_var_shapes(shape, var_constant_dims, 2)
+        
+        assert result[0] == [10, 20, 30]
+        assert result[1] == [10, 20, 30]
+    
+    def test_with_constant_dims_size_1_for_constant(self):
+        """Should set size 1 for constant dimensions."""
+        shape = [10, 20, 30]
+        var_constant_dims = [[0, 2], [1]]
+        result = MultiVarRecordGenerator._compute_var_shapes(shape, var_constant_dims, 2)
+        
+        assert result[0] == [1, 20, 1]  # Dims 0 and 2 are constant
+        assert result[1] == [10, 1, 30]  # Dim 1 is constant
+    
+    def test_multiple_variables(self):
+        """Should handle multiple variables."""
+        shape = [5, 5, 5]
+        var_constant_dims = [[0], [1], [2]]
+        result = MultiVarRecordGenerator._compute_var_shapes(shape, var_constant_dims, 3)
+        
+        assert len(result) == 3
+        assert result[0] == [1, 5, 5]
+        assert result[1] == [5, 1, 5]
+        assert result[2] == [5, 5, 1]
+    
+    def test_all_constant_dims(self):
+        """Should handle all dimensions constant."""
+        shape = [10, 20]
+        var_constant_dims = [[0, 1]]
+        result = MultiVarRecordGenerator._compute_var_shapes(shape, var_constant_dims, 1)
+        
+        assert result[0] == [1, 1]
+    
+    def test_dictionary_keys_correct(self):
+        """Should return dictionary with correct keys."""
+        shape = [10, 20]
+        var_constant_dims = [[], [], []]
+        result = MultiVarRecordGenerator._compute_var_shapes(shape, var_constant_dims, 3)
+        
+        assert 0 in result
+        assert 1 in result
+        assert 2 in result
+        assert len(result) == 3
+
+
+class TestSelectConstantCoords:
+    """Tests for _select_constant_coords method."""
+    
+    def test_selects_valid_coordinate_indices(self):
+        """Should select indices within valid range."""
+        shape = [10, 20, 30]
+        var_constant_dims = [[0], [1]]
+        
+        # Create RNGs
+        var_constant_coord_indices = {
+            0: {0: np.random.default_rng(42)},
+            1: {1: np.random.default_rng(43)}
+        }
+        
+        result = MultiVarRecordGenerator._select_constant_coords(
+            shape, var_constant_dims, var_constant_coord_indices, 2
+        )
+        
+        assert 0 <= result[0][0] < 10
+        assert 0 <= result[1][1] < 20
+    
+    def test_uses_preseeded_rngs(self):
+        """Should use provided RNGs for selection."""
+        shape = [100, 100]
+        var_constant_dims = [[0]]
+        
+        var_constant_coord_indices = {
+            0: {0: np.random.default_rng(999)}
+        }
+        
+        result1 = MultiVarRecordGenerator._select_constant_coords(
+            shape, var_constant_dims, var_constant_coord_indices, 1
+        )
+        
+        # Reset same seed
+        var_constant_coord_indices = {
+            0: {0: np.random.default_rng(999)}
+        }
+        
+        result2 = MultiVarRecordGenerator._select_constant_coords(
+            shape, var_constant_dims, var_constant_coord_indices, 1
+        )
+        
+        assert result1[0][0] == result2[0][0]
+    
+    def test_no_constant_dims_empty_dict(self):
+        """Should return empty dict for no constant dims."""
+        shape = [10, 20]
+        var_constant_dims = [[]]
+        var_constant_coord_indices = {0: {}}
+        
+        result = MultiVarRecordGenerator._select_constant_coords(
+            shape, var_constant_dims, var_constant_coord_indices, 1
+        )
+        
+        assert result[0] == {}
+    
+    def test_multiple_constant_dims_per_var(self):
+        """Should handle multiple constant dims per variable."""
+        shape = [10, 20, 30]
+        var_constant_dims = [[0, 2]]
+        
+        var_constant_coord_indices = {
+            0: {
+                0: np.random.default_rng(42),
+                2: np.random.default_rng(43)
+            }
+        }
+        
+        result = MultiVarRecordGenerator._select_constant_coords(
+            shape, var_constant_dims, var_constant_coord_indices, 1
+        )
+        
+        assert 0 in result[0]
+        assert 2 in result[0]
+        assert 0 <= result[0][0] < 10
+        assert 0 <= result[0][2] < 30
+    
+    def test_different_values_per_variable(self):
+        """Should select potentially different values for each variable."""
+        shape = [50, 50]
+        var_constant_dims = [[0], [0]]
+        
+        var_constant_coord_indices = {
+            0: {0: np.random.default_rng(42)},
+            1: {0: np.random.default_rng(999)}
+        }
+        
+        result = MultiVarRecordGenerator._select_constant_coords(
+            shape, var_constant_dims, var_constant_coord_indices, 2
+        )
+        
+        # Values might be different (different seeds)
+        assert 0 in result[0]
+        assert 0 in result[1]
+
+
+class TestExpandToFullCoords:
+    """Tests for _expand_to_full_coords method."""
+    
+    def test_constant_dims_filled_with_constant_value(self):
+        """Should fill constant dimensions with fixed values."""
+        multi_indices = (np.array([0, 1, 2]), np.array([3, 4, 5]))
+        var_constant_coords = {0: 7}
+        num_obs = 3
+        
+        result = MultiVarRecordGenerator._expand_to_full_coords(
+            multi_indices, var_constant_coords, num_obs
+        )
+        
+        np.testing.assert_array_equal(result[0], [7, 7, 7])
+        np.testing.assert_array_equal(result[1], [3, 4, 5])
+    
+    def test_varying_dims_unchanged(self):
+        """Should keep varying dimensions unchanged."""
+        multi_indices = (np.array([1, 2, 3]), np.array([4, 5, 6]))
+        var_constant_coords = {}
+        num_obs = 3
+        
+        result = MultiVarRecordGenerator._expand_to_full_coords(
+            multi_indices, var_constant_coords, num_obs
+        )
+        
+        np.testing.assert_array_equal(result[0], [1, 2, 3])
+        np.testing.assert_array_equal(result[1], [4, 5, 6])
+    
+    def test_correct_tuple_length(self):
+        """Should return tuple with correct length."""
+        multi_indices = (np.array([0]), np.array([1]), np.array([2]))
+        var_constant_coords = {1: 5}
+        num_obs = 1
+        
+        result = MultiVarRecordGenerator._expand_to_full_coords(
+            multi_indices, var_constant_coords, num_obs
+        )
+        
+        assert len(result) == 3
+    
+    def test_correct_array_lengths(self):
+        """Should return arrays with correct lengths."""
+        num_obs = 5
+        multi_indices = (
+            np.array([0, 1, 2, 3, 4]),
+            np.array([5, 6, 7, 8, 9])
+        )
+        var_constant_coords = {0: 10}
+        
+        result = MultiVarRecordGenerator._expand_to_full_coords(
+            multi_indices, var_constant_coords, num_obs
+        )
+        
+        assert len(result[0]) == num_obs
+        assert len(result[1]) == num_obs
+    
+    def test_multiple_constant_dims(self):
+        """Should handle multiple constant dimensions."""
+        multi_indices = (
+            np.array([0, 1]),
+            np.array([2, 3]),
+            np.array([4, 5])
+        )
+        var_constant_coords = {0: 10, 2: 20}
+        num_obs = 2
+        
+        result = MultiVarRecordGenerator._expand_to_full_coords(
+            multi_indices, var_constant_coords, num_obs
+        )
+        
+        np.testing.assert_array_equal(result[0], [10, 10])
+        np.testing.assert_array_equal(result[1], [2, 3])
+        np.testing.assert_array_equal(result[2], [20, 20])
+
+
+class TestGenerateWithoutOverlap:
+    """Tests for generate_without_overlap method."""
+    
+    def test_two_variables(self, fixed_rng):
+        """Should generate records for two variables."""
+        shape = [10, 10]
+        records = {
+            'var0': np.full(shape, np.nan),
+            'var1': np.full(shape, np.nan)
+        }
+        var_num_obs = np.array([10, 10])
+        var_constant_dims = [[], []]
+        var_constant_coord_indices = {0: {}, 1: {}}
+        
+        result = MultiVarRecordGenerator.generate_without_overlap(
+            shape, records, 2, var_num_obs, var_constant_dims,
+            var_constant_coord_indices, 42
+        )
+        
+        assert 'var0' in result
+        assert 'var1' in result
+    
+    def test_different_observation_counts(self, fixed_rng):
+        """Should respect different observation counts."""
+        shape = [20, 20]
+        records = {
+            'var0': np.full(shape, np.nan),
+            'var1': np.full(shape, np.nan)
+        }
+        var_num_obs = np.array([15, 25])
+        var_constant_dims = [[], []]
+        var_constant_coord_indices = {0: {}, 1: {}}
+        
+        result = MultiVarRecordGenerator.generate_without_overlap(
+            shape, records, 2, var_num_obs, var_constant_dims,
+            var_constant_coord_indices, 42
+        )
+        
+        count0 = np.count_nonzero(~np.isnan(result['var0']))
+        count1 = np.count_nonzero(~np.isnan(result['var1']))
+        
+        assert count0 == 15
+        assert count1 == 25
+    
+    def test_all_records_have_correct_shape(self):
+        """Should maintain correct shape for all records."""
+        shape = [8, 12]
+        records = {
+            'var0': np.full(shape, np.nan),
+            'var1': np.full(shape, np.nan),
+            'var2': np.full(shape, np.nan)
+        }
+        var_num_obs = np.array([5, 5, 5])
+        var_constant_dims = [[], [], []]
+        var_constant_coord_indices = {0: {}, 1: {}, 2: {}}
+        
+        result = MultiVarRecordGenerator.generate_without_overlap(
+            shape, records, 3, var_num_obs, var_constant_dims,
+            var_constant_coord_indices, 42
+        )
+        
+        for var_idx in range(3):
+            assert result[f'var{var_idx}'].shape == tuple(shape)
+    
+    def test_reproducible_with_seed(self):
+        """Should produce same results with same seed."""
+        shape = [10, 10]
+        var_num_obs = np.array([10, 10])
+        var_constant_dims = [[], []]
+        var_constant_coord_indices = {0: {}, 1: {}}
+        
+        records1 = {
+            'var0': np.full(shape, np.nan),
+            'var1': np.full(shape, np.nan)
+        }
+        result1 = MultiVarRecordGenerator.generate_without_overlap(
+            shape, records1, 2, var_num_obs, var_constant_dims,
+            var_constant_coord_indices, 42
+        )
+        
+        records2 = {
+            'var0': np.full(shape, np.nan),
+            'var1': np.full(shape, np.nan)
+        }
+        result2 = MultiVarRecordGenerator.generate_without_overlap(
+            shape, records2, 2, var_num_obs, var_constant_dims,
+            var_constant_coord_indices, 42
+        )
+        
+        np.testing.assert_array_equal(
+            result1['var0'], result2['var0'], equal_nan=True
+        )
+        np.testing.assert_array_equal(
+            result1['var1'], result2['var1'], equal_nan=True
+        )
+
+
+class TestGenerate:
+    """Tests for main generate method."""
+    
+    def test_returns_dictionary(self):
+        """Should return dictionary of records."""
+        shape = [10, 10]
+        records = {'var0': np.full(shape, np.nan)}
+        var_num_obs = np.array([10])
+        var_constant_dims = [[]]
+        var_constant_coord_indices = {0: {}}
+        
+        result = MultiVarRecordGenerator.generate(
+            shape, records, 'random', 1, var_num_obs,
+            var_constant_dims, var_constant_coord_indices, 42
+        )
+        
+        assert isinstance(result, dict)
+        assert 'var0' in result
+    
+    def test_random_overlap_calls_without_overlap(self):
+        """Should use without_overlap for random overlap."""
+        shape = [10, 10]
+        records = {
+            'var0': np.full(shape, np.nan),
+            'var1': np.full(shape, np.nan)
+        }
+        var_num_obs = np.array([10, 10])
+        var_constant_dims = [[], []]
+        var_constant_coord_indices = {0: {}, 1: {}}
+        
+        result = MultiVarRecordGenerator.generate(
+            shape, records, 'random', 2, var_num_obs,
+            var_constant_dims, var_constant_coord_indices, 42
+        )
+        
+        # Should complete without error
+        assert 'var0' in result
+        assert 'var1' in result
+    
+    def test_numeric_overlap_calls_with_overlap(self):
+        """Should use with_overlap for numeric overlap."""
+        shape = [15, 15]
+        records = {
+            'var0': np.full(shape, np.nan),
+            'var1': np.full(shape, np.nan)
+        }
+        var_num_obs = np.array([20, 20])
+        var_constant_dims = [[0], [0]]
+        var_constant_coord_indices = {
+            0: {0: np.random.default_rng(42)},
+            1: {0: np.random.default_rng(43)}
+        }
+        
+        result = MultiVarRecordGenerator.generate(
+            shape, records, 0.5, 2, var_num_obs,
+            var_constant_dims, var_constant_coord_indices, 42
+        )
+        
+        # Should complete without error
+        assert 'var0' in result
+        assert 'var1' in result
+    
+    def test_single_variable_edge_case(self):
+        """Should handle single variable."""
+        shape = [10, 10]
+        records = {'var0': np.full(shape, np.nan)}
+        var_num_obs = np.array([15])
+        var_constant_dims = [[]]
+        var_constant_coord_indices = {0: {}}
+        
+        result = MultiVarRecordGenerator.generate(
+            shape, records, 0.5, 1, var_num_obs,
+            var_constant_dims, var_constant_coord_indices, 42
+        )
+        
+        assert 'var0' in result
+        count = np.count_nonzero(~np.isnan(result['var0']))
+        assert count == 15
