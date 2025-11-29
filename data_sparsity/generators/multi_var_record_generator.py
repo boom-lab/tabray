@@ -138,19 +138,25 @@ class MultiVarRecordGenerator:
                     f"observations (requested {var_num_obs[var_idx]})"
                 )
             
+            # Create a separate RNG for this variable
             var_rng = np.random.default_rng(seed + var_idx + 1000)
             
+            # Generate random indices in the reduced space (with size 1 for constant dims)
             flat_indices = RecordGenerator.generate_flat_indices(
                 var_total_points, num_obs, var_rng
             )
             multi_indices = RecordGenerator.convert_to_multi_indices(
                 flat_indices, var_shape
             )
+
+            # Expand to FULL space by filling constant dims with a single coordinate value
             full_multi_indices = MultiVarRecordGenerator._expand_to_full_coords(
                 multi_indices, var_constant_coords[var_idx], num_obs
             )
-            
+            # Generate random observation values
             observations = ObservationGenerator.generate_observations(num_obs, var_rng)
+
+            # Assign observations to the full-space coordinates
             RecordGenerator.assign_observations(
                 records[var_name], full_multi_indices, observations
             )

@@ -334,7 +334,12 @@ class GenerateData:
         return f"var{var_idx}"
 
     def _generate_coordinates(self) -> None:
-        """Generate coordinates for all dimensions."""
+        """Generate coordinates for all dimensions.
+
+        Creates coordinate arrays for each dimension with values sorted
+        in ascending order within specified ranges.
+        """
+        
         coord_dict = {}
         coords_list = CoordinateGenerator.generate_all_coords(self.shape, self._rng)
         for i, coords in enumerate(coords_list):
@@ -390,6 +395,10 @@ class GenerateData:
         rng: np.random.Generator = None
     ) -> dict:
         """Generate sparse record arrays for multiple variables.
+
+        Creates a multi-dimensional array for each variable with the specified shape,
+        then randomly selects positions and assigns observation values to those points
+        for each variable. Overlap is controlled by using shared and separate RNGs.
 
         Args:
             shape: Shape of the record arrays. If None, uses self.shape
@@ -835,7 +844,13 @@ class GenerateData:
         """Generate all data and optionally save to files.
 
         Main orchestration method that executes the complete data generation
-        workflow.
+        workflow:
+        1. Generate coordinates for each dimension
+        2. Generate random observation values
+        3. Create sparse record array
+        4. Build xarray DataArray/Dataset
+        5. Build pandas DataFrame
+        6. Optionally save to NetCDF and/or Parquet files
 
         Args:
             netcdf_filepath: Optional path to save NetCDF file
@@ -864,12 +879,16 @@ class GenerateData:
         # Execute generation pipeline for single process
         if self.NTASKS == 1:
             self._generate_coordinates()
+
+            # Use unified multi-variable workflow for both single and multiple variables
             self._generate_multi_var_records()
 
             if self.num_vars == 1:
+                # For single variable, return DataArray and use standard DataFrame
                 dataarray = self._create_dataarray()
                 dataframe = self._create_dataframe()
             else:
+                # For multiple variables, return Dataset with multi-var DataFrame
                 dataset = self._create_dataset()
                 dataframe = self._create_multi_var_dataframe()
                 dataarray = dataset
