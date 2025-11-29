@@ -268,7 +268,33 @@ class GenerateData:
         else:
             self.NTASKS = int(np.ceil(self.num_obs / max_obs))
             self.max_obs = max_obs
+            
+            # Set up dimension splitting for parallel processing
+            # Split along the largest dimension
+            max_dim = np.argmax(self.nb_coords_per_dim)
+            max_dim_size = self.nb_coords_per_dim[max_dim]
+            
+            if max_dim_size < self.NTASKS:
+                raise ValueError(
+                    f"Dimension has size {max_dim_size} but {self.NTASKS} "
+                    f"blocks should be generated?"
+                )
+            
+            # Divide the largest dimension into chunks
+            Neach_section, extras = divmod(max_dim_size, self.NTASKS)
+            Neach_section = int(Neach_section)
+            section_sizes = ([0] + extras * [Neach_section + 1] + 
+                           (self.NTASKS - extras) * [Neach_section])
+            div_points = np.array(section_sizes, dtype=int).cumsum()
+            
+            self.dim_split = max_dim
+            self.max_dim_size = max_dim_size
+            self.section_sizes = section_sizes[1:]
+            self.div_points = div_points
+            
             print(f"Parallel generation: {self.NTASKS} tasks, {max_obs} obs per task")
+            print(f"  Dataset split along dimension {self.dim_split}")
+            print(f"  Block sizes along it: {self.section_sizes}")
 
     def _format_var_name(self, var_idx: int) -> str:
         """Format variable name.
@@ -360,6 +386,251 @@ class GenerateData:
         if self.NTASKS == 1:
             self._records = records
             self.overlap_actual = overlap_actual
+
+        return records
+
+    def _generate_multi_var_records_par(
+        self,
+        shape: list,
+        rng: np.random.Generator,
+        chunk_id: int
+    ) -> dict:
+        """Generate sparse record arrays for multiple variables in parallel chunks.
+
+        Similar to _generate_multi_var_records but adapted for parallel processing.
+        Uses chunk-aware RNG strategy to ensure coordinates are consistent across chunks.
+
+        Args:
+            shape: Shape of the record arrays for this chunk
+            rng: Chunk-specific random number generator
+            chunk_id: Identifier for this chunk (used for RNG seeds)
+
+        Returns:
+            Dictionary mapping variable names to record arrays
+        """
+        # Initialize record arrays for all variables
+        records = {}
+        for var_idx in range(self.num_vars):
+            var_name = self._format_var_name(var_idx)
+            records[var_name] = np.full(shape, np.nan)
+
+        # Generate records based on overlap mode
+        if self.overlap_target == 'random' or self.num_vars == 1:
+            records = self._generate_without_overlap_par(shape, records, chunk_id)
+        else:
+            records = self._generate_with_overlap_par(shape, records, chunk_id)
+
+        return records
+
+    def _generate_without_overlap_par(
+        self,
+        shape: list,
+        records: dict,
+        chunk_id: int
+    ) -> dict:
+        """Generate multi-variable records without overlap constraints for parallel chunks.
+
+        Each variable's observations are placed independently using chunk-specific RNGs.
+
+        Args:
+            shape: Shape of the chunk coordinate space
+            records: Pre-initialized dictionary of empty record arrays
+            chunk_id: Identifier for this chunk
+
+        Returns:
+            Dictionary mapping variable names to record arrays with observations
+        """
+        for var_idx in range(self.num_vars):
+            var_name = self._format_var_name(var_idx)
+
+            # Build variable shape: varying dims use full size, constant dims use size 1
+            var_shape = list(shape)
+            for const_dim in self.var_constant_dims[var_idx]:
+                var_shape[const_dim] = 1
+
+            # Calculate observations for this chunk
+            chunk_fraction = shape[self.dim_split] / self.max_dim_size
+            var_num_obs = int(np.rint(self.var_num_obs[var_idx] * chunk_fraction))
+            var_total_points = np.prod(var_shape)
+
+            if var_num_obs > var_total_points:
+                var_num_obs = var_total_points
+
+            # Create chunk-specific RNG for this variable
+            var_rng = np.random.default_rng(
+                self.seed + chunk_id * 100 + var_idx + 1000
+            )
+
+            # Generate random indices in the variable space
+            flat_indices = var_rng.choice(
+                var_total_points,
+                size=var_num_obs,
+                replace=False
+            )
+            multi_indices = np.unravel_index(flat_indices, var_shape)
+
+            # For constant dimensions, use pre-selected coordinate indices
+            full_coords = list(multi_indices)
+            for const_dim in self.var_constant_dims[var_idx]:
+                const_rng = self.var_constant_coord_indices[var_idx][const_dim]
+                const_val = const_rng.integers(0, shape[const_dim])
+                full_coords[const_dim] = np.full(var_num_obs, const_val)
+
+            full_multi_indices = tuple(full_coords)
+
+            # Generate observations
+            observations = var_rng.uniform(0, 1, size=var_num_obs)
+
+            # Assign to record
+            records[var_name][full_multi_indices] = observations
+
+        return records
+
+    def _generate_with_overlap_par(
+        self,
+        shape: list,
+        records: dict,
+        chunk_id: int
+    ) -> dict:
+        """Generate multi-variable records with overlap control for parallel chunks.
+
+        Similar to MultiVarRecordGenerator.generate_with_overlap but adapted for
+        parallel processing. Uses shared RNG for overlapping coordinates and
+        separate RNGs for non-overlapping coordinates within each chunk.
+
+        Args:
+            shape: Shape of the chunk coordinate space
+            records: Pre-initialized dictionary of empty record arrays
+            chunk_id: Identifier for this chunk
+
+        Returns:
+            Dictionary mapping variable names to record arrays with observations
+        """
+        # Create shared RNG for overlapping sites
+        shared_rng = np.random.default_rng(self.seed + 9999 + chunk_id * 10000)
+
+        # Create separate RNGs for each variable's non-overlapping observations
+        var_rngs = [
+            np.random.default_rng(self.seed + chunk_id * 100 + var_idx + 2000)
+            for var_idx in range(self.num_vars)
+        ]
+
+        # Pre-compute variable shapes
+        var_shapes = {}
+        var_total_points = {}
+
+        for var_idx in range(self.num_vars):
+            var_shape = list(shape)
+            for const_dim in self.var_constant_dims[var_idx]:
+                var_shape[const_dim] = 1
+            var_shapes[var_idx] = var_shape
+            var_total_points[var_idx] = np.prod(var_shape)
+
+        # Sort variables by observation count
+        sorted_indices = np.argsort(self.var_num_obs)[::-1]
+        refvar_idx = sorted_indices[0]
+
+        # Calculate observations for this chunk
+        chunk_fraction = shape[self.dim_split] / self.max_dim_size
+        chunk_var_num_obs = [
+            int(np.rint(self.var_num_obs[i] * chunk_fraction))
+            for i in range(self.num_vars)
+        ]
+
+        # Generate reference variable first using shared RNG
+        refvar_name = self._format_var_name(refvar_idx)
+        refvar_num_obs = chunk_var_num_obs[refvar_idx]
+
+        # Generate flat indices for reference variable
+        refvar_flat_indices = shared_rng.choice(
+            var_total_points[refvar_idx],
+            size=refvar_num_obs,
+            replace=False
+        )
+        refvar_multi_indices = np.unravel_index(
+            refvar_flat_indices, var_shapes[refvar_idx]
+        )
+
+        # Handle constant dimensions for reference variable
+        refvar_full_coords = list(refvar_multi_indices)
+        for const_dim in self.var_constant_dims[refvar_idx]:
+            const_rng = self.var_constant_coord_indices[refvar_idx][const_dim]
+            const_val = const_rng.integers(0, shape[const_dim])
+            refvar_full_coords[const_dim] = np.full(refvar_num_obs, const_val)
+
+        refvar_full_multi_indices = tuple(refvar_full_coords)
+        refvar_observations = var_rngs[refvar_idx].uniform(0, 1, size=refvar_num_obs)
+        records[refvar_name][refvar_full_multi_indices] = refvar_observations
+
+        # Generate other variables with overlap
+        for var_idx in sorted_indices[1:]:
+            var_name = self._format_var_name(var_idx)
+            var_num_obs = chunk_var_num_obs[var_idx]
+
+            # Calculate overlap count
+            target_overlap_count = int(np.rint(var_num_obs * self.overlap_target))
+            target_non_overlap_count = var_num_obs - target_overlap_count
+
+            # Map reference indices to target variable space
+            overlap_indices = OverlapMapper.map_indices(
+                refvar_flat_indices,
+                var_shapes[refvar_idx],
+                var_shapes[var_idx],
+                target_overlap_count,
+                shared_rng
+            )
+
+            # Adjust non-overlap count if we got fewer overlap indices
+            actual_overlap_count = len(overlap_indices)
+            adjusted_non_overlap_count = var_num_obs - actual_overlap_count
+
+            # Generate non-overlapping observations
+            if adjusted_non_overlap_count > 0:
+                available_points = var_total_points[var_idx] - actual_overlap_count
+                if adjusted_non_overlap_count > available_points:
+                    adjusted_non_overlap_count = available_points
+
+                # Generate indices that don't overlap
+                all_flat_indices = np.arange(var_total_points[var_idx])
+                mask = np.ones(var_total_points[var_idx], dtype=bool)
+                mask[overlap_indices] = False
+                available_indices = all_flat_indices[mask]
+
+                non_overlap_flat_indices = var_rngs[var_idx].choice(
+                    available_indices,
+                    size=adjusted_non_overlap_count,
+                    replace=False
+                )
+
+                # Combine overlap and non-overlap indices
+                combined_flat_indices = np.concatenate([
+                    overlap_indices,
+                    non_overlap_flat_indices
+                ])
+            else:
+                combined_flat_indices = overlap_indices
+
+            # Convert to multi-indices
+            combined_multi_indices = np.unravel_index(
+                combined_flat_indices, var_shapes[var_idx]
+            )
+
+            # Handle constant dimensions
+            var_full_coords = list(combined_multi_indices)
+            for const_dim in self.var_constant_dims[var_idx]:
+                const_rng = self.var_constant_coord_indices[var_idx][const_dim]
+                const_val = const_rng.integers(0, shape[const_dim])
+                var_full_coords[const_dim] = np.full(len(combined_flat_indices), const_val)
+
+            var_full_multi_indices = tuple(var_full_coords)
+
+            # Generate observations
+            var_observations = var_rngs[var_idx].uniform(
+                0, 1, size=len(combined_flat_indices)
+            )
+
+            # Assign to record
+            records[var_name][var_full_multi_indices] = var_observations
 
         return records
 
@@ -592,13 +863,276 @@ class GenerateData:
         raise ValueError(f"NTASKS must be positive, got {self.NTASKS}")
 
     def _generate_par(self) -> None:
-        """Generate data in parallel using Dask.
+        """Generate sparse record array with observations using parallel processing.
 
-        This method is kept from the original implementation for parallel generation.
-        It will be refactored in Phase 5.
+        Submit as many dataset generation tasks as number of blocks needed.
+        Supports both single-variable and multi-variable datasets.
         """
-        # Import the original method for now - will be refactored in Phase 5
-        raise NotImplementedError(
-            "Parallel generation not yet refactored. "
-            "This will be implemented in Phase 5 of the refactoring."
+        # Clean up any existing temporary files from previous runs
+        import os
+        import shutil
+        
+        # Ensure output directories exist
+        nc_dir = os.path.dirname(self.netcdf_filepath)
+        if nc_dir and not os.path.exists(nc_dir):
+            os.makedirs(nc_dir, exist_ok=True)
+        
+        parquet_dir = os.path.dirname(self.parquet_filepath)
+        if parquet_dir and not os.path.exists(parquet_dir):
+            os.makedirs(parquet_dir, exist_ok=True)
+            
+        tmp_dir = os.path.dirname(self.parquet_tmp)
+        
+        # Remove the entire temporary directory if it exists
+        if os.path.exists(tmp_dir):
+            try:
+                shutil.rmtree(tmp_dir)
+                print(f"Deleted temporary directory: {tmp_dir}")
+            except Exception as e:
+                print(f"Warning: Could not remove {tmp_dir}: {e}")
+        
+        # Recreate the temporary directory
+        if tmp_dir:
+            os.makedirs(tmp_dir, exist_ok=True)
+        
+        cluster = LocalCluster(n_workers=4, threads_per_worker=1, processes=True)
+        client = Client(cluster)
+        print("Dask dashboard:", client.dashboard_link)
+
+        total_obs = self.num_obs
+        total_points = np.prod(self.shape)
+        total_points_slice = total_points / self.max_dim_size
+        chunk_points = np.array(
+            [total_points_slice * chunk_size for chunk_size in self.section_sizes]
+        ).astype(int)
+        print("type chunk_points", type(chunk_points))
+        print("chunk_points", chunk_points)
+        
+        # As randomness is uniform
+        per_chunk_obs = np.rint(self.sparsity * chunk_points).astype(int)
+        for idx, c in enumerate(per_chunk_obs):
+            if c > chunk_points[idx]:
+                per_chunk_obs[idx] = chunk_points[idx]
+
+        mp_obs = per_chunk_obs.sum()
+        if not mp_obs.is_integer():
+            raise ValueError(f"Got non integer value of observations {mp_obs}.")
+        mp_obs = int(mp_obs)
+        sparsity = mp_obs / total_points
+        print(f"Multiprocessing approximations lead to {mp_obs} total observation (goal: {total_obs}).")
+        print(f"Updated sparsity is {sparsity} (was: {self.sparsity}).")
+        self.sparsity = sparsity
+        self.num_obs = mp_obs
+
+        # Submit one task per seed
+        futures = [
+            client.submit(self._generate_record_par, chunk_id, chunk_obs)
+            for chunk_id, chunk_obs in zip(range(self.NTASKS), per_chunk_obs)
+        ]
+        tot_completed = 0
+        tot_obs = 0
+        for f in as_completed(futures):
+            chunk_id, obs_num = f.result()
+            tot_completed += 1
+            tot_obs += obs_num
+            print(
+                f"Completed {tot_completed} of {self.NTASKS} chunks "
+                f"(completed chunk #{chunk_id})"
+            )
+
+        print(f"Total obs stored to disk: {tot_obs}.")
+        client.close()
+        cluster.close()
+
+        # Read all chunks from temporary directory
+        import os
+        tmp_dir = os.path.dirname(self.parquet_tmp)
+        ddf = dd.read_parquet(tmp_dir)
+        ddf = ddf.repartition(partition_size="300MB")
+        self.save_to_parquet(
+            self.parquet_filepath,
+            ddf,
+            overwrite=True
         )
+
+    def _generate_record_par(self, chunk_id: int, obs_in_chunk: int) -> Tuple[int, int]:
+        """Generate sparse record array for a single chunk in parallel processing.
+
+        This method generates a chunk of the full array by:
+        1. Setting up chunk-specific and global random generators
+        2. Generating coordinates (using global RNG for shared dims, local for split dim)
+        3. Generating the sparse record array(s) for this chunk (single or multi-variable)
+        4. Creating and saving DataArray/Dataset and DataFrame representations
+
+        Supports both single-variable and multi-variable datasets. For multi-variable
+        datasets with overlap control, the overlap is computed per-chunk based on the
+        global overlap target.
+
+        Args:
+            chunk_id: Identifier for this chunk
+            obs_in_chunk: Number of observations to generate in this chunk (for single-var)
+                         or observations for the reference variable (for multi-var)
+
+        Returns:
+            Tuple of (chunk_id, total number of observations stored across all variables)
+        """
+        logging.basicConfig(
+            level=logging.DEBUG,
+            format='%(asctime)s %(process)d %(levelname)s %(message)s',
+            filename=f'dask_worker_{chunk_id}.log',
+        )
+        logging.debug("")
+        logging.debug("######------ NEW CHUNK ------######")
+
+        # Generate two distinct generators:
+        # global_rng: identical across tasks, used for coordinates along non-split dimensions
+        # task_rng: unique per task, used for split dimension coordinates and observations
+        global_rng = np.random.default_rng(self.seed)
+        task_rng = np.random.default_rng(self.seed + chunk_id)
+
+        # Determine chunk dimensions and range along split dimension
+        task_range = (self.div_points[chunk_id], self.div_points[chunk_id + 1])
+        task_size = self.section_sizes[chunk_id]
+        task_shape = self.shape.copy()
+        task_shape[self.dim_split] = task_size
+        logging.debug("task_range: %s", task_range)
+        logging.debug("task_size: %s", task_size)
+        logging.debug("task_shape: %s", task_shape)
+
+        total_chunk_points = np.prod(task_shape)
+        if not total_chunk_points.is_integer():
+            raise ValueError("total_chunk_points must be an int")
+        total_chunk_points = int(total_chunk_points)
+        logging.debug("total_chunk_points: %s", total_chunk_points)
+
+        # Build dimension ranges and RNGs for coordinate generation
+        # Non-split dimensions use [0, 1) with global_rng
+        # Split dimension uses normalized chunk range with task_rng
+        dim_ranges = {
+            self.dim_split: (
+                task_range[0] / self.max_dim_size,
+                task_range[1] / self.max_dim_size
+            )
+        }
+        dim_rngs = {}
+        for idx in range(len(task_shape)):
+            if idx == self.dim_split:
+                dim_rngs[idx] = task_rng
+            else:
+                dim_rngs[idx] = global_rng
+
+        # Generate coordinates with optional dimension-specific ranges and RNGs
+        coord_dict = {}
+        coords_list = CoordinateGenerator.generate_all_coords(
+            task_shape, global_rng, dim_ranges, dim_rngs
+        )
+        for i, coords in enumerate(coords_list):
+            coord_dict[f"x{i}"] = coords
+        coordinates = coord_dict
+
+        logging.debug("obs in chunk: %s", obs_in_chunk)
+        logging.debug("total chunk points: %s", total_chunk_points)
+
+        # Generate records for single or multiple variables
+        if self.num_vars == 1:
+            # Single variable mode: use the original single-record logic
+            record = self._generate_record(
+                shape=task_shape,
+                num_obs=obs_in_chunk,
+                observations=None,  # Will be generated inside _generate_record
+                rng=task_rng
+            )
+
+            logging.debug("chunk id: %s", chunk_id)
+            logging.debug("record.shape: %s", record.shape)
+            logging.debug("num obs in chunk: %s", obs_in_chunk)
+            logging.debug("non-nans in chunk: %s", np.sum(~np.isnan(record)))
+            logging.debug("dims: %s", list(coordinates.keys()))
+            logging.debug("coords: %s", coordinates)
+
+            # Create DataArray with chunk-specific attributes
+            chunk_attrs = NetCDFBuilder.create_default_attrs(
+                self.num_obs, self.num_dims, self.ratio_dims, self.sparsity, self.seed
+            )
+            chunk_attrs["chunk_id"] = chunk_id
+            chunk_attrs["description"] = "Sparse observation data (chunk)"
+            
+            dataarray = NetCDFBuilder.build_dataarray(
+                record, coordinates, attrs=chunk_attrs
+            )
+
+            # Save to NetCDF
+            nb_digits = len(str(self.NTASKS))
+            fpath = f"{self.netcdf_filepath[:-3]}_{chunk_id:0{nb_digits}d}.nc"
+            self.save_to_netcdf(fpath, dataarray=dataarray, overwrite=False)
+            del dataarray
+            gc.collect()
+
+            # Create and save DataFrame (keep as pandas, save_to_parquet will convert)
+            dataframe = ParquetBuilder.build_single_var_dataframe(record, coordinates)
+
+            self.save_to_parquet(
+                self.parquet_tmp,
+                dataframe,
+                overwrite=False,
+                chunk_id=chunk_id
+            )
+
+            total_obs = np.sum(~np.isnan(record))
+
+        else:
+            # Multi-variable mode: generate all variables for this chunk
+            records = self._generate_multi_var_records_par(
+                shape=task_shape,
+                rng=task_rng,
+                chunk_id=chunk_id
+            )
+
+            logging.debug("chunk id: %s", chunk_id)
+            total_obs = 0
+            for var_idx in range(self.num_vars):
+                var_name = self._format_var_name(var_idx)
+                var_obs = np.sum(~np.isnan(records[var_name]))
+                total_obs += var_obs
+                logging.debug("%s obs in chunk: %s", var_name, var_obs)
+
+            # Create Dataset with chunk-specific attributes
+            chunk_attrs = NetCDFBuilder.create_default_attrs(
+                self.num_obs, self.num_dims, self.ratio_dims,
+                float(self.var_sparsities[0]), self.seed
+            )
+            chunk_attrs.update({
+                "chunk_id": chunk_id,
+                "description": "Multi-variable sparse observation data (chunk)",
+                "num_vars": self.num_vars,
+                "var_sparsities": self.var_sparsities.tolist(),
+                "var_num_obs": self.var_num_obs.tolist(),
+                "overlap_target": self.overlap_target if isinstance(
+                    self.overlap_target, str
+                ) else float(self.overlap_target)
+            })
+            
+            dataset = NetCDFBuilder.build_dataset(
+                records, coordinates, attrs=chunk_attrs
+            )
+
+            # Save to NetCDF
+            nb_digits = len(str(self.NTASKS))
+            fpath = f"{self.netcdf_filepath[:-3]}_{chunk_id:0{nb_digits}d}.nc"
+            self.save_to_netcdf(fpath, dataarray=dataset, overwrite=False)
+            del dataset
+            gc.collect()
+
+            # Create and save DataFrame (keep as pandas, save_to_parquet will convert)
+            dataframe = ParquetBuilder.build_multi_var_dataframe(
+                records, coordinates, self.num_vars, self.num_dims
+            )
+
+            self.save_to_parquet(
+                self.parquet_tmp,
+                dataframe,
+                overwrite=False,
+                chunk_id=chunk_id
+            )
+
+        return chunk_id, total_obs

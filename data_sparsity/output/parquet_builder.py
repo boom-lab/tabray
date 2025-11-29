@@ -134,7 +134,7 @@ class ParquetBuilder:
         
         Args:
             dataframe: pandas or dask DataFrame
-            filepath: Path to save file
+            filepath: Path to save file (or directory for dask)
             overwrite: Whether to overwrite existing file
             chunk_id: Optional chunk ID for parallel generation
             
@@ -143,17 +143,68 @@ class ParquetBuilder:
         """
         import os
         
-        if os.path.exists(filepath) and not overwrite:
-            raise FileExistsError(
-                f"File {filepath} already exists. Set overwrite=True to replace."
-            )
-        
-        if isinstance(dataframe, dd.DataFrame):
-            dataframe.to_parquet(filepath, overwrite=overwrite)
+        # Convert pandas to dask if needed
+        if isinstance(dataframe, pd.DataFrame):
+            ddf = dd.from_pandas(dataframe, npartitions=1)
         else:
-            if chunk_id is not None:
-                base, ext = os.path.splitext(filepath)
-                filepath = f"{base}_chunk{chunk_id}{ext}"
-            dataframe.to_parquet(filepath)
+            ddf = dataframe
         
-        print(f"Saved to {filepath}")
+        # Parse filepath into directory and filename
+        dirpath = os.path.dirname(filepath)
+        filename = os.path.basename(filepath)
+        
+        # Handle case where filepath has no directory component
+        if not dirpath:
+            dirpath = '.'
+        
+        # Remove .parquet extension if present for directory-based storage
+        if filename.endswith('.parquet'):
+            filename = filename[:-8]
+        
+        if not filename:
+            filename = 'data'
+        
+        # Add chunk_id to filename if provided
+        if chunk_id is not None:
+            filename += f"_{chunk_id}"
+        
+        # Create name function for partition files
+        nb_digits = len(str(ddf.npartitions))
+        def name_function(partition_idx: int) -> str:
+            """Generate filename for a parquet partition."""
+            return f"{filename}_{partition_idx:0{nb_digits}d}.parquet"
+        
+        # Check if directory exists when not overwriting
+        if os.path.exists(dirpath) and not overwrite:
+            # Check if any files matching the pattern exist
+            existing_files = [
+                f for f in os.listdir(dirpath) 
+                if f.startswith(filename) and f.endswith('.parquet')
+            ]
+            if existing_files:
+                raise FileExistsError(
+                    f"Files matching pattern {filename}*.parquet already exist "
+                    f"in {dirpath}. Set overwrite=True to replace."
+                )
+        
+        # For parallel generation with chunk_id, delete only files for this chunk
+        if chunk_id is not None and overwrite and os.path.exists(dirpath):
+            for f in os.listdir(dirpath):
+                if f.startswith(filename) and f.endswith('.parquet'):
+                    os.remove(os.path.join(dirpath, f))
+        
+        # For parallel generation, don't write metadata file
+        # (will be written when chunks are merged)
+        write_metadata = (chunk_id is None)
+        
+        # Save to parquet (overwrite=False to avoid deleting other chunks)
+        ddf.to_parquet(
+            dirpath,
+            engine="pyarrow",
+            name_function=name_function,
+            append=False,
+            overwrite=False,  # Never overwrite at dask level for chunks
+            write_metadata_file=write_metadata
+        )
+        
+        print(f"Saved to {dirpath}/{filename}_*.parquet")

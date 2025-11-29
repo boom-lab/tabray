@@ -88,9 +88,11 @@ print(dataarray)
 print(dataframe.head())
 ```
 
-### Parallel Generation for Large Datasets
+### Parallel Generation for Large Datasets (⚠️ Experimental)
 
-When generating datasets larger than available memory, the tool automatically uses parallel processing to split the data into manageable chunks. **This now works for both single-variable and multi-variable datasets:**
+> **Note**: Parallel generation is currently experimental and has known issues. For production use, set `max_obs` to a large value or omit it entirely to use serial generation. See `PARALLEL_GENERATION_STATUS.md` for details.
+
+When generating datasets larger than available memory, the tool can use parallel processing to split the data into manageable chunks. **This feature is being refactored and may not work reliably:**
 
 ```python
 from data_sparsity import GenerateData
