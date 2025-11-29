@@ -18,7 +18,6 @@ from numpy.typing import ArrayLike
 import pandas as pd
 import xarray as xr
 
-import data_sparsity.utils as ds_utils
 from data_sparsity.validators import (
     ParameterValidator,
     DimensionValidator,
@@ -36,7 +35,8 @@ from data_sparsity.generators import (
 )
 from data_sparsity.output import (
     NetCDFBuilder,
-    ParquetBuilder
+    ParquetBuilder,
+    PathManager
 )
 
 
@@ -555,14 +555,13 @@ class GenerateData:
         if parquet_tmp is None:
             parquet_tmp = "./parquet_tmp/test_tmp.parquet"
 
-        self.netcdf_filepath = netcdf_filepath
-        self.parquet_filepath = parquet_filepath
-        self.parquet_tmp = parquet_tmp
-
-        ds_utils.set_up_paths(
-            netcdf_filepath=self.netcdf_filepath,
-            parquet_filepath=self.parquet_filepath,
-            parquet_tmp=self.parquet_tmp
+        self.netcdf_filepath, self.parquet_filepath, self.parquet_tmp = (
+            PathManager.setup_output_paths(
+                netcdf_filepath=netcdf_filepath,
+                parquet_filepath=parquet_filepath,
+                parquet_tmp=parquet_tmp,
+                overwrite=True
+            )
         )
 
         # Execute generation pipeline for single process
