@@ -11,8 +11,11 @@ import numpy as np
 class MultiVarSparsityConfig:
     """Configuration manager for multi-variable sparsity.
     
-    This class processes different sparsity specifications and generates
-    appropriate sparsity values and observation counts for each variable.
+    This class processes the sparsity parameter which can be:
+    - A scalar: all variables get the same sparsity
+    - A 2-element list/tuple: one var gets min, one gets max, rest are random
+    - A num_vars-element list/tuple: each var gets its corresponding sparsity
+    
     """
 
     @staticmethod

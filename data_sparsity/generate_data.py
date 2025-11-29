@@ -53,6 +53,7 @@ class GenerateData:
         ratio_dims: Tuple of relative sizes for each dimension
         sparsity: Sparsity of observation (between smin>0. and 1.)
         seed: Random seed for reproducibility
+        max_obs: Maximum observations per chunk for parallel generation
         num_vars: Number of variables in the dataset
         var_dims: Dimensions for each variable
         overlap: Overlap between variables (0-1 or 'random')
@@ -158,10 +159,30 @@ class GenerateData:
         print(f"  Overlap: {self.overlap}")
 
     def _validate_parameters(self) -> None:
-        """Validate initialization parameters using validator classes.
+        """Validate initialization parameters.
+
+        Checks that:
+        * input parameters values are admissible
+        * all dimensions have at least two elements (one element does not make
+          sense, as we can drop that dimension and reduce the system's size)
+        * all dimensions have a natural number of elements (no floats)
+        * sparsity is larger than the minimum theoretical value and smaller
+          than 1
+        * input number of observations is consistent with input number of
+          dimensions and sparsity
+
+        Some checks are hard checks (i.e. an error is raised if the check fails),
+        others are soft (i.e. the expected values is enforced instead of raising
+        an error). The latter is done when the check fails likely due to
+        rounding. Input and updated configuration are printed to screen to make
+        user aware of changes.
 
         This method delegates to specialized validator and configurator classes
         to validate and configure all parameters.
+
+        Raises:
+            TypeError: If parameters are not of expected types
+            ValueError: If parameters fail validation checks
         """
         # Validate basic parameters
         ParameterValidator.validate_num_obs(self.num_obs)
@@ -183,6 +204,7 @@ class GenerateData:
         )
         self.nb_coords_dim1 = DimensionValidator.round_to_integer(nb_coords_dim1)
 
+        # Check that all dimensions have at least one element
         self.nb_coords_per_dim = DimensionValidator.compute_nb_coords_per_dim(
             self.ratio_dims, self.nb_coords_dim1
         )
@@ -194,11 +216,13 @@ class GenerateData:
             self.nb_coords_per_dim
         )
 
-        # Validate and adjust sparsity
+        # Check that sparsity is larger than minimum allowed for this set of parameters
         self.sparsity_zero = SparsityValidator.compute_min_sparsity(self.nb_coords_per_dim)
         sparsity_for_grid = SparsityValidator.validate_sparsity_bounds(
             sparsity_for_grid, self.sparsity_zero
         )
+
+        # Check that num_obs is consistent with sparsity and dimensions size
         self.num_obs, sparsity_for_grid = SparsityValidator.validate_num_obs_consistency(
             self.num_obs, sparsity_for_grid, self.nb_coords_per_dim
         )
@@ -233,12 +257,14 @@ class GenerateData:
         Args:
             sparsity_for_grid: Representative sparsity value
         """
-        # Setup sparsity configuration
+        # Setup sparsity values for each variable
         self.var_sparsities, self.var_num_obs = MultiVarSparsityConfig.setup_from_parameter(
             self.sparsity, self.num_vars, self.num_obs, self.sparsity_zero, self._rng
         )
 
-        # Setup dimension configuration
+        # Setup dimensions: the grid is defined over num_dims dimensions, but
+        # each variable is measured at var_dims <= num_dims, the other
+        # dimensions are set to a constant value
         (self.var_dims_indices,
          self.var_constant_dims,
          self.var_constant_coord_indices) = MultiVarDimensionsConfig.setup_from_parameter(

@@ -23,6 +23,8 @@ class DimensionValidator:
         num_dims: int
     ) -> float:
         """Compute number of coordinates in first dimension.
+
+        Check that first dimension in coordinate space has at least one element.
         
         Args:
             num_obs: Number of observations

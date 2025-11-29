@@ -11,8 +11,22 @@ import numpy as np
 class MultiVarDimensionsConfig:
     """Configuration manager for multi-variable dimensions.
     
-    This class processes dimension specifications and determines which
-    dimensions vary vs. remain constant for each variable.
+    This class processes the var_dims parameter which can be:
+    - An int: all variables have the same number of VARYING dimensions (which
+      are randomly selected)
+    - A list/tuple of ints: each var has a different number of VARYING dims
+      (which randomly selected)
+    - A list/tuple of lists/tuples: each var has explicitly specified VARYING dims
+
+    VARYING dimensions are those dimensions along which the variable's record
+    changes. Dimensions not in var_dims_indices are held constant for that
+    variable, as if the variable is measured only once (or never and assigned a
+    constant value) along that dimensions. Numerically, all variables have
+    components in the full num_dims space.
+
+    Sets self.var_dims_indices (varying dimensions), self.var_constant_dims,
+    and self.var_constant_coord_indices (pre-selected constant coordinate indices)
+
     """
 
     @staticmethod

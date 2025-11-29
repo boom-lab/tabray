@@ -21,6 +21,8 @@ class ParameterValidator:
     @staticmethod
     def validate_num_obs(num_obs: int) -> None:
         """Validate number of observations.
+
+        Check that num_obs to generate is int and larger than 0
         
         Args:
             num_obs: Number of observations to generate
@@ -88,6 +90,18 @@ class ParameterValidator:
         num_dims: int
     ) -> np.ndarray:
         """Validate and convert ratio_dims to numpy array.
+
+        If ratio_dims is 1, all dimensions have the same size; if ratio_dims is
+        a list, it contains the factors of the number of elements per dimension,
+        and it must contain as many elements as num_dims.
+        Examples:
+        - num_dims = 4, ratio_dims=1: all four dimensions have the same number
+          of elements
+        - num_dims = 3, ratio_dims=[1,2,5]: dimension #2 has twice the points of
+          dimension #1, and dimension #3 has 5-times the points of dimension #1
+          (and 2.5-times of dimension #2)
+        - num_dims = 5, ratio_dims=[1,3]: raises error because ratio_dims have
+          fewer elements than num_dims
         
         Args:
             ratio_dims: Relative sizes for each dimension
@@ -99,6 +113,7 @@ class ParameterValidator:
         Raises:
             TypeError: If ratio_dims is not a valid type
             ValueError: If ratio_dims length doesn't match num_dims
+
         """
         if isinstance(ratio_dims, int):
             if ratio_dims == 1:
@@ -128,6 +143,10 @@ class ParameterValidator:
         sparsity: Union[int, float, List, Tuple]
     ) -> float:
         """Validate sparsity type and return representative value for grid calculations.
+
+        The sparsity at the whole grid level is determined as the maximum value
+        of sparsity available across variables (if sparsity is an int, it is the
+        same for all variables)
         
         Args:
             sparsity: Sparsity value(s) - scalar, 2-element, or num_vars-element
@@ -138,6 +157,7 @@ class ParameterValidator:
         Raises:
             TypeError: If sparsity is not a valid type
             ValueError: If sparsity values are not in [0, 1]
+
         """
         if isinstance(sparsity, (float, int)):
             sparsity_for_grid = float(sparsity)
