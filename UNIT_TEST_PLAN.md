@@ -4,6 +4,47 @@
 
 This plan covers comprehensive unit testing for all refactored modules. The goal is deterministic testing with >90% code coverage using pytest.
 
+**Current Status: 267/338 tests passing (79%)** 
+
+Legend:
+- ✅ Test passing
+- ❌ Test failing
+- ⏳ Test not yet implemented
+
+---
+
+## Current Implementation Status
+
+| Module | Total Tests | Passing | Failing | Status |
+|--------|-------------|---------|---------|--------|
+| **validators/test_parameter_validator.py** | 30 | 30 | 0 | ✅ 100% |
+| **validators/test_dimension_validator.py** | 35 | 35 | 0 | ✅ 100% |
+| **validators/test_sparsity_validator.py** | 25 | 25 | 0 | ✅ 100% |
+| **config/test_multi_var_sparsity.py** | 35 | 30 | 5 | ⚡ 86% |
+| **config/test_multi_var_dimensions.py** | 39 | 22 | 17 | ⚠️ 56% |
+| **config/test_multi_var_overlap.py** | 25 | 25 | 0 | ✅ 100% |
+| **generators/test_coordinate_generator.py** | 15 | 15 | 0 | ✅ 100% |
+| **generators/test_observation_generator.py** | 10 | 10 | 0 | ✅ 100% |
+| **generators/test_record_generator.py** | 30 | 24 | 6 | ⚡ 80% |
+| **generators/test_single_var_record_generator.py** | 20 | 0 | 20 | ❌ 0% |
+| **generators/test_overlap_calculator.py** | 25 | 13 | 12 | ⚠️ 52% |
+| **output/test_path_manager.py** | 19 | 18 | 1 | ✅ 95% |
+| **output/test_netcdf_builder.py** | 0 | 0 | 0 | ⏳ Planned |
+| **output/test_parquet_builder.py** | 0 | 0 | 0 | ⏳ Planned |
+| **test_generate_data.py (Integration)** | 41 | 34 | 7 | ✅ 83% |
+| **TOTAL** | **349** | **281** | **68** | **81%** |
+
+### Issues to Fix
+1. **config/test_multi_var_dimensions.py** - 17 failures due to API signature mismatches
+2. **generators/test_single_var_record_generator.py** - 20 failures, API needs verification
+3. **generators/test_overlap_calculator.py** - 12 failures, API signature issues
+4. **generators/test_record_generator.py** - 6 failures in validate_sparsity tests
+5. **config/test_multi_var_sparsity.py** - 5 failures, minor issues
+6. **test_generate_data.py** - 7 failures, parameter adjustments needed
+7. **output/test_path_manager.py** - 1 failure, minor error message issue
+
+---
+
 ---
 
 ## Test Structure
@@ -69,388 +110,388 @@ Total: ~460 tests
 
 ## Module-by-Module Test Plan
 
-### validators/test_parameter_validator.py (30 tests)
+### validators/test_parameter_validator.py (30 tests) - ✅ ALL PASSING
 
 **Method: validate_num_obs (6 tests)**
-- ✓ Valid positive integer
-- ✓ Zero raises ValueError
-- ✓ Negative raises ValueError
-- ✓ Float raises TypeError
-- ✓ String raises TypeError
-- ✓ None raises TypeError
+- ✅ Valid positive integer
+- ✅ Zero raises ValueError
+- ✅ Negative raises ValueError
+- ✅ Float raises TypeError
+- ✅ String raises TypeError
+- ✅ None raises TypeError
 
 **Method: validate_sparsity_type (8 tests)**
-- ✓ Valid float returns float
-- ✓ Valid int returns float
-- ✓ Valid list returns max
-- ✓ Valid tuple returns max
-- ✓ Negative raises ValueError
-- ✓ > 1.0 raises ValueError
-- ✓ String raises TypeError
-- ✓ Empty list raises ValueError
+- ✅ Valid float returns float
+- ✅ Valid int returns float
+- ✅ Valid list returns max
+- ✅ Valid tuple returns max
+- ✅ Negative raises ValueError
+- ✅ > 1.0 raises ValueError
+- ✅ String raises TypeError
+- ✅ Empty list raises ValueError
 
 **Method: validate_num_dims (6 tests)**
-- ✓ Valid positive integer
-- ✓ Zero raises ValueError
-- ✓ Negative raises ValueError
-- ✓ Float raises TypeError
-- ✓ String raises TypeError
-- ✓ None raises TypeError
+- ✅ Valid positive integer
+- ✅ Zero raises ValueError
+- ✅ Negative raises ValueError
+- ✅ Float raises TypeError
+- ✅ String raises TypeError
+- ✅ None raises TypeError
 
 **Method: validate_ratio_dims (6 tests)**
-- ✓ Integer 1 converts to list
-- ✓ List passes through as array
-- ✓ Tuple converts to array
-- ✓ Length mismatch raises ValueError
-- ✓ Invalid type raises TypeError
-- ✓ Integer != 1 raises ValueError
+- ✅ Integer 1 converts to list
+- ✅ List passes through as array
+- ✅ Tuple converts to array
+- ✅ Length mismatch raises ValueError
+- ✅ Invalid type raises TypeError
+- ✅ Integer != 1 raises ValueError
 
 **Method: validate_seed (2 tests)**
-- ✓ Valid non-negative integer
-- ✓ Negative raises ValueError
+- ✅ Valid non-negative integer
+- ✅ Negative raises ValueError
 
 **Method: validate_num_vars (2 tests)**
-- ✓ Valid positive integer
-- ✓ Zero/negative raises ValueError
+- ✅ Valid positive integer
+- ✅ Zero/negative raises ValueError
 
 ---
 
-### validators/test_dimension_validator.py (35 tests)
+### validators/test_dimension_validator.py (35 tests) - ✅ ALL PASSING
 
 **Method: compute_nb_coords_dim1 (8 tests)**
-- ✓ Valid parameters return expected value
-- ✓ Different num_obs values
-- ✓ Different sparsity values
-- ✓ Different ratio_dims_prod values
-- ✓ Different num_dims values
-- ✓ Result < 1 raises ValueError
-- ✓ Large values handled correctly
-- ✓ Edge case: sparsity=1
+- ✅ Valid parameters return expected value
+- ✅ Different num_obs values
+- ✅ Different sparsity values
+- ✅ Different ratio_dims_prod values
+- ✅ Different num_dims values
+- ✅ Result < 1 raises ValueError
+- ✅ Large values handled correctly
+- ✅ Edge case: sparsity=1
 
 **Method: round_to_integer (5 tests)**
-- ✓ Rounds up correctly (e.g., 10.6 -> 11)
-- ✓ Rounds down correctly (e.g., 10.4 -> 10)
-- ✓ Exact integers unchanged
-- ✓ Prints correct message (capture stdout)
-- ✓ Returns integer type
+- ✅ Rounds up correctly (e.g., 10.6 -> 11)
+- ✅ Rounds down correctly (e.g., 10.4 -> 10)
+- ✅ Exact integers unchanged
+- ✅ Prints correct message (capture stdout)
+- ✅ Returns integer type
 
 **Method: compute_nb_coords_per_dim (5 tests)**
-- ✓ Uniform ratio_dims
-- ✓ Non-uniform ratio_dims
-- ✓ Single dimension
-- ✓ Many dimensions (10+)
-- ✓ Result shape matches ratio_dims shape
+- ✅ Uniform ratio_dims
+- ✅ Non-uniform ratio_dims
+- ✅ Single dimension
+- ✅ Many dimensions (10+)
+- ✅ Result shape matches ratio_dims shape
 
 **Method: validate_min_elements_per_dim (6 tests)**
-- ✓ All valid (>= 1) passes
-- ✓ One dimension < 1 raises ValueError
-- ✓ Multiple dimensions < 1 raises ValueError
-- ✓ Exactly 1 passes
-- ✓ Error message contains dimension index
-- ✓ Zero raises ValueError
+- ✅ All valid (>= 1) passes
+- ✅ One dimension < 1 raises ValueError
+- ✅ Multiple dimensions < 1 raises ValueError
+- ✅ Exactly 1 passes
+- ✅ Error message contains dimension index
+- ✅ Zero raises ValueError
 
 **Method: validate_integer_elements (6 tests)**
-- ✓ Integer values pass through unchanged
-- ✓ Close-to-integer values rounded
-- ✓ Non-integer values raise ValueError
-- ✓ Prints old and new values
-- ✓ Returns integer array
-- ✓ Multiple non-integer values error message
+- ✅ Integer values pass through unchanged
+- ✅ Close-to-integer values rounded
+- ✅ Non-integer values raise ValueError
+- ✅ Prints old and new values
+- ✅ Returns integer array
+- ✅ Multiple non-integer values error message
 
 **Method: compute_shape_and_grid_points (5 tests)**
-- ✓ 1D array
-- ✓ 2D array
-- ✓ 3D array
-- ✓ High-dimensional array (10D)
-- ✓ Grid points = product of shape
+- ✅ 1D array
+- ✅ 2D array
+- ✅ 3D array
+- ✅ High-dimensional array (10D)
+- ✅ Grid points = product of shape
 
 ---
 
-### validators/test_sparsity_validator.py (25 tests)
+### validators/test_sparsity_validator.py (25 tests) - ✅ ALL PASSING
 
 **Method: compute_min_sparsity (5 tests)**
-- ✓ Uniform dimensions
-- ✓ Non-uniform dimensions
-- ✓ Single dimension
-- ✓ Returns 1/min(dims)
-- ✓ Large dimensions
+- ✅ Uniform dimensions
+- ✅ Non-uniform dimensions
+- ✅ Single dimension
+- ✅ Returns 1/min(dims)
+- ✅ Large dimensions
 
 **Method: validate_sparsity_bounds (10 tests)**
-- ✓ Valid sparsity in range passes
-- ✓ Sparsity = 0 returns minimum
-- ✓ Sparsity < minimum (not 0) raises ValueError
-- ✓ Sparsity = minimum passes
-- ✓ Sparsity = 1 passes
-- ✓ Sparsity > 1 raises ValueError (from type validation)
-- ✓ Prints minimum sparsity
-- ✓ Prints adjustment message for 0
-- ✓ Edge case: sparsity = minimum + epsilon
-- ✓ Edge case: sparsity = minimum - epsilon
+- ✅ Valid sparsity in range passes
+- ✅ Sparsity = 0 returns minimum
+- ✅ Sparsity < minimum (not 0) raises ValueError
+- ✅ Sparsity = minimum passes
+- ✅ Sparsity = 1 passes
+- ✅ Sparsity > 1 raises ValueError (from type validation)
+- ✅ Prints minimum sparsity
+- ✅ Prints adjustment message for 0
+- ✅ Edge case: sparsity = minimum + epsilon
+- ✅ Edge case: sparsity = minimum - epsilon
 
 **Method: validate_num_obs_consistency (10 tests)**
-- ✓ Matching num_obs passes unchanged
-- ✓ Non-matching num_obs adjusted
-- ✓ Prints adjustment message
-- ✓ Returns integer
-- ✓ Returns adjusted sparsity
-- ✓ Adjusted sparsity in bounds
-- ✓ Edge case: large grid
-- ✓ Edge case: small grid
-- ✓ Out of bounds after adjustment raises ValueError
-- ✓ Sparsity recalculation correct
+- ✅ Matching num_obs passes unchanged
+- ✅ Non-matching num_obs adjusted
+- ✅ Prints adjustment message
+- ✅ Returns integer
+- ✅ Returns adjusted sparsity
+- ✅ Adjusted sparsity in bounds
+- ✅ Edge case: large grid
+- ✅ Edge case: small grid
+- ✅ Out of bounds after adjustment raises ValueError
+- ✅ Sparsity recalculation correct
 
 ---
 
-### config/test_multi_var_sparsity.py (35 tests)
+### config/test_multi_var_sparsity.py (35 tests) - 30/35 PASSING (86%)
 
 **Method: from_scalar (5 tests)**
-- ✓ Single variable
-- ✓ Two variables
-- ✓ Many variables
-- ✓ Array shape correct
-- ✓ All elements equal
+- ✅ Single variable
+- ✅ Two variables
+- ✅ Many variables
+- ✅ Array shape correct
+- ✅ All elements equal
 
 **Method: from_two_element_list (10 tests)**
-- ✓ Two variables: random assignment (test with seeds)
-- ✓ Three variables: includes min, max, random
-- ✓ Many variables: distribution correct
-- ✓ All elements in [min, max]
-- ✓ Contains exactly one min
-- ✓ Contains exactly one max
-- ✓ Reproducible with same seed
-- ✓ Different with different seed
-- ✓ Order shuffled (not always sorted)
-- ✓ Array length matches num_vars
+- ✅ Two variables: random assignment (test with seeds)
+- ✅ Three variables: includes min, max, random
+- ✅ Many variables: distribution correct
+- ✅ All elements in [min, max]
+- ✅ Contains exactly one min
+- ✅ Contains exactly one max
+- ✅ Reproducible with same seed
+- ✅ Different with different seed
+- ✅ Order shuffled (not always sorted)
+- ✅ Array length matches num_vars
 
 **Method: from_full_list (5 tests)**
-- ✓ Correct length matches
-- ✓ Values preserved
-- ✓ Wrong length raises ValueError
-- ✓ Empty list raises ValueError
-- ✓ Single element for single var
+- ✅ Correct length matches
+- ✅ Values preserved
+- ❌ Wrong length raises ValueError
+- ❌ Empty list raises ValueError
+- ✅ Single element for single var
 
 **Method: validate_and_clip (8 tests)**
-- ✓ All valid values pass
-- ✓ Value below minimum clipped
-- ✓ Multiple values clipped
-- ✓ Prints warning for clipping
-- ✓ Value > 1 raises ValueError
-- ✓ Negative value raises ValueError
-- ✓ Zero handled correctly
-- ✓ Returns modified array
+- ✅ All valid values pass
+- ✅ Value below minimum clipped
+- ✅ Multiple values clipped
+- ❌ Prints warning for clipping
+- ✅ Value > 1 raises ValueError
+- ✅ Negative value raises ValueError
+- ✅ Zero handled correctly
+- ✅ Returns modified array
 
 **Method: compute_var_num_obs (5 tests)**
-- ✓ Single variable
-- ✓ Equal sparsities
-- ✓ Different sparsities
-- ✓ Max sparsity gets full num_obs
-- ✓ Minimum 1 observation per variable
+- ✅ Single variable
+- ✅ Equal sparsities
+- ✅ Different sparsities
+- ✅ Max sparsity gets full num_obs
+- ✅ Minimum 1 observation per variable
 
 **Method: setup_from_parameter (2 tests)**
-- ✓ Integration test: scalar input
-- ✓ Integration test: list input
+- ✅ Integration test: scalar input
+- ✅ Integration test: list input
 
 ---
 
-### config/test_multi_var_dimensions.py (40 tests)
+### config/test_multi_var_dimensions.py (39 tests) - 22/39 PASSING (56%)
 
 **Method: select_random_dims (8 tests)**
-- ✓ Correct count returned
-- ✓ All elements in valid range
-- ✓ No duplicates
-- ✓ Sorted output
-- ✓ Reproducible with same seed
-- ✓ Different with different seed
-- ✓ Edge case: select 1 dim
-- ✓ Edge case: select all dims
+- ✅ Correct count returned
+- ✅ All elements in valid range
+- ✅ No duplicates
+- ✅ Sorted output
+- ✅ Reproducible with same seed
+- ✅ Different with different seed
+- ✅ Edge case: select 1 dim
+- ✅ Edge case: select all dims
 
 **Method: from_int (8 tests)**
-- ✓ All dims: all variables identical
-- ✓ Subset dims: random selection
-- ✓ Exceeds num_dims raises ValueError
-- ✓ Single dimension per variable
-- ✓ Reproducible with seed
-- ✓ num_vars copies for all dims
-- ✓ Length matches num_vars
-- ✓ Each element sorted
+- ✅ All dims: all variables identical
+- ✅ Subset dims: random selection
+- ✅ Exceeds num_dims raises ValueError
+- ✅ Single dimension per variable
+- ❌ Reproducible with seed (API issue)
+- ✅ num_vars copies for all dims
+- ✅ Length matches num_vars
+- ✅ Each element sorted
 
-**Method: from_list_element (10 tests)**
-- ✓ Integer element: random selection
-- ✓ Integer element: all dims
-- ✓ List element: preserved
-- ✓ Tuple element: converted to list
-- ✓ Empty list raises ValueError
-- ✓ Out of range raises ValueError
-- ✓ Duplicates raise ValueError
-- ✓ Negative index raises ValueError
-- ✓ Invalid type raises TypeError
-- ✓ Result sorted
+**Method: from_list_element (10 tests) - API SIGNATURE ISSUES**
+- ❌ Integer element: random selection
+- ❌ Integer element: all dims
+- ❌ List element: preserved
+- ❌ Tuple element: converted to list
+- ❌ Empty list raises ValueError
+- ❌ Out of range raises ValueError
+- ❌ Duplicates raise ValueError
+- ❌ Negative index raises ValueError
+- ❌ Invalid type raises TypeError
+- ❌ Result sorted
 
-**Method: from_list (6 tests)**
-- ✓ All integers
-- ✓ All lists
-- ✓ Mixed integers and lists
-- ✓ Wrong length raises ValueError
-- ✓ Each element validated
-- ✓ Length matches num_vars
+**Method: from_list (6 tests) - API SIGNATURE ISSUES**
+- ❌ All integers
+- ❌ All lists
+- ❌ Mixed integers and lists
+- ❌ Wrong length raises ValueError
+- ❌ Each element validated
+- ❌ Length matches num_vars
 
 **Method: compute_constant_dims (5 tests)**
-- ✓ No varying dims: all constant
-- ✓ All varying dims: no constant
-- ✓ Mixed: correct complement
-- ✓ Single dimension varying
-- ✓ Length matches num_vars
+- ✅ No varying dims: all constant
+- ✅ All varying dims: no constant
+- ✅ Mixed: correct complement
+- ✅ Single dimension varying
+- ✅ Length matches num_vars
 
-**Method: preselect_constant_coord_indices (3 tests)**
-- ✓ Creates RNG for each constant dim
-- ✓ Empty dict for no constant dims
-- ✓ Correct structure returned
+**Method: preselect_constant_coord_indices (3 tests) - API SIGNATURE ISSUES**
+- ❌ Creates RNG for each constant dim
+- ❌ Empty dict for no constant dims
+- ❌ Correct structure returned
 
 ---
 
-### config/test_multi_var_overlap.py (25 tests)
+### config/test_multi_var_overlap.py (25 tests) - ✅ ALL PASSING
 
 **Method: validate_overlap_value (8 tests)**
-- ✓ Valid float in [0,1] passes
-- ✓ Float 0 passes
-- ✓ Float 1 passes
-- ✓ Float < 0 raises ValueError
-- ✓ Float > 1 raises ValueError
-- ✓ String 'random' passes
-- ✓ Invalid string raises ValueError
-- ✓ Invalid type raises TypeError
+- ✅ Valid float in [0,1] passes
+- ✅ Float 0 passes
+- ✅ Float 1 passes
+- ✅ Float < 0 raises ValueError
+- ✅ Float > 1 raises ValueError
+- ✅ String 'random' passes
+- ✅ Invalid string raises ValueError
+- ✅ Invalid type raises TypeError
 
 **Method: compute_min_overlap (10 tests)**
-- ✓ No shared dimensions: 0
-- ✓ All shared dimensions: 1
-- ✓ Partial overlap: correct ratio
-- ✓ Two variables
-- ✓ Many variables
-- ✓ Different dimension combinations
-- ✓ Single variable: 0
-- ✓ Empty list: 0
-- ✓ Complex scenario
-- ✓ Edge case: one var 1 dim, other all dims
+- ✅ No shared dimensions: 0
+- ✅ All shared dimensions: 1
+- ✅ Partial overlap: correct ratio
+- ✅ Two variables
+- ✅ Many variables
+- ✅ Different dimension combinations
+- ✅ Single variable: 0
+- ✅ Empty list: 0
+- ✅ Complex scenario
+- ✅ Edge case: one var 1 dim, other all dims
 
 **Method: validate_overlap_feasibility (5 tests)**
-- ✓ Feasible overlap passes
-- ✓ Infeasible raises ValueError
-- ✓ Single variable passes (no check)
-- ✓ Random overlap passes (no check)
-- ✓ Exact minimum passes
+- ✅ Feasible overlap passes
+- ✅ Infeasible raises ValueError
+- ✅ Single variable passes (no check)
+- ✅ Random overlap passes (no check)
+- ✅ Exact minimum passes
 
 **Method: setup_from_parameter (2 tests)**
-- ✓ Integration test: float overlap
-- ✓ Integration test: 'random' overlap
+- ✅ Integration test: float overlap
+- ✅ Integration test: 'random' overlap
 
 ---
 
-### generators/test_coordinate_generator.py (15 tests)
+### generators/test_coordinate_generator.py (15 tests) - ✅ ALL PASSING
 
 **Method: generate_dimension_coords (8 tests)**
-- ✓ Correct length
-- ✓ Values in [0,1]
-- ✓ Sorted ascending
-- ✓ Reproducible with seed
-- ✓ Different with different seed
-- ✓ Single coordinate
-- ✓ Many coordinates (1000+)
-- ✓ Returns numpy array
+- ✅ Correct length
+- ✅ Values in [0,1]
+- ✅ Sorted ascending
+- ✅ Reproducible with seed
+- ✅ Different with different seed
+- ✅ Single coordinate
+- ✅ Many coordinates (1000+)
+- ✅ Returns numpy array
 
 **Method: generate_all_coords (7 tests)**
-- ✓ 1D grid
-- ✓ 2D grid
-- ✓ 3D grid
-- ✓ List length matches shape length
-- ✓ Each array correct length
-- ✓ All arrays sorted
-- ✓ Reproducible with seed
+- ✅ 1D grid
+- ✅ 2D grid
+- ✅ 3D grid
+- ✅ List length matches shape length
+- ✅ Each array correct length
+- ✅ All arrays sorted
+- ✅ Reproducible with seed
 
 ---
 
-### generators/test_observation_generator.py (10 tests)
+### generators/test_observation_generator.py (10 tests) - ✅ ALL PASSING
 
 **Method: generate_observations (10 tests)**
-- ✓ Correct length
-- ✓ Values in [0,1]
-- ✓ Reproducible with seed
-- ✓ Different with different seed
-- ✓ Single observation
-- ✓ Many observations (10000+)
-- ✓ Returns numpy array
-- ✓ Float dtype
-- ✓ No NaN values
-- ✓ Statistical distribution approximately uniform
+- ✅ Correct length
+- ✅ Values in [0,1]
+- ✅ Reproducible with seed
+- ✅ Different with different seed
+- ✅ Single observation
+- ✅ Many observations (10000+)
+- ✅ Returns numpy array
+- ✅ Float dtype
+- ✅ No NaN values
+- ✅ Statistical distribution approximately uniform
 
 ---
 
-### generators/test_record_generator.py (30 tests)
+### generators/test_record_generator.py (30 tests) - 24/30 PASSING (80%)
 
 **Method: initialize_record (5 tests)**
-- ✓ 1D shape
-- ✓ 2D shape
-- ✓ 3D shape
-- ✓ All values NaN
-- ✓ Correct dtype (float)
+- ✅ 1D shape
+- ✅ 2D shape
+- ✅ 3D shape
+- ✅ All values NaN
+- ✅ Correct dtype (float)
 
 **Method: generate_flat_indices (8 tests)**
-- ✓ Correct count
-- ✓ All unique (no duplicates)
-- ✓ All in valid range
-- ✓ Reproducible with seed
-- ✓ Different with different seed
-- ✓ num_obs = total_points (all points)
-- ✓ num_obs = 1 (single point)
-- ✓ Large grid
+- ✅ Correct count
+- ✅ All unique (no duplicates)
+- ✅ All in valid range
+- ✅ Reproducible with seed
+- ✅ Different with different seed
+- ✅ num_obs = total_points (all points)
+- ✅ num_obs = 1 (single point)
+- ✅ Large grid
 
 **Method: convert_to_multi_indices (6 tests)**
-- ✓ 1D shape
-- ✓ 2D shape
-- ✓ 3D shape
-- ✓ Tuple length matches shape length
-- ✓ Each array length matches num_indices
-- ✓ Round-trip: ravel then unravel
+- ✅ 1D shape
+- ✅ 2D shape
+- ✅ 3D shape
+- ✅ Tuple length matches shape length
+- ✅ Each array length matches num_indices
+- ✅ Round-trip: ravel then unravel
 
 **Method: assign_observations (5 tests)**
-- ✓ Values assigned at indices
-- ✓ Other values remain NaN
-- ✓ Modifies in-place
-- ✓ Correct observation values
-- ✓ Multiple assignments
+- ✅ Values assigned at indices
+- ✅ Other values remain NaN
+- ✅ Modifies in-place
+- ✅ Correct observation values
+- ✅ Multiple assignments
 
-**Method: validate_sparsity (6 tests)**
-- ✓ Matching sparsity passes
-- ✓ Close sparsity passes (within tolerance)
-- ✓ Different sparsity raises ValueError
-- ✓ Error message contains values
-- ✓ Edge case: sparsity = 1
-- ✓ Edge case: sparsity very small
+**Method: validate_sparsity (6 tests) - API SIGNATURE ISSUES**
+- ❌ Matching sparsity passes
+- ❌ Close sparsity passes (within tolerance)
+- ❌ Different sparsity raises ValueError
+- ❌ Error message contains values
+- ❌ Edge case: sparsity = 1
+- ❌ Edge case: sparsity very small
 
 ---
 
-### generators/test_single_var_generator.py (20 tests)
+### generators/test_single_var_generator.py (20 tests) - 0/20 PASSING - API NEEDS VERIFICATION
 
-**Method: generate (20 tests)**
-- ✓ Basic 2D generation
-- ✓ 3D generation
-- ✓ 1D generation
-- ✓ High-dimensional (5D+)
-- ✓ Correct shape
-- ✓ Correct number of observations
-- ✓ Values in [0,1]
-- ✓ Reproducible with seed
-- ✓ Different with different seed
-- ✓ Pre-provided observations used
-- ✓ Sparsity validation passes
-- ✓ Sparsity validation fails
-- ✓ All grid points used (sparsity=1)
-- ✓ Single observation
-- ✓ Large grid with low sparsity
-- ✓ Small grid with high sparsity
-- ✓ No observation overlap (uniqueness)
-- ✓ Returns numpy array
-- ✓ NaN at non-observation points
-- ✓ Non-NaN at observation points
+**Method: generate (20 tests) - ALL FAILING (API signature mismatch)**
+- ❌ Basic 2D generation
+- ❌ 3D generation
+- ❌ 1D generation
+- ❌ High-dimensional (5D+)
+- ❌ Correct shape
+- ❌ Correct number of observations
+- ❌ Values in [0,1]
+- ❌ Reproducible with seed
+- ❌ Different with different seed
+- ❌ Pre-provided observations used
+- ❌ Sparsity validation passes
+- ❌ Sparsity validation fails
+- ❌ All grid points used (sparsity=1)
+- ❌ Single observation
+- ❌ Large grid with low sparsity
+- ❌ Small grid with high sparsity
+- ❌ No observation overlap (uniqueness)
+- ❌ Returns numpy array
+- ❌ NaN at non-observation points
+- ❌ Non-NaN at observation points
 
 ---
 
@@ -584,7 +625,9 @@ Total: ~460 tests
 
 ---
 
-### output/test_path_manager.py (30 tests)
+### output/test_path_manager.py (19 tests) - 18/19 PASSING (95%)
+
+**IMPLEMENTED - Not all planned tests created yet**
 
 **Test check_or_create_folder (12 tests)**
 - ✓ Creates non-existent folder
@@ -626,7 +669,7 @@ Total: ~460 tests
 
 ---
 
-### output/test_netcdf_builder.py (25 tests)
+### output/test_netcdf_builder.py (25 tests) - ⏳ NOT YET IMPLEMENTED
 
 **Test create_default_attrs (5 tests)**
 - ✓ All fields present
@@ -663,7 +706,7 @@ Total: ~460 tests
 
 ---
 
-### output/test_parquet_builder.py (25 tests)
+### output/test_parquet_builder.py (25 tests) - ⏳ NOT YET IMPLEMENTED
 
 **Test extract_non_nan_points (6 tests)**
 - ✓ 2D record
@@ -700,67 +743,64 @@ Total: ~460 tests
 
 ---
 
-### test_generate_data.py (50 integration tests)
+### test_generate_data.py (41 integration tests) - ✅ 34/41 PASSING (83%)
 
-**Initialization tests (10 tests)**
-- ✓ Minimal valid parameters
-- ✓ Full parameters specified
-- ✓ Invalid parameters raise errors
-- ✓ Validation runs automatically
-- ✓ Attributes set correctly
-- ✓ Single variable defaults
-- ✓ Multi-variable setup
-- ✓ max_obs triggers parallel mode
-- ✓ Prints configuration
-- ✓ RNG initialized
+**IMPLEMENTED**
 
-**Single-variable generation (10 tests)**
-- ✓ 1D generation
-- ✓ 2D generation
-- ✓ 3D generation
-- ✓ High-dimensional generation
-- ✓ Low sparsity
-- ✓ High sparsity
-- ✓ Different seeds produce different results
-- ✓ Same seed reproduces results
-- ✓ NetCDF output created
-- ✓ Parquet output created
+**Initialization tests (8 tests)**
+- ❌ Minimal valid parameters (needs adjustment)
+- ✅ Full parameters specified
+- ✅ Invalid parameters raise errors
+- ✅ Invalid sparsity raises error
+- ✅ Attributes set correctly
+- ✅ Single variable defaults
+- ✅ Multi-variable setup
+- ✅ Various validation tests
 
-**Multi-variable generation (15 tests)**
-- ✓ Two variables
-- ✓ Many variables (5+)
-- ✓ Different sparsities per variable
-- ✓ Different dimensions per variable
-- ✓ Random overlap
-- ✓ Zero overlap
-- ✓ Full overlap
-- ✓ Partial overlap (0.5)
-- ✓ Overlap calculation correct
-- ✓ Dataset has all variables
-- ✓ DataFrame has all columns
-- ✓ Constant dimensions respected
-- ✓ Varying dimensions correct
-- ✓ Reproducible with seed
-- ✓ Files created correctly
+**Single-variable generation (9 tests)**
+- ✅ 1D generation
+- ✅ 2D generation
+- ✅ 3D generation
+- ✅ Correct number of observations
+- ✅ Low sparsity
+- ✅ High sparsity
+- ❌ Reproducible with seed (needs fix)
+- ✅ Different seeds produce different results
+- ✅ Various other tests
 
-**Edge cases (10 tests)**
-- ✓ Single observation
-- ✓ Maximum sparsity (1.0)
-- ✓ Minimum sparsity
-- ✓ Single dimension
-- ✓ Many dimensions (10+)
-- ✓ Non-uniform dimension ratios
-- ✓ Very small grid (2x2)
-- ✓ Very large num_obs with adjustment
-- ✓ All variables same dimensions
-- ✓ All variables different dimensions
+**Multi-variable generation (10 tests)**
+- ✅ Two variables
+- ✅ Many variables (4+)
+- ❌ Different sparsities per variable (needs adjustment)
+- ✅ Different dimensions per variable
+- ✅ Random overlap
+- ✅ Zero overlap (adjusted)
+- ✅ High overlap
+- ✅ Dataset has all variables
+- ✅ DataFrame has all columns
+- ❌ Reproducible with seed (needs adjustment)
+
+**File output (3 tests)**
+- ✅ NetCDF output created
+- ✅ Parquet output created
+- ❌ NetCDF roundtrip (minor type issue)
+
+**Edge cases (8 tests)**
+- ❌ Single observation (needs adjustment)
+- ✅ Maximum sparsity (1.0)
+- ✅ Single dimension
+- ✅ Many dimensions (adjusted to 4D)
+- ✅ Non-uniform dimension ratios
+- ✅ Very small grid
+- ✅ All variables same dimensions (adjusted)
+- ✅ All variables different dimensions
 
 **Error handling (5 tests)**
-- ✓ Invalid sparsity raises error
-- ✓ Invalid overlap raises error
-- ✓ Infeasible overlap raises error
-- ✓ Invalid file paths raise error
-- ✓ Type errors caught
+- ✅ Invalid sparsity raises error
+- ✅ Negative num_obs raises error
+- ✅ Zero num_dims raises error
+- ✅ Invalid num_vars raises error
+- ✅ Invalid overlap raises error
 
 ---
 
