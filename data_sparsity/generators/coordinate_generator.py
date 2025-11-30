@@ -60,12 +60,12 @@ class CoordinateGenerator:
         if dim_rngs is None:
             dim_rngs = {}
         
-        coordinates = []
-        for dim_idx, dim_size in enumerate(shape):
-            dim_rng = dim_rngs.get(dim_idx, rng)
-            dim_range = dim_ranges.get(dim_idx, None)
-            coords = CoordinateGenerator.generate_dimension_coords(
-                dim_size, dim_rng, dim_range
-            )
-            coordinates.append(coords)
+        # Generate random coordinate arrays for each dimension
+        coordinates = {}
+        for idx, n_coords in enumerate(shape):
+            dim_name = f"x{idx}"
+            low, high = dim_ranges.get(idx, (0.0, 1.0))
+            dim_rng = dim_rngs.get(idx, rng)
+            coordinates[dim_name] = np.sort(dim_rng.uniform(low, high, size=n_coords))
+
         return coordinates

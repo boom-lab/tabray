@@ -132,6 +132,7 @@ class MultiVarRecordGenerator:
             var_total_points = int(np.prod(var_shape))
             num_obs = min(int(var_num_obs[var_idx]), var_total_points)
             
+            # Ensure we don't exceed available points
             if num_obs < var_num_obs[var_idx]:
                 print(
                     f"WARNING: Variable {var_idx} limited to {num_obs} "
@@ -176,8 +177,11 @@ class MultiVarRecordGenerator:
     ) -> Dict[str, np.ndarray]:
         """Generate multi-variable records with controlled overlap.
         
-        Uses shared and separate RNGs to achieve target overlap level.
-        
+        Uses a shared RNG for coordinates of overlapping observations and separate
+        RNGs for non-overlapping observations to achieve the target overlap level.
+        All variables exist in full num_dims space with constant dimensions held at
+        randomly selected coordinate values.
+
         Args:
             shape: Full grid shape
             records: Pre-initialized empty record arrays
@@ -191,22 +195,31 @@ class MultiVarRecordGenerator:
         Returns:
             Dictionary of filled record arrays
         """
+
+        ### Phase 1: Setup
+        # Pre-compute variable shapes: varying dims use full size, constant dims use size 1
         var_shapes = MultiVarRecordGenerator._compute_var_shapes(
             shape, var_constant_dims, num_vars
         )
+
+        # Store selected constant coordinate values
         var_constant_coords = MultiVarRecordGenerator._select_constant_coords(
             shape, var_constant_dims, var_constant_coord_indices, num_vars
         )
         
+        # Create shared RNG for selecting coordinates of overlapping sites/points
+        # This ensures overlapping observations are at the same spatial locations
         shared_rng = np.random.default_rng(seed + 9999)
         var_rngs = [
             np.random.default_rng(seed + var_idx + 2000)
             for var_idx in range(num_vars)
         ]
-        
+
+        ### Phase 2: Reference Variable
+        # Sort variables by observation count (largest first)
         sorted_var_indices = np.argsort(var_num_obs)[::-1]
         
-        # Generate reference (largest) variable first
+        # Generate reference (largest) variable first using SHARED_RNG (for positions)
         refvar_idx = int(sorted_var_indices[0])
         refvar_name = f"var{refvar_idx}"
         refvar_shape = var_shapes[refvar_idx]
@@ -214,21 +227,24 @@ class MultiVarRecordGenerator:
             int(var_num_obs[refvar_idx]),
             int(np.prod(refvar_shape))
         )
-        
+
+        # Pick random positions
         refvar_flat_indices = shared_rng.choice(
             int(np.prod(refvar_shape)),
             size=refvar_num_obs,
             replace=False
         )
         refvar_multi = np.unravel_index(refvar_flat_indices, refvar_shape)
+        # Fill constant dims
         refvar_full_multi = MultiVarRecordGenerator._expand_to_full_coords(
             refvar_multi, var_constant_coords[refvar_idx], refvar_num_obs
         )
-        
+
+        # Generate observation values using VAR_RNG
         refvar_observations = var_rngs[refvar_idx].uniform(0, 1, size=refvar_num_obs)
         records[refvar_name][refvar_full_multi] = refvar_observations
         
-        # Generate other variables with overlap
+        ### Phase 3: Generate other variables with overlap
         for var_idx in sorted_var_indices[1:]:
             var_idx = int(var_idx)
             var_name = f"var{var_idx}"
@@ -241,6 +257,8 @@ class MultiVarRecordGenerator:
             
             # Map overlapping indices from reference variable
             if num_overlap > 0:
+
+                # Map refvar indices to this variable's space
                 overlap_target_flat = OverlapIndexMapper.map_indices_for_overlap(
                     refvar_flat_indices, refvar_shape, var_shape,
                     num_overlap, shared_rng

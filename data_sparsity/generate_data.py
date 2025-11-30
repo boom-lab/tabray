@@ -38,6 +38,9 @@ from data_sparsity.output import (
     ParquetBuilder,
     PathManager
 )
+from data_sparsity.utils import (
+    ChunkUtils,
+)
 
 
 class GenerateData:
@@ -333,18 +336,37 @@ class GenerateData:
         """
         return f"var{var_idx}"
 
-    def _generate_coordinates(self) -> None:
+    def _generate_coordinates(
+        self,
+        shape: List[int],
+        rng: np.random.Generator,
+        dim_ranges: Optional[Dict[int, Tuple[float, float]]] = None,
+        dim_rngs: Optional[Dict[int, np.random.Generator]] = None
+    ) -> dict:
         """Generate coordinates for all dimensions.
 
         Creates coordinate arrays for each dimension with values sorted
         in ascending order within specified ranges.
+
+        Args:
+            shape: shape tuple/list
+            rng: random number generator
+            dim_ranges: Optional dict mapping dimension indices to (low, high) tuples
+                       for custom coordinate ranges. If None, uses [0, 1) for all dims.
+            dim_rngs: Optional dict mapping dimension indices to specific RNGs to use.
+                     If provided, these override the default rng for those dimensions.
+
+        Returns:
+            Dictionary mapping dimension names to coordinate arrays
         """
-        
-        coord_dict = {}
-        coords_list = CoordinateGenerator.generate_all_coords(self.shape, self._rng)
-        for i, coords in enumerate(coords_list):
-            coord_dict[f"x{i}"] = coords
-        self._coordinates = coord_dict
+
+        coordinates = CoordinateGenerator.generate_all_coords(
+            shape,
+            rng,
+            dim_ranges,
+            dim_rngs
+        )
+        return coordinates
 
     def _generate_observations(self) -> None:
         """Generate observation values."""
@@ -878,7 +900,11 @@ class GenerateData:
 
         # Execute generation pipeline for single process
         if self.NTASKS == 1:
-            self._generate_coordinates()
+            #self._coordinates = self._generate_coordinates(self.shape, self._rng)
+            self._coordinates = CoordinateGenerator.generate_all_coords(
+                self.shape,
+                self._rng,
+            )
 
             # Use unified multi-variable workflow for both single and multiple variables
             self._generate_multi_var_records()
@@ -944,29 +970,14 @@ class GenerateData:
         client = Client(cluster)
         print("Dask dashboard:", client.dashboard_link)
 
-        total_obs = self.num_obs
-        total_points = np.prod(self.shape)
-        total_points_slice = total_points / self.max_dim_size
-        chunk_points = np.array(
-            [total_points_slice * chunk_size for chunk_size in self.section_sizes]
-        ).astype(int)
-        print("type chunk_points", type(chunk_points))
-        print("chunk_points", chunk_points)
-        
-        # As randomness is uniform
-        per_chunk_obs = np.rint(self.sparsity * chunk_points).astype(int)
-        for idx, c in enumerate(per_chunk_obs):
-            if c > chunk_points[idx]:
-                per_chunk_obs[idx] = chunk_points[idx]
-
-        mp_obs = per_chunk_obs.sum()
-        if not mp_obs.is_integer():
-            raise ValueError(f"Got non integer value of observations {mp_obs}.")
-        mp_obs = int(mp_obs)
-        sparsity = mp_obs / total_points
-        print(f"Multiprocessing approximations lead to {mp_obs} total observation (goal: {total_obs}).")
-        print(f"Updated sparsity is {sparsity} (was: {self.sparsity}).")
-        self.sparsity = sparsity
+        mp_obs, sparsity_new, per_chunk_obs = ChunkUtils.get_observations_per_chunk(
+            self.num_obs,
+            self.shape,
+            self.max_dim_size,
+            self.section_sizes,
+            self.sparsity
+        )
+        self.sparsity = sparsity_new
         self.num_obs = mp_obs
 
         # Submit one task per seed
@@ -1032,49 +1043,44 @@ class GenerateData:
         # Generate two distinct generators:
         # global_rng: identical across tasks, used for coordinates along non-split dimensions
         # task_rng: unique per task, used for split dimension coordinates and observations
-        global_rng = np.random.default_rng(self.seed)
-        task_rng = np.random.default_rng(self.seed + chunk_id)
+        global_rng, task_rng = ChunkUtils.generate_rngs(self.seed, chunk_id)
 
         # Determine chunk dimensions and range along split dimension
         task_range = (self.div_points[chunk_id], self.div_points[chunk_id + 1])
         task_size = self.section_sizes[chunk_id]
-        task_shape = self.shape.copy()
-        task_shape[self.dim_split] = task_size
+        task_shape = ChunkUtils.update_chunk_shape(self.shape, self.dim_split, task_size)
+        
         logging.debug("task_range: %s", task_range)
         logging.debug("task_size: %s", task_size)
         logging.debug("task_shape: %s", task_shape)
 
-        total_chunk_points = np.prod(task_shape)
-        if not total_chunk_points.is_integer():
-            raise ValueError("total_chunk_points must be an int")
-        total_chunk_points = int(total_chunk_points)
+        total_chunk_points = ChunkUtils.validate_chunk_points(task_shape)
         logging.debug("total_chunk_points: %s", total_chunk_points)
 
         # Build dimension ranges and RNGs for coordinate generation
         # Non-split dimensions use [0, 1) with global_rng
         # Split dimension uses normalized chunk range with task_rng
-        dim_ranges = {
-            self.dim_split: (
-                task_range[0] / self.max_dim_size,
-                task_range[1] / self.max_dim_size
-            )
-        }
-        dim_rngs = {}
-        for idx in range(len(task_shape)):
-            if idx == self.dim_split:
-                dim_rngs[idx] = task_rng
-            else:
-                dim_rngs[idx] = global_rng
+        dim_ranges = ChunkUtils.generate_split_dimension_range(
+            self.dim_split,
+            task_range,
+            self.max_dim_size
+        )
+        
+        dim_rngs = ChunkUtils.assign_rngs_to_dimensions(
+            self.dim_split,
+            task_shape,
+            global_rng,
+            task_rng
+        )
 
         # Generate coordinates with optional dimension-specific ranges and RNGs
-        coord_dict = {}
-        coords_list = CoordinateGenerator.generate_all_coords(
-            task_shape, global_rng, dim_ranges, dim_rngs
+        coordinates = CoordinateGenerator.generate_all_coords(
+            task_shape,
+            global_rng,
+            dim_ranges,
+            dim_rngs
         )
-        for i, coords in enumerate(coords_list):
-            coord_dict[f"x{i}"] = coords
-        coordinates = coord_dict
-
+        
         logging.debug("obs in chunk: %s", obs_in_chunk)
         logging.debug("total chunk points: %s", total_chunk_points)
 
