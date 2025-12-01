@@ -65,6 +65,11 @@ class TestValidateSparsityType:
         result = ParameterValidator.validate_sparsity_type((0.1, 0.9))
         assert result == 0.9
     
+    def test_zero_raises_value_error(self):
+        """Negative value should raise ValueError."""
+        with pytest.raises(ValueError, match="Input sparsity cannot be zero"):
+            ParameterValidator.validate_sparsity_type(0.0)
+    
     def test_negative_raises_value_error(self):
         """Negative value should raise ValueError."""
         with pytest.raises(ValueError, match="must be between 0 and 1"):
