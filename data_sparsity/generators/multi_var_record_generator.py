@@ -102,9 +102,9 @@ class MultiVarRecordGenerator:
         var_constant_dims: List[List[int]],
         var_constant_coord_indices: Dict,
         seed: int,
-        chunk_id: Optional[int],
-        max_dim_size: Optional[int],
-        dim_split: Optional[int]
+        chunk_id: Optional[int] = None,
+        max_dim_size: Optional[int] = None,
+        dim_split: Optional[int] = None
     ) -> Dict[str, np.ndarray]:
         """Generate multi-variable records without overlap constraints.
         
@@ -119,6 +119,8 @@ class MultiVarRecordGenerator:
             var_constant_coord_indices: Pre-seeded RNGs for constant dims
             seed: Random seed
             chunk_id: Identifier for this chunk (if parallel workflow)
+            max_dim_size: Size of largest dimension (if parallel workflow)
+            dim_split: Dimension along which to split dataset  (if parallel workflow)            
             
         Returns:
             Dictionary of filled record arrays
