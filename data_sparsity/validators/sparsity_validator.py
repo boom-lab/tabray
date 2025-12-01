@@ -52,12 +52,7 @@ class SparsityValidator:
             f"{sparsity_min}"
         )
         
-        if sparsity == 0.0:
-            print(
-                f"Input sparsity is zero, imposing minimum value: {sparsity_min}"
-            )
-            return sparsity_min
-        elif sparsity < sparsity_min:
+        if sparsity < sparsity_min:
             raise ValueError(
                 f"Provided sparsity value of {sparsity} is lower than "
                 f"minimum value of {sparsity_min}. If you want to impose "

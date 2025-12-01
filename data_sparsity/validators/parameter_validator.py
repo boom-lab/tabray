@@ -85,6 +85,57 @@ class ParameterValidator:
             raise ValueError(f"num_vars must be positive, got {num_vars}")
 
     @staticmethod
+    def validate_var_dims(
+        var_dims: Union[int, List, Tuple],
+        num_vars: int,
+        num_dims: int
+    ) -> float:
+        """Check that var_dims is valid:
+
+        - First variable (reference variable) occupies all dimensions.
+        - var_dims is an int or has as many elements as number of variables
+        
+        Args:
+            var_dims: Number of dimensions for each variable
+            num_vars: Number of variables in the dataset
+            num_dims: Number of dimensions in the coordinate space            
+
+        Returns:
+            var_dims_update: Updated value to enforce first variable to occupy all
+            dimensions
+            
+        Raises:
+            TypeError: If var_dims type is not admitted
+
+        """
+
+        if isinstance(var_dims, int):
+            var_dims_update = [var_dims]*num_vars
+            if num_dims > var_dims:
+                var_dims_update[0] = num_dims
+                print(
+                    "Reference variable must occupy all dimensions. Received "
+                    f"var_dims={var_dims} but num_dims={num_dims}. Assigning "
+                    f"{num_dims} to reference variable and {var_dims} to all other "
+                    "variables"
+                )
+
+        elif isinstance(var_dims, (list, tuple)):
+            var_dims_update = var_dims
+            if num_dims > var_dims[0]:
+                var_dims_update[0] = num_dims
+                print(
+                    "Reference variable must occupy all dimensions. Received "
+                    f"var_dims[0]={var_dims[0]} but num_dims={num_dims}. Assigning "
+                    f"{num_dims} to reference variable."
+                )
+
+        else:
+            raise TypeError(f"var_dims must be an int, list or tuple, got {type(var_dims)}")
+        
+        return var_dims_update
+
+    @staticmethod
     def validate_ratio_dims(
         ratio_dims: Union[int, ArrayLike],
         num_dims: int

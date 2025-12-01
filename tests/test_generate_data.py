@@ -19,10 +19,10 @@ class TestInitialization:
             num_obs=100,
             num_dims=2,
             ratio_dims=1,
-            sparsity=0.2,
+            sparsity=1.,
             seed=42
         )
-        assert gen.num_obs >= 100  # May be adjusted
+        assert gen.num_obs == 100
         assert gen.num_dims == 2
         assert gen.seed == 42
         assert gen.num_vars == 1
@@ -176,20 +176,6 @@ class TestSingleVariableGeneration:
         # Check dataframe has correct number of rows
         assert len(dataframe) >= 60
     
-    def test_low_sparsity(self):
-        """Should handle low sparsity (sparse data)."""
-        gen = GenerateData(
-            num_obs=10,
-            num_dims=2,
-            ratio_dims=1,
-            sparsity=0.0,  # Use 0 to get minimum
-            seed=42
-        )
-        dataarray, dataframe = gen.generate()
-        
-        assert dataarray is not None
-        assert dataframe is not None
-    
     def test_high_sparsity(self):
         """Should handle high sparsity (dense data)."""
         gen = GenerateData(
@@ -229,7 +215,6 @@ class TestSingleVariableGeneration:
         np.testing.assert_array_equal(
             dataarray1.values, 
             dataarray2.values, 
-            equal_nan=True
         )
         # DataFrames should be identical
         pd.testing.assert_frame_equal(dataframe1, dataframe2)

@@ -83,7 +83,7 @@ class GenerateData:
             seed: Random seed for reproducibility
             max_obs: Maximum observations per chunk for parallel generation
             num_vars: Number of variables in the dataset (default=1)
-            var_dims: Dimensions for each variable (default=num_dims for all)
+            var_dims: Number of dimensions for each variable (default=num_dims for all)
             overlap: Overlap between variables (0-1 or 'random', default='random')
 
         Raises:
@@ -191,6 +191,11 @@ class GenerateData:
         ParameterValidator.validate_num_dims(self.num_dims)
         ParameterValidator.validate_seed(self.seed)
         ParameterValidator.validate_num_vars(self.num_vars)
+
+        # Validate that reference variable occupies all dimensions
+        self.var_dims = ParameterValidator.validate_var_dims(
+            self.var_dims, self.num_vars, self.num_dims
+        )
 
         # Validate and convert ratio_dims
         self.ratio_dims = ParameterValidator.validate_ratio_dims(

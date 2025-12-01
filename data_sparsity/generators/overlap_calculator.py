@@ -95,12 +95,6 @@ class OverlapCalculator:
 
         ref_count = len(ref_projected)
         var_count = len(var_projected)
-        if ref_count < var_count:
-            raise ValueError(
-                f"Reference variable cannot have fewer elements"
-                f"than the target variable, found {ref_count} "
-                f"and {var_count}, respectively."
-            )
         
         return len(ref_projected.intersection(var_projected))
 
