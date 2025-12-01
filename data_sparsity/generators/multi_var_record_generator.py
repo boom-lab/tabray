@@ -4,7 +4,7 @@ This module generates sparse record arrays for multiple variables
 with controlled overlap between them.
 """
 
-from typing import Dict, List, Tuple, Union
+from typing import Dict, List, Tuple, Union, Optional
 import numpy as np
 from data_sparsity.generators.record_generator import RecordGenerator
 from data_sparsity.generators.observation_generator import ObservationGenerator

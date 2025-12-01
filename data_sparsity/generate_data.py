@@ -10,7 +10,7 @@ generators, and output builders for improved testability and maintainability.
 import gc
 import logging
 import os
-from typing import Dict, List, Tuple, Union
+from typing import Dict, List, Tuple, Union, Optional
 import dask.dataframe as dd
 from dask.distributed import Client, LocalCluster, as_completed
 import numpy as np
