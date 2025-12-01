@@ -176,7 +176,7 @@ class TestBuildDataarray:
         
         result = NetCDFBuilder.build_dataarray(record, coordinates)
         
-        np.testing.assert_array_equal(result.values, record, equal_nan=True)
+        np.testing.assert_array_equal(result.values, record)
 
 
 class TestBuildDataset:
@@ -272,8 +272,8 @@ class TestBuildDataset:
         result = NetCDFBuilder.build_dataset(records, coordinates)
         
         np.testing.assert_array_equal(
-            result['var0'].values, records['var0'], equal_nan=True
+            result['var0'].values, records['var0']
         )
         np.testing.assert_array_equal(
-            result['var1'].values, records['var1'], equal_nan=True
+            result['var1'].values, records['var1']
         )
