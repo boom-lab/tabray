@@ -4,7 +4,7 @@ This module computes the actual overlap achieved between variables
 after record generation.
 """
 
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Set, Tuple, Optional
 import numpy as np
 
 
@@ -20,14 +20,14 @@ class OverlapCalculator:
         record: np.ndarray,
         num_dims: int
     ) -> Set[Tuple[int, ...]]:
-        """Extract set of coordinates where observations exist.
+        """Extract set of indices of coordinates where observations exist.
         
         Args:
             record: Record array for one variable
             num_dims: Total number of dimensions
             
         Returns:
-            Set of coordinate tuples where observations are non-NaN
+            Set of indices tuples of coordinates where observations are non-NaN
         """
         non_nan_indices = np.where(~np.isnan(record))
         
@@ -62,7 +62,7 @@ class OverlapCalculator:
         return projected
 
     @staticmethod
-    def compute_pairwise_overlap(
+    def compute_pairwise_overlap_non_normalized(
         ref_coords: Set[Tuple[int, ...]],
         var_coords: Set[Tuple[int, ...]],
         ref_varying_dims: List[int],
@@ -92,6 +92,15 @@ class OverlapCalculator:
         var_projected = OverlapCalculator.project_coordinates(
             var_coords, shared_varying_dims
         )
+
+        ref_count = len(ref_projected)
+        var_count = len(var_projected)
+        if ref_count < var_count:
+            raise ValueError(
+                f"Reference variable cannot have fewer elements"
+                f"than the target variable, found {ref_count} "
+                f"and {var_count}, respectively."
+            )
         
         return len(ref_projected.intersection(var_projected))
 
@@ -101,7 +110,8 @@ class OverlapCalculator:
         num_vars: int,
         num_dims: int,
         var_num_obs: np.ndarray,
-        var_dims_indices: List[List[int]]
+        var_dims_indices: List[List[int]],
+        ref_var: Optional[str] = None
     ) -> float:
         """Compute actual overlap achieved across all variables.
         
@@ -121,6 +131,12 @@ class OverlapCalculator:
         """
         if num_vars == 1:
             return None
+
+        if set(var_num_obs) == 1 and ref_var is None:
+            raise ValueError(
+                "All variable have same number of observations, "
+                "but no reference variable for the overlap has been defined."
+            )
         
         var_coords_sets = []
         for var_idx in range(num_vars):
@@ -142,9 +158,10 @@ class OverlapCalculator:
             ref_varying_dims = var_dims_indices[sorted_indices[0]]
             var_varying_dims = var_dims_indices[idx]
             
-            overlap_count += OverlapCalculator.compute_pairwise_overlap(
+            overlap_count += OverlapCalculator.compute_pairwise_overlap_non_normalized(
                 reference_set, var_set, ref_varying_dims, var_varying_dims
             )
+            print(f"overlap count at idx={idx}: {overlap_count}")
         
         if total_other_obs > 0:
             overlap_actual = overlap_count / total_other_obs

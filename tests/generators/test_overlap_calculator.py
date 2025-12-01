@@ -116,8 +116,8 @@ class TestProjectCoordinates:
         assert projected == set()
 
 
-class TestComputePairwiseOverlap:
-    """Tests for compute_pairwise_overlap method."""
+class TestComputePairwiseOverlapNonNormalized:
+    """Tests for compute_pairwise_overlap_non_normalized method."""
     
     def test_full_overlap(self):
         """Should return 1.0 for identical coordinate sets."""
@@ -126,10 +126,10 @@ class TestComputePairwiseOverlap:
         varying_dims1 = [0, 1]
         varying_dims2 = [0, 1]
         
-        overlap = OverlapCalculator.compute_pairwise_overlap(
+        overlap = OverlapCalculator.compute_pairwise_overlap_non_normalized(
             coords1, coords2, varying_dims1, varying_dims2
         )
-        assert overlap == 1.0
+        assert overlap == len(coords1)
     
     def test_no_overlap(self):
         """Should return 0.0 for disjoint coordinate sets."""
@@ -138,7 +138,7 @@ class TestComputePairwiseOverlap:
         varying_dims1 = [0, 1]
         varying_dims2 = [0, 1]
         
-        overlap = OverlapCalculator.compute_pairwise_overlap(
+        overlap = OverlapCalculator.compute_pairwise_overlap_non_normalized(
             coords1, coords2, varying_dims1, varying_dims2
         )
         assert overlap == 0.0
@@ -150,11 +150,11 @@ class TestComputePairwiseOverlap:
         varying_dims1 = [0, 1]
         varying_dims2 = [0, 1]
         
-        overlap = OverlapCalculator.compute_pairwise_overlap(
+        overlap = OverlapCalculator.compute_pairwise_overlap_non_normalized(
             coords1, coords2, varying_dims1, varying_dims2
         )
-        # 2 common out of max(4, 4) = 2/4 = 0.5
-        assert overlap == 0.5
+        # 2 common out of max(4, 4)
+        assert overlap == 2
     
     def test_no_shared_dimensions(self):
         """Should return 0.0 when no shared dimensions."""
@@ -163,7 +163,7 @@ class TestComputePairwiseOverlap:
         varying_dims1 = [0]
         varying_dims2 = [1]
         
-        overlap = OverlapCalculator.compute_pairwise_overlap(
+        overlap = OverlapCalculator.compute_pairwise_overlap_non_normalized(
             coords1, coords2, varying_dims1, varying_dims2
         )
         assert overlap == 0.0
@@ -175,11 +175,11 @@ class TestComputePairwiseOverlap:
         varying_dims1 = [0, 1, 2]
         varying_dims2 = [0, 1, 2]
         
-        overlap = OverlapCalculator.compute_pairwise_overlap(
+        overlap = OverlapCalculator.compute_pairwise_overlap_non_normalized(
             coords1, coords2, varying_dims1, varying_dims2
         )
-        # 1 common out of max(2, 2) = 1/2 = 0.5
-        assert overlap == 0.5
+        # 1 common out of max(2, 2)
+        assert overlap == 1
     
     def test_different_dimension_combinations(self):
         """Should handle different varying dimensions."""
@@ -188,15 +188,15 @@ class TestComputePairwiseOverlap:
         varying_dims1 = [0, 2]
         varying_dims2 = [1, 2]
         
-        overlap = OverlapCalculator.compute_pairwise_overlap(
+        overlap = OverlapCalculator.compute_pairwise_overlap_non_normalized(
             coords1, coords2, varying_dims1, varying_dims2
         )
         # Shared dim is 2, project both to that dimension
         # coords1 projected: {(2,), (3,), (4,)}
         # coords2 projected: {(1,), (3,), (5,)}
         # Common: {(3,)}, max size = 3
-        # overlap = 1/3 ≈ 0.333
-        assert 0.3 <= overlap <= 0.4
+        # non-normalized overlap = 1
+        assert overlap == 1
     
     def test_one_observation_each(self):
         """Should handle single observation case."""
@@ -205,7 +205,7 @@ class TestComputePairwiseOverlap:
         varying_dims1 = [0, 1]
         varying_dims2 = [0, 1]
         
-        overlap = OverlapCalculator.compute_pairwise_overlap(
+        overlap = OverlapCalculator.compute_pairwise_overlap_non_normalized(
             coords1, coords2, varying_dims1, varying_dims2
         )
         assert overlap == 1.0
@@ -217,14 +217,15 @@ class TestComputePairwiseOverlap:
         varying_dims1 = [0, 1]
         varying_dims2 = [0, 1]
         
-        overlap = OverlapCalculator.compute_pairwise_overlap(
+        overlap = OverlapCalculator.compute_pairwise_overlap_non_normalized(
             coords1, coords2, varying_dims1, varying_dims2
         )
         # Overlap region: [5-9] x [5-9] = 25 points
         # Union: [0-14] x [0-14] but not all filled
         # coords1: 100 points, coords2: 100 points, common: 25 points
         # overlap = 25 / max(100, 100) = 0.25
-        assert 0.2 <= overlap <= 0.3
+        # non-normalized overlap = 25
+        assert overlap == 25
 
 
 class TestComputeActualOverlap:
@@ -239,13 +240,58 @@ class TestComputeActualOverlap:
         records['var0'][0:2, 0:2] = 0.5  # 4 obs
         records['var1'][0:2, 0:2] = 0.7  # 4 obs (all overlapping)
         
-        var_varying_dims = {'var0': [0, 1], 'var1': [0, 1]}
+        var_varying_dims = [
+            [0, 1],
+            [0, 1]
+        ]
+
+        num_vars = 2
+        num_dims = 2
+        var_num_obs = np.array(
+            [4, 4]
+        )
         
-        overlap = OverlapCalculator.compute_actual_overlap(records, var_varying_dims)
+        overlap = OverlapCalculator.compute_actual_overlap(
+            records, num_vars, num_dims, var_num_obs, var_varying_dims
+        )
         assert overlap == 1.0
     
-    def test_multiple_variables(self):
-        """Should compute average overlap for multiple variables."""
+    def test_multiple_variables_different_observations(self):
+        """Should compute average overlap for multiple variables where one
+        variable is automatically identified as reference variable based on
+        number of observations"""
+        records = {
+            'var0': np.full((5, 5), np.nan),
+            'var1': np.full((5, 5), np.nan),
+            'var2': np.full((5, 5), np.nan)
+        }
+        records['var0'][0:2, 0:3] = 0.5  # 5 obs
+        records['var1'][0:2, 0:2] = 0.7  # 4 obs (all overlap with var0)
+        records['var2'][2:4, 2:4] = 0.3  # 4 obs (no overlap)
+        
+        var_varying_dims = [
+            [0, 1],
+            [0, 1],
+            [0, 1]
+        ]
+
+        num_vars = 3
+        num_dims = 2
+        var_num_obs = np.array(
+            [5, 4, 4]
+        )
+        
+        overlap = OverlapCalculator.compute_actual_overlap(
+            records, num_vars, num_dims, var_num_obs, var_varying_dims
+        )
+
+        # var0-var1: 1.0, var0-var2: 0.0
+        # Average: (1.0 + 0.0) / 2 = 0.5
+        assert overlap == 0.5
+    
+    def test_multiple_variables_same_observations(self):
+        """Should compute average overlap for multiple variables where reference
+        variable is specified as all variables have same number of observations"""
         records = {
             'var0': np.full((5, 5), np.nan),
             'var1': np.full((5, 5), np.nan),
@@ -255,24 +301,39 @@ class TestComputeActualOverlap:
         records['var1'][0:2, 0:2] = 0.7  # 4 obs (all overlap with var0)
         records['var2'][2:4, 2:4] = 0.3  # 4 obs (no overlap)
         
-        var_varying_dims = {
-            'var0': [0, 1],
-            'var1': [0, 1],
-            'var2': [0, 1]
-        }
+        var_varying_dims = [
+            [0, 1],
+            [0, 1],
+            [0, 1]
+        ]
+
+        num_vars = 3
+        num_dims = 2
+        var_num_obs = np.array(
+            [5, 4, 4]
+        )
         
-        overlap = OverlapCalculator.compute_actual_overlap(records, var_varying_dims)
-        # var0-var1: 1.0, var0-var2: 0.0, var1-var2: 0.0
-        # Average: (1.0 + 0.0 + 0.0) / 3 ≈ 0.333
-        assert 0.3 <= overlap <= 0.4
+        overlap = OverlapCalculator.compute_actual_overlap(
+            records, num_vars, num_dims, var_num_obs, var_varying_dims, ref_var="var0"
+        )
+
+        # var0-var1: 1.0, var0-var2: 0.0
+        # Average: (1.0 + 0.0) / 2 = 0.5
+        assert overlap == 0.5
     
     def test_single_variable(self):
         """Should return None for single variable."""
         records = {'var0': np.full((5, 5), np.nan)}
         records['var0'][0:2, 0:2] = 0.5
-        var_varying_dims = {'var0': [0, 1]}
+        var_varying_dims = [ [0, 1] ]
+        num_vars = 1
+        num_dims = 2
+        var_num_obs = np.array([4])
         
-        overlap = OverlapCalculator.compute_actual_overlap(records, var_varying_dims)
+        overlap = OverlapCalculator.compute_actual_overlap(
+            records, num_vars, num_dims, var_num_obs, var_varying_dims
+        )
+
         assert overlap is None
     
     def test_no_overlap(self):
@@ -284,9 +345,20 @@ class TestComputeActualOverlap:
         records['var0'][0:2, 0:2] = 0.5
         records['var1'][8:10, 8:10] = 0.7
         
-        var_varying_dims = {'var0': [0, 1], 'var1': [0, 1]}
+        var_varying_dims = [
+            [0, 1],
+            [0, 1]
+        ]
+        num_vars = 2
+        num_dims = 2
+        var_num_obs = np.array(
+            [4, 4]
+        )
         
-        overlap = OverlapCalculator.compute_actual_overlap(records, var_varying_dims)
+        overlap = OverlapCalculator.compute_actual_overlap(
+            records, num_vars, num_dims, var_num_obs, var_varying_dims, ref_var="var0"
+        )
+
         assert overlap == 0.0
     
     def test_full_overlap(self):
@@ -301,7 +373,18 @@ class TestComputeActualOverlap:
             records['var0'][i, j] = 0.5
             records['var1'][i, j] = 0.7
         
-        var_varying_dims = {'var0': [0, 1], 'var1': [0, 1]}
+        var_varying_dims = [
+            [0, 1],
+            [0, 1]
+        ]
+        num_vars = 2
+        num_dims = 2
+        var_num_obs = np.array(
+            [3, 3]
+        )
         
-        overlap = OverlapCalculator.compute_actual_overlap(records, var_varying_dims)
+        overlap = OverlapCalculator.compute_actual_overlap(
+            records, num_vars, num_dims, var_num_obs, var_varying_dims, ref_var="var0"
+        )
+
         assert overlap == 1.0
