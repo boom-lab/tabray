@@ -405,3 +405,106 @@ class TestGenerate:
         assert 'var0' in result
         count = np.count_nonzero(~np.isnan(result['var0']))
         assert count == 15
+
+
+class TestSingleVariableCase:
+    """Tests for single-variable generation (num_vars=1) to ensure compatibility."""
+    
+    def test_single_variable_basic(self):
+        """Should generate single variable correctly."""
+        shape = [10, 10]
+        num_obs = 20
+        
+        records, overlap = MultiVarRecordGenerator.generate(
+            shape=shape,
+            overlap='random',
+            num_vars=1,
+            var_num_obs=np.array([num_obs]),
+            var_dims_indices=[list(range(2))],
+            var_constant_dims=[[]],
+            var_constant_coord_indices={},
+            num_dims=2,
+            seed=42
+        )
+        
+        assert len(records) == 1
+        assert 'var0' in records
+        assert records['var0'].shape == tuple(shape)
+        assert np.sum(~np.isnan(records['var0'])) == num_obs
+    
+    def test_single_variable_all_dims(self):
+        """Should handle single variable in 3D space."""
+        shape = [5, 6, 7]
+        num_obs = 42
+        
+        records, overlap = MultiVarRecordGenerator.generate(
+            shape=shape,
+            overlap='random',
+            num_vars=1,
+            var_num_obs=np.array([num_obs]),
+            var_dims_indices=[list(range(3))],
+            var_constant_dims=[[]],
+            var_constant_coord_indices={},
+            num_dims=3,
+            seed=123
+        )
+        
+        assert records['var0'].shape == tuple(shape)
+        assert np.sum(~np.isnan(records['var0'])) == num_obs
+        
+        # Verify observations are in valid range
+        obs_values = records['var0'][~np.isnan(records['var0'])]
+        assert np.all(obs_values >= 0)
+        assert np.all(obs_values <= 1)
+    
+    def test_single_variable_reproducible(self):
+        """Should produce same results with same seed."""
+        shape = [8, 8]
+        num_obs = 16
+        
+        records1, _ = MultiVarRecordGenerator.generate(
+            shape=shape, overlap='random', num_vars=1,
+            var_num_obs=np.array([num_obs]),
+            var_dims_indices=[list(range(2))],
+            var_constant_dims=[[]],
+            var_constant_coord_indices={},
+            num_dims=2, seed=42
+        )
+        
+        records2, _ = MultiVarRecordGenerator.generate(
+            shape=shape, overlap='random', num_vars=1,
+            var_num_obs=np.array([num_obs]),
+            var_dims_indices=[list(range(2))],
+            var_constant_dims=[[]],
+            var_constant_coord_indices={},
+            num_dims=2, seed=42
+        )
+        
+        np.testing.assert_array_equal(records1['var0'], records2['var0'])
+    
+    def test_single_variable_overlap_ignored(self):
+        """Should ignore overlap parameter for single variable."""
+        shape = [10, 10]
+        num_obs = 30
+        
+        # Try with different overlap values - should behave identically
+        records1, overlap1 = MultiVarRecordGenerator.generate(
+            shape=shape, overlap='random', num_vars=1,
+            var_num_obs=np.array([num_obs]),
+            var_dims_indices=[list(range(2))],
+            var_constant_dims=[[]],
+            var_constant_coord_indices={},
+            num_dims=2, seed=999
+        )
+        
+        records2, overlap2 = MultiVarRecordGenerator.generate(
+            shape=shape, overlap=0.5, num_vars=1,
+            var_num_obs=np.array([num_obs]),
+            var_dims_indices=[list(range(2))],
+            var_constant_dims=[[]],
+            var_constant_coord_indices={},
+            num_dims=2, seed=999
+        )
+        
+        # Both should use 'random' path due to num_vars==1
+        np.testing.assert_array_equal(records1['var0'], records2['var0'])

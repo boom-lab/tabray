@@ -30,7 +30,6 @@ from data_sparsity.config import (
 )
 from data_sparsity.generators import (
     CoordinateGenerator,
-    SingleVarRecordGenerator,
     MultiVarRecordGenerator
 )
 from data_sparsity.output import (
@@ -383,6 +382,10 @@ class GenerateData:
         rng: np.random.Generator = None
     ) -> np.ndarray:
         """Generate sparse record array with observations.
+        
+        This method now uses MultiVarRecordGenerator with num_vars=1 to
+        maintain consistency with multi-variable generation and eliminate
+        code duplication.
 
         Args:
             shape: Shape of the record array. If None, uses self.shape
@@ -400,11 +403,22 @@ class GenerateData:
         if rng is None:
             rng = self._rng
 
-        expected_sparsity = self.var_sparsities[0] if self.num_vars == 1 else None
-
-        record = SingleVarRecordGenerator.generate(
-            shape, num_obs, rng, observations, expected_sparsity
+        # Use MultiVarRecordGenerator with num_vars=1 for consistency
+        # For single-var, all dimensions vary (no constant dims)
+        records, overlap_actual = MultiVarRecordGenerator.generate(
+            shape=shape,
+            overlap='random',  # Irrelevant for single variable
+            num_vars=1,
+            var_num_obs=np.array([num_obs]),
+            var_dims_indices=[list(range(len(shape)))],  # All dims vary
+            var_constant_dims=[[]],  # No constant dims
+            var_constant_coord_indices={},  # No constant coords
+            num_dims=len(shape),
+            seed=self.seed
         )
+
+        # Extract the single record from the dictionary
+        record = records['var0']
 
         if self.NTASKS == 1:
             self._record = record
