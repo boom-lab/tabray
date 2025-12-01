@@ -52,3 +52,11 @@ General Guidelines:
 - Use coverage annotations (e.g., `# pragma: no cover`) only when justified.
 - Provide clear instructions and rationale if skipping tests or marking them as expected failures (e.g., with `@pytest.mark.skip` or `@pytest.mark.xfail`).
 - Document test requirements and environment steps for contributors.
+
+Parallel Workflow Testing Guidelines:
+- Ensure all parallel code paths (e.g., dask, client.submit) are exercised by dedicated tests.
+- Create tests that simulate and verify chunk boundary handling and passing of parallel-specific variables.
+- Test for potential concurrency issues, such as race conditions, deadlocks, or improper handling of shared state and resources.
+- Compare outputs from parallel and serial executions to confirm equivalence in results, except for intended differences due to chunk boundaries.
+- Use appropriate testing patterns, such as mocking dask clients or creating fixtures that set up and tear down parallel environments.
+- Document any limitations, non-deterministic behavior, and performance considerations in the markdown report.
