@@ -137,7 +137,7 @@ class TestPrepareNetcdfPath:
         with open(file_path, 'w') as f:
             f.write("test")
         
-        with pytest.raises(ValueError, match="already exists"):
+        with pytest.raises(ValueError, match="exists already"):
             PathManager.prepare_netcdf_path(file_path, overwrite=False)
     
     def test_existing_file_with_overwrite_passes(self, temp_dir):
