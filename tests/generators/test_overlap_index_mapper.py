@@ -345,12 +345,13 @@ class TestMapIndicesForOverlap:
         target_shape = [20, 20]
         rng = np.random.default_rng(42)
         
-        target_indices, success_count = OverlapIndexMapper.map_indices_for_overlap(
-            source_indices, source_shape, target_shape, rng
+        target_indices  = OverlapIndexMapper.map_indices_for_overlap(
+            source_indices, source_shape, target_shape, len(source_indices), rng
         )
-        
-        assert len(target_indices) <= len(source_indices)
-        assert success_count >= 0
+
+        success_count = len(target_indices) 
+        assert success_count <= len(source_indices)
+        assert success_count > 0
     
     def test_partial_mapping_some_invalid(self):
         """Should handle partial mapping when some coords invalid."""
@@ -359,67 +360,54 @@ class TestMapIndicesForOverlap:
         target_shape = [10, 10]  # Smaller target
         rng = np.random.default_rng(42)
         
-        target_indices, success_count = OverlapIndexMapper.map_indices_for_overlap(
-            source_indices, source_shape, target_shape, rng
+        target_indices = OverlapIndexMapper.map_indices_for_overlap(
+            source_indices, source_shape, target_shape, len(source_indices), rng
         )
         
         # Some may fail
+        success_count = len(target_indices)
         assert success_count <= len(source_indices)
     
-    def test_no_random_dimensions(self):
-        """Should work without random dimensions."""
+    def test_same_dimensions(self):
+        """Should work without different dimensions."""
         source_indices = np.array([0, 11, 22])
         source_shape = [10, 10]
         target_shape = [10, 10]
         rng = np.random.default_rng(42)
         
-        target_indices, success_count = OverlapIndexMapper.map_indices_for_overlap(
-            source_indices, source_shape, target_shape, rng
+        target_indices = OverlapIndexMapper.map_indices_for_overlap(
+            source_indices, source_shape, target_shape, len(source_indices), rng
         )
         
         assert len(target_indices) <= len(source_indices)
     
-    def test_with_random_dimensions(self):
-        """Should handle random dimensions."""
+    def test_different_dimensions(self):
+        """Should handle differnt dimensions."""
         source_indices = np.array([0, 5, 10])
         source_shape = [1, 20]  # First dim constant
         target_shape = [10, 20]  # First dim varies
         rng = np.random.default_rng(42)
         
-        target_indices, success_count = OverlapIndexMapper.map_indices_for_overlap(
-            source_indices, source_shape, target_shape, rng
+        target_indices = OverlapIndexMapper.map_indices_for_overlap(
+            source_indices, source_shape, target_shape, len(source_indices), rng
         )
         
         assert len(target_indices) <= len(source_indices)
     
-    def test_returns_correct_count_when_possible(self):
-        """Should return count matching successful mappings."""
-        source_indices = np.array([0, 1, 2, 3, 4])
-        source_shape = [10, 10]
-        target_shape = [10, 10]
-        rng = np.random.default_rng(42)
-        
-        target_indices, success_count = OverlapIndexMapper.map_indices_for_overlap(
-            source_indices, source_shape, target_shape, rng
-        )
-        
-        assert success_count == len(target_indices)
-    
     def test_reproducible_with_seed(self):
         """Should produce same results with same seed."""
-        source_indices = np.array([0, 10, 20])
+        source_indices = np.array([0, 10, 19])
         source_shape = [1, 20]
         target_shape = [10, 20]
         
         rng1 = np.random.default_rng(999)
-        target1, count1 = OverlapIndexMapper.map_indices_for_overlap(
-            source_indices, source_shape, target_shape, rng1
+        target1 = OverlapIndexMapper.map_indices_for_overlap(
+            source_indices, source_shape, target_shape, len(source_indices), rng1
         )
         
         rng2 = np.random.default_rng(999)
-        target2, count2 = OverlapIndexMapper.map_indices_for_overlap(
-            source_indices, source_shape, target_shape, rng2
+        target2 = OverlapIndexMapper.map_indices_for_overlap(
+            source_indices, source_shape, target_shape, len(source_indices), rng2
         )
         
         np.testing.assert_array_equal(target1, target2)
-        assert count1 == count2
