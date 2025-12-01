@@ -209,49 +209,74 @@ class TestValidateSparsity:
     
     def test_matching_sparsity_passes(self):
         """Should pass when sparsity matches expected."""
-        record = np.full((10, 10), np.nan)
-        record[0:5, 0:2] = 0.5  # 10 observations out of 100
+        shape = (10,10)
+        total_grid_points = np.prod(shape)
+        num_obs = 10
         expected_sparsity = 0.1
+
         # Should not raise
-        RecordGenerator.validate_sparsity(record, expected_sparsity)
+        RecordGenerator.validate_sparsity(
+            num_obs, total_grid_points, expected_sparsity
+        )
     
     def test_close_sparsity_passes(self):
         """Should pass when sparsity is within tolerance."""
-        record = np.full((10, 10), np.nan)
-        record[0:5, 0:2] = 0.5  # 10 observations (0.1 sparsity)
-        expected_sparsity = 0.099  # Within 1% tolerance
+        shape = (10,10)
+        total_grid_points = np.prod(shape)
+        num_obs = 10
+        expected_sparsity = 0.099999  # Within tolerance
+
         # Should not raise
-        RecordGenerator.validate_sparsity(record, expected_sparsity)
+        RecordGenerator.validate_sparsity(
+            num_obs, total_grid_points, expected_sparsity
+        )
     
     def test_different_sparsity_raises_value_error(self):
         """Should raise ValueError when sparsity differs significantly."""
-        record = np.full((10, 10), np.nan)
-        record[0:5, 0:2] = 0.5  # 10 observations (0.1 sparsity)
-        expected_sparsity = 0.2  # Significantly different
-        with pytest.raises(ValueError, match="Expected sparsity"):
-            RecordGenerator.validate_sparsity(record, expected_sparsity)
+        shape = (10,10)
+        total_grid_points = np.prod(shape)
+        num_obs = 10
+        expected_sparsity = 0.2  # Within tolerance
+
+        pattern = r"Sparsity \d+\.\d+ determined from number of coordinates differs from expected sparsity \d+\.\d+"
+        with pytest.raises(ValueError, match=pattern):
+            RecordGenerator.validate_sparsity(
+                num_obs, total_grid_points, expected_sparsity
+            )
     
     def test_error_message_contains_values(self):
         """Should include actual and expected values in error message."""
-        record = np.full((10, 10), np.nan)
-        record[0:2, 0:2] = 0.5  # 4 observations (0.04 sparsity)
+        shape = (10,10)
+        total_grid_points = np.prod(shape)
+        num_obs = 4
         expected_sparsity = 0.1
         with pytest.raises(ValueError) as exc_info:
-            RecordGenerator.validate_sparsity(record, expected_sparsity)
+            RecordGenerator.validate_sparsity(
+                num_obs, total_grid_points, expected_sparsity
+            )
         assert "0.04" in str(exc_info.value) or "4.0%" in str(exc_info.value)
         assert "0.1" in str(exc_info.value) or "10" in str(exc_info.value)
     
     def test_edge_case_full_sparsity(self):
         """Should handle sparsity = 1."""
-        record = np.ones((5, 5))  # All values set
-        expected_sparsity = 1.0
+        shape = (5, 5)
+        total_grid_points = np.prod(shape)
+        num_obs = 25
+        expected_sparsity = 1.
+
         # Should not raise
-        RecordGenerator.validate_sparsity(record, expected_sparsity)
+        RecordGenerator.validate_sparsity(
+            num_obs, total_grid_points, expected_sparsity
+        )
     
     def test_edge_case_very_small_sparsity(self):
         """Should handle very small sparsity."""
-        record = np.full((100, 100), np.nan)
-        record[0, 0] = 0.5  # 1 observation out of 10000
-        expected_sparsity = 0.0001
+        shape = (1e8, 1e8)
+        total_grid_points = np.prod(shape)
+        num_obs = 1
+        expected_sparsity = 1./total_grid_points
+
         # Should not raise
-        RecordGenerator.validate_sparsity(record, expected_sparsity)
+        RecordGenerator.validate_sparsity(
+            num_obs, total_grid_points, expected_sparsity
+        )
