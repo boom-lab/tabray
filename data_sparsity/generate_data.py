@@ -1133,11 +1133,18 @@ class GenerateData:
 
         else:
             # Multi-variable mode: generate all variables for this chunk
-            records = self._generate_multi_var_records_par(
-                shape=task_shape,
-                rng=task_rng,
-                chunk_id=chunk_id
+            records, overlap_actual = MultiVarRecordGenerator.generate(
+                shape, self.overlap_target, self.num_vars, self.var_num_obs,
+                self.var_dims_indices, self.var_constant_dims,
+                self.var_constant_coord_indices, self.num_dims, self.seed,
+                chunk_id, self.max_dim_size, self.dim_split
             )
+
+            # records = self._generate_multi_var_records_par(
+            #     shape=task_shape,
+            #     rng=task_rng,
+            #     chunk_id=chunk_id
+            # )
 
             logging.debug("chunk id: %s", chunk_id)
             total_obs = 0

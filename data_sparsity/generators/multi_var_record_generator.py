@@ -101,7 +101,10 @@ class MultiVarRecordGenerator:
         var_num_obs: np.ndarray,
         var_constant_dims: List[List[int]],
         var_constant_coord_indices: Dict,
-        seed: int
+        seed: int,
+        chunk_id: Optional[int],
+        max_dim_size: Optional[int],
+        dim_split: Optional[int]
     ) -> Dict[str, np.ndarray]:
         """Generate multi-variable records without overlap constraints.
         
@@ -115,6 +118,7 @@ class MultiVarRecordGenerator:
             var_constant_dims: Constant dimensions per variable
             var_constant_coord_indices: Pre-seeded RNGs for constant dims
             seed: Random seed
+            chunk_id: Identifier for this chunk (if parallel workflow)
             
         Returns:
             Dictionary of filled record arrays
@@ -130,7 +134,14 @@ class MultiVarRecordGenerator:
             var_name = f"var{var_idx}"
             var_shape = var_shapes[var_idx]
             var_total_points = int(np.prod(var_shape))
-            num_obs = min(int(var_num_obs[var_idx]), var_total_points)
+
+            # Scale down number of points if we are in a chunk of the whole
+            # variable
+            if chunk_id is not None:
+                chunk_fraction = shape[dim_split] / max_dim_size
+            else:
+                chunk_fraction = 1
+            num_obs = int(np.rint(var_num_obs[var_idx] * chunk_fraction))
             
             # Ensure we don't exceed available points
             if num_obs < var_num_obs[var_idx]:
@@ -140,7 +151,10 @@ class MultiVarRecordGenerator:
                 )
             
             # Create a separate RNG for this variable
-            var_rng = np.random.default_rng(seed + var_idx + 1000)
+            var_seed = seed + var_idx + 1000
+            if chunk_id is not None:
+                var_seed += chunk_id*100
+            var_rng = np.random.default_rng(var_seed)
             
             # Generate random indices in the reduced space (with size 1 for constant dims)
             flat_indices = RecordGenerator.generate_flat_indices(
@@ -173,7 +187,10 @@ class MultiVarRecordGenerator:
         var_num_obs: np.ndarray,
         var_constant_dims: List[List[int]],
         var_constant_coord_indices: Dict,
-        seed: int
+        seed: int,
+        chunk_id: Optional[int],
+        max_dim_size: Optional[int],
+        dim_split: Optional[int]
     ) -> Dict[str, np.ndarray]:
         """Generate multi-variable records with controlled overlap.
         
@@ -209,11 +226,15 @@ class MultiVarRecordGenerator:
         
         # Create shared RNG for selecting coordinates of overlapping sites/points
         # This ensures overlapping observations are at the same spatial locations
-        shared_rng = np.random.default_rng(seed + 9999)
-        var_rngs = [
-            np.random.default_rng(seed + var_idx + 2000)
-            for var_idx in range(num_vars)
-        ]
+        shared_seed = seed + 9999
+        if chunk_id is not None:
+            shared_seed += chunk_id*10000
+        shared_rng = np.random.default_rng(shared_seed)
+
+        var_seeds = [seed + var_idx + 2000 for var_idx in range(num_vars)]
+        if chunk_id is not None:
+            var_seeds = [s + chunk_id*100 for s in var_seeds]
+        var_rngs = [np.random.default_rng(s) for s in var_seeds]
 
         ### Phase 2: Reference Variable
         # Sort variables by observation count (largest first)
@@ -223,10 +244,18 @@ class MultiVarRecordGenerator:
         refvar_idx = int(sorted_var_indices[0])
         refvar_name = f"var{refvar_idx}"
         refvar_shape = var_shapes[refvar_idx]
-        refvar_num_obs = min(
-            int(var_num_obs[refvar_idx]),
-            int(np.prod(refvar_shape))
-        )
+
+        # Scale down number of points if we are in a chunk of the whole
+        # variable
+        if chunk_id is not None:
+            chunk_fraction = shape[dim_split] / max_dim_size
+        else:
+            chunk_fraction = 1
+        chunk_var_num_obs = [
+            int(np.rint(var_num_obs[var_idx] * chunk_fraction))
+            for var_idx in range(num_vars)
+        ]
+        refvar_num_obs = chunk_var_num_obs[refvar_idx]
 
         # Pick random positions
         refvar_flat_indices = shared_rng.choice(
@@ -250,7 +279,7 @@ class MultiVarRecordGenerator:
             var_name = f"var{var_idx}"
             var_shape = var_shapes[var_idx]
             var_total_points = int(np.prod(var_shape))
-            var_obs_count = min(int(var_num_obs[var_idx]), var_total_points)
+            var_obs_count = chunk_var_num_obs[var_idx]
             
             num_overlap = int(np.round(overlap_target * var_obs_count))
             num_separate = var_obs_count - num_overlap
@@ -300,7 +329,10 @@ class MultiVarRecordGenerator:
         var_constant_dims: List[List[int]],
         var_constant_coord_indices: Dict,
         num_dims: int,
-        seed: int
+        seed: int,
+        chunk_id: Optional[int] = None,
+        max_dim_size: Optional[int] = None,
+        dim_split: Optional[int] = None
     ) -> tuple[Dict[str, np.ndarray], float]:
         """Generate multi-variable records with overlap control.
         
@@ -328,12 +360,14 @@ class MultiVarRecordGenerator:
         if overlap == 'random' or num_vars == 1:
             records = MultiVarRecordGenerator.generate_without_overlap(
                 shape, records, num_vars, var_num_obs, var_constant_dims,
-                var_constant_coord_indices, seed
+                var_constant_coord_indices, seed, chunk_id, max_dim_size,
+                dim_split
             )
         else:
             records = MultiVarRecordGenerator.generate_with_overlap(
                 shape, records, float(overlap), num_vars, var_num_obs,
-                var_constant_dims, var_constant_coord_indices, seed
+                var_constant_dims, var_constant_coord_indices, seed,
+                chunk_id, max_dim_size, dim_split
             )
         
         overlap_actual = OverlapCalculator.compute_actual_overlap(
