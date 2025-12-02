@@ -12,7 +12,6 @@ import logging
 import os
 from typing import Dict, List, Tuple, Union, Optional
 import dask.dataframe as dd
-from dask.distributed import Client, LocalCluster, as_completed
 import numpy as np
 from numpy.typing import ArrayLike
 import pandas as pd
@@ -716,9 +715,12 @@ class GenerateData:
 
         Submit as many dataset generation tasks as number of blocks needed.
         Supports both single-variable and multi-variable datasets.
+        
+        Uses ProcessPoolExecutor for simpler, more robust parallelization without
+        external dependencies.
         """
-        # Clean up any existing temporary files from previous runs
-        import os
+        from concurrent.futures import ProcessPoolExecutor, as_completed
+        from data_sparsity.workers import generate_chunk
         import shutil
         
         # Ensure output directories exist
@@ -743,10 +745,6 @@ class GenerateData:
         # Recreate the temporary directory
         if tmp_dir:
             os.makedirs(tmp_dir, exist_ok=True)
-        
-        cluster = LocalCluster(n_workers=4, threads_per_worker=1, processes=True)
-        client = Client(cluster)
-        print("Dask dashboard:", client.dashboard_link)
 
         mp_obs, sparsity_new, per_chunk_obs = ChunkUtils.get_observations_per_chunk(
             self.num_obs,
@@ -758,39 +756,104 @@ class GenerateData:
         self.sparsity = sparsity_new
         self.num_obs = mp_obs
 
-        # Submit one task per seed
-        futures = [
-            client.submit(self._generate_record_par, chunk_id, chunk_obs)
-            for chunk_id, chunk_obs in zip(range(self.NTASKS), per_chunk_obs)
-        ]
-        tot_completed = 0
-        tot_obs = 0
-        for f in as_completed(futures):
-            chunk_id, obs_num = f.result()
-            tot_completed += 1
-            tot_obs += obs_num
-            print(
-                f"Completed {tot_completed} of {self.NTASKS} chunks "
-                f"(completed chunk #{chunk_id})"
-            )
+        # Prepare arguments for all chunks
+        chunk_args = []
+        for chunk_id, chunk_obs in zip(range(self.NTASKS), per_chunk_obs):
+            args = {
+                'chunk_id': chunk_id,
+                'obs_in_chunk': chunk_obs,
+                'seed': self.seed,
+                'shape': self.shape,
+                'sparsity': self.sparsity,
+                'num_vars': self.num_vars,
+                'num_dims': self.num_dims,
+                'ratio_dims': self.ratio_dims,
+                'num_obs': self.num_obs,
+                'var_sparsities': self.var_sparsities if self.num_vars > 1 else None,
+                'var_num_obs': self.var_num_obs if self.num_vars > 1 else None,
+                'var_dims_indices': self.var_dims_indices if self.num_vars > 1 else None,
+                'var_constant_dims': self.var_constant_dims if self.num_vars > 1 else None,
+                'var_constant_coord_indices': (
+                    self.var_constant_coord_indices if self.num_vars > 1 else None
+                ),
+                'overlap_target': self.overlap_target if self.num_vars > 1 else 0.0,
+                'dim_split': self.dim_split,
+                'max_dim_size': self.max_dim_size,
+                'div_points': self.div_points,
+                'section_sizes': self.section_sizes,
+                'netcdf_filepath': self.netcdf_filepath,
+                'parquet_tmp': self.parquet_tmp,
+                'ntasks': self.NTASKS,
+            }
+            chunk_args.append(args)
+
+        # Execute in parallel with limited workers to avoid memory issues
+        max_workers = min(self.NTASKS, 4)
+        print(f"Starting parallel generation with {max_workers} workers for {self.NTASKS} chunks")
+        
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            futures = [executor.submit(generate_chunk, **args) for args in chunk_args]
+            
+            tot_completed = 0
+            tot_obs = 0
+            for future in as_completed(futures):
+                chunk_id, obs_num, chunk_path = future.result()
+                tot_completed += 1
+                tot_obs += obs_num
+                print(
+                    f"Completed {tot_completed} of {self.NTASKS} chunks "
+                    f"(completed chunk #{chunk_id})"
+                )
 
         print(f"Total obs stored to disk: {tot_obs}.")
-        client.close()
-        cluster.close()
 
-        # Read all chunks from temporary directory
-        import os
+        # Consolidate parquet files
+        self._consolidate_parquet_files()
+
+    def _consolidate_parquet_files(self) -> None:
+        """Consolidate temporary parquet files into single output.
+        
+        Uses Dask for memory-efficient consolidation of potentially larger-than-memory
+        datasets. This is critical for the parallel workflow's primary use case:
+        generating datasets that exceed available memory.
+        
+        The consolidation reads all temporary parquet chunks lazily using Dask,
+        repartitions for optimal I/O, and writes the consolidated output.
+        """
+        import glob
+        
         tmp_dir = os.path.dirname(self.parquet_tmp)
-        ddf = dd.read_parquet(tmp_dir)
+        tmp_pattern = os.path.join(tmp_dir, "chunk_*.parquet")
+        tmp_files = sorted(glob.glob(tmp_pattern))
+        
+        if not tmp_files:
+            raise RuntimeError(f"No temporary parquet files found in {tmp_dir}")
+        
+        print(f"Consolidating {len(tmp_files)} parquet chunk files...")
+        
+        # Use Dask to read all chunks lazily (memory-efficient for large datasets)
+        ddf = dd.read_parquet(tmp_pattern)
+        
+        # Repartition for optimal write performance (300MB partitions is a good default)
         ddf = ddf.repartition(partition_size="300MB")
-        self.save_to_parquet(
-            self.parquet_filepath,
-            ddf,
-            overwrite=True
-        )
+        
+        print(f"Dask DataFrame has {ddf.npartitions} partitions")
+        
+        # Write consolidated file using ParquetBuilder (which handles dask DataFrames)
+        ParquetBuilder.save_to_file(ddf, self.parquet_filepath, overwrite=True)
+        
+        # Cleanup temporary files
+        print(f"Cleaning up {len(tmp_files)} temporary files...")
+        for f in tmp_files:
+            os.remove(f)
+        print(f"Consolidated parquet file saved to {self.parquet_filepath}")
 
     def _generate_record_par(self, chunk_id: int, obs_in_chunk: int) -> Tuple[int, int]:
         """Generate sparse record array for a single chunk in parallel processing.
+        
+        DEPRECATED: This method is kept for backwards compatibility with existing tests.
+        New parallel generation uses the standalone generate_chunk function from
+        data_sparsity.workers module to avoid serialization issues.
 
         This method generates a chunk of the full array by:
         1. Setting up chunk-specific and global random generators
@@ -912,7 +975,7 @@ class GenerateData:
         else:
             # Multi-variable mode: generate all variables for this chunk
             records, overlap_actual = MultiVarRecordGenerator.generate(
-                shape, self.overlap_target, self.num_vars, self.var_num_obs,
+                task_shape, self.overlap_target, self.num_vars, self.var_num_obs,
                 self.var_dims_indices, self.var_constant_dims,
                 self.var_constant_coord_indices, self.num_dims, self.seed,
                 chunk_id, self.max_dim_size, self.dim_split

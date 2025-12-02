@@ -53,9 +53,12 @@ class ChunkUtils:
         Generate two distinct generators:
         global_rng: identical across tasks, used for coordinates along non-split dimensions
         task_rng: unique per task, used for split dimension coordinates and observations
+        
+        Note: task_rng uses seed + chunk_id + 1 to ensure it's always different from 
+        global_rng, even when chunk_id=0.
         """
         global_rng = np.random.default_rng(seed)
-        task_rng = np.random.default_rng(seed + chunk_id)
+        task_rng = np.random.default_rng(seed + chunk_id + 1)
 
         return global_rng, task_rng
 

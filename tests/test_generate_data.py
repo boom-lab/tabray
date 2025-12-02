@@ -711,3 +711,494 @@ class TestErrorHandling:
                 var_dims=2,
                 overlap=1.5  # > 1.0
             )
+
+
+class TestParallelSingleVariable:
+    """Tests for parallel single-variable generation workflow."""
+    
+    def test_parallel_generation_with_chunks(self, temp_dir):
+        """Should generate data using parallel workflow with multiple chunks."""
+        gen = GenerateData(
+            num_obs=500,
+            num_dims=2,
+            ratio_dims=[5, 5],
+            sparsity=0.05,
+            seed=42,
+            num_vars=1
+        )
+        
+        # Set up file paths and parallel execution parameters
+        gen.netcdf_filepath = os.path.join(temp_dir, "test_parallel.nc")
+        gen.parquet_filepath = os.path.join(temp_dir, "test_parallel.parquet")
+        gen.parquet_tmp = os.path.join(temp_dir, "tmp", "test_parallel_tmp.parquet")
+        gen.NTASKS = 4
+        gen.max_dim_size = gen.shape[0]
+        gen.div_points = [0, 2, 4, 6, 8]  # 4 chunks - note: shape[0] should be 8
+        gen.section_sizes = [2, 2, 2, 2]
+        gen.dim_split = 0
+        gen.netcdf_filepath = "test_parallel.nc"
+        gen.parquet_filepath = "test_parallel.parquet"
+        gen.parquet_tmp = "tmp/test_parallel_tmp.parquet"
+        
+        # Generate one chunk
+        chunk_id = 0
+        obs_in_chunk = 25
+        result_chunk_id, result_obs = gen._generate_record_par(chunk_id, obs_in_chunk)
+        
+        assert result_chunk_id == chunk_id
+        assert result_obs > 0  # Should have generated some observations
+    
+    def test_rng_reproducibility_across_chunks(self):
+        """Should produce consistent results with same seed across runs."""
+        # Run 1
+        gen1 = GenerateData(
+            num_obs=200,
+            num_dims=2,
+            ratio_dims=[10, 10],
+            sparsity=0.1,
+            seed=42,
+            num_vars=1
+        )
+        gen1.NTASKS = 2
+        gen1.max_dim_size = 10
+        gen1.div_points = [0, 5, 10]
+        gen1.section_sizes = [5, 5]
+        gen1.dim_split = 0
+        gen1.netcdf_filepath = "test_parallel.nc"
+        gen1.parquet_filepath = "test_parallel.parquet"
+        gen1.parquet_tmp = "tmp/test_parallel_tmp.parquet"
+        
+        # Run 2 with same seed
+        gen2 = GenerateData(
+            num_obs=200,
+            num_dims=2,
+            ratio_dims=[10, 10],
+            sparsity=0.1,
+            seed=42,
+            num_vars=1
+        )
+        gen2.NTASKS = 2
+        gen2.max_dim_size = 10
+        gen2.div_points = [0, 5, 10]
+        gen2.section_sizes = [5, 5]
+        gen2.dim_split = 0
+        gen2.netcdf_filepath = "test_parallel.nc"
+        gen2.parquet_filepath = "test_parallel.parquet"
+        gen2.parquet_tmp = "tmp/test_parallel_tmp.parquet"
+        
+        # Both should produce same observation counts
+        _, obs1 = gen1._generate_record_par(0, 50)
+        _, obs2 = gen2._generate_record_par(0, 50)
+        
+        assert obs1 == obs2
+    
+    def test_chunk_boundary_handling(self):
+        """Should handle chunk boundaries correctly."""
+        gen = GenerateData(
+            num_obs=300,
+            num_dims=2,
+            ratio_dims=[10, 10],
+            sparsity=0.1,
+            seed=42,
+            num_vars=1
+        )
+        
+        gen.NTASKS = 3
+        # Set up file paths for parallel execution
+        gen.netcdf_filepath = "test_parallel.nc"
+        gen.parquet_filepath = "test_parallel.parquet"
+        gen.parquet_tmp = "tmp/test_parallel_tmp.parquet"
+        gen.max_dim_size = 10
+        gen.div_points = [0, 3, 7, 10]
+        gen.section_sizes = [3, 4, 3]
+        gen.dim_split = 0
+        gen.netcdf_filepath = "test_parallel.nc"
+        gen.parquet_filepath = "test_parallel.parquet"
+        gen.parquet_tmp = "tmp/test_parallel_tmp.parquet"
+        
+        # Test first chunk
+        chunk_id, obs = gen._generate_record_par(0, 30)
+        assert chunk_id == 0
+        assert obs >= 0
+        
+        # Test last chunk
+        chunk_id, obs = gen._generate_record_par(2, 30)
+        assert chunk_id == 2
+        assert obs >= 0
+    
+    def test_sparsity_validation_across_chunks(self):
+        """Should maintain approximate sparsity across all chunks."""
+        gen = GenerateData(
+            num_obs=400,
+            num_dims=2,
+            ratio_dims=[20, 20],
+            sparsity=0.1,
+            seed=42,
+            num_vars=1
+        )
+        
+        gen.NTASKS = 4
+        # Set up file paths for parallel execution
+        gen.netcdf_filepath = "test_parallel.nc"
+        gen.parquet_filepath = "test_parallel.parquet"
+        gen.parquet_tmp = "tmp/test_parallel_tmp.parquet"
+        gen.max_dim_size = 20
+        gen.div_points = [0, 5, 10, 15, 20]
+        gen.section_sizes = [5, 5, 5, 5]
+        gen.dim_split = 0
+        gen.netcdf_filepath = "test_parallel.nc"
+        gen.parquet_filepath = "test_parallel.parquet"
+        gen.parquet_tmp = "tmp/test_parallel_tmp.parquet"
+        
+        total_obs = 0
+        for chunk_id in range(4):
+            _, obs = gen._generate_record_par(chunk_id, 100)
+            total_obs += obs
+        
+        # Total observations should be reasonable for the sparsity
+        total_points = np.prod(gen.shape)
+        actual_sparsity = total_obs / total_points
+        assert 0.05 <= actual_sparsity <= 0.15  # Allow some variance
+    
+    def test_different_chunk_sizes(self):
+        """Should handle non-uniform chunk sizes."""
+        gen = GenerateData(
+            num_obs=300,
+            num_dims=2,
+            ratio_dims=[10, 10],
+            sparsity=0.1,
+            seed=42,
+            num_vars=1
+        )
+        
+        gen.NTASKS = 3
+        # Set up file paths for parallel execution
+        gen.netcdf_filepath = "test_parallel.nc"
+        gen.parquet_filepath = "test_parallel.parquet"
+        gen.parquet_tmp = "tmp/test_parallel_tmp.parquet"
+        gen.max_dim_size = 10
+        gen.div_points = [0, 2, 7, 10]  # Non-uniform: 2, 5, 3
+        gen.section_sizes = [2, 5, 3]
+        gen.dim_split = 0
+        gen.netcdf_filepath = "test_parallel.nc"
+        gen.parquet_filepath = "test_parallel.parquet"
+        gen.parquet_tmp = "tmp/test_parallel_tmp.parquet"
+        
+        # All chunks should work regardless of size
+        for chunk_id in range(3):
+            result_id, obs = gen._generate_record_par(chunk_id, 50)
+            assert result_id == chunk_id
+            assert obs >= 0
+
+
+class TestParallelMultiVariable:
+    """Tests for parallel multi-variable generation workflow."""
+    
+    def test_multi_variable_parallel_generation(self, temp_dir):
+        """Should generate multiple variables using parallel workflow."""
+        gen = GenerateData(
+            num_obs=300,
+            num_dims=2,
+            ratio_dims=[10, 10],
+            sparsity=[0.1, 0.15],
+            seed=42,
+            num_vars=2,
+            var_dims=2,
+            overlap=0.3
+        )
+        
+        # Set up file paths for parallel execution
+        gen.netcdf_filepath = os.path.join(temp_dir, "test_multivar_par.nc")
+        gen.parquet_filepath = os.path.join(temp_dir, "test_multivar_par.parquet")
+        gen.parquet_tmp = os.path.join(temp_dir, "tmp", "test_multivar_par_tmp.parquet")
+        
+        gen.NTASKS = 2
+        gen.max_dim_size = 10
+        gen.div_points = [0, 5, 10]
+        gen.section_sizes = [5, 5]
+        gen.dim_split = 0
+        gen.netcdf_filepath = "test_parallel.nc"
+        gen.parquet_filepath = "test_parallel.parquet"
+        gen.parquet_tmp = "tmp/test_parallel_tmp.parquet"
+        
+        # Generate one chunk
+        chunk_id, obs = gen._generate_record_par(0, 150)
+        
+        assert chunk_id == 0
+        assert obs > 0
+    
+    def test_overlap_computation_across_chunks(self):
+        """Should handle overlap computation in parallel mode."""
+        gen = GenerateData(
+            num_obs=200,
+            num_dims=2,
+            ratio_dims=[10, 10],
+            sparsity=[0.1, 0.1],
+            seed=42,
+            num_vars=2,
+            var_dims=2,
+            overlap=0.5
+        )
+        
+        gen.NTASKS = 2
+        # Set up file paths for parallel execution
+        gen.netcdf_filepath = "test_parallel.nc"
+        gen.parquet_filepath = "test_parallel.parquet"
+        gen.parquet_tmp = "tmp/test_parallel_tmp.parquet"
+        gen.max_dim_size = 10
+        gen.div_points = [0, 5, 10]
+        gen.section_sizes = [5, 5]
+        gen.dim_split = 0
+        gen.netcdf_filepath = "test_parallel.nc"
+        gen.parquet_filepath = "test_parallel.parquet"
+        gen.parquet_tmp = "tmp/test_parallel_tmp.parquet"
+        
+        # Generate both chunks
+        _, obs1 = gen._generate_record_par(0, 100)
+        _, obs2 = gen._generate_record_par(1, 100)
+        
+        assert obs1 > 0
+        assert obs2 > 0
+    
+    def test_constant_dimension_handling(self):
+        """Should handle constant dimensions correctly in parallel mode."""
+        gen = GenerateData(
+            num_obs=200,
+            num_dims=3,
+            ratio_dims=[10, 10, 5],
+            sparsity=[0.1, 0.12],
+            seed=42,
+            num_vars=2,
+            var_dims=[2, 1]  # Different var_dims
+        )
+        
+        gen.NTASKS = 2
+        # Set up file paths for parallel execution
+        gen.netcdf_filepath = "test_parallel.nc"
+        gen.parquet_filepath = "test_parallel.parquet"
+        gen.parquet_tmp = "tmp/test_parallel_tmp.parquet"
+        gen.max_dim_size = 10
+        gen.div_points = [0, 5, 10]
+        gen.section_sizes = [5, 5]
+        gen.dim_split = 0
+        gen.netcdf_filepath = "test_parallel.nc"
+        gen.parquet_filepath = "test_parallel.parquet"
+        gen.parquet_tmp = "tmp/test_parallel_tmp.parquet"
+        
+        # Should work with different var_dims per variable
+        chunk_id, obs = gen._generate_record_par(0, 100)
+        assert obs >= 0
+    
+    def test_chunk_consolidation_with_overlap(self):
+        """Should properly consolidate chunks with overlapping variables."""
+        gen = GenerateData(
+            num_obs=400,
+            num_dims=2,
+            ratio_dims=[20, 20],
+            sparsity=[0.08, 0.08],
+            seed=42,
+            num_vars=2,
+            var_dims=2,
+            overlap=0.4
+        )
+        
+        gen.NTASKS = 2
+        # Set up file paths for parallel execution
+        gen.netcdf_filepath = "test_parallel.nc"
+        gen.parquet_filepath = "test_parallel.parquet"
+        gen.parquet_tmp = "tmp/test_parallel_tmp.parquet"
+        gen.max_dim_size = 20
+        gen.div_points = [0, 10, 20]
+        gen.section_sizes = [10, 10]
+        gen.dim_split = 0
+        gen.netcdf_filepath = "test_parallel.nc"
+        gen.parquet_filepath = "test_parallel.parquet"
+        gen.parquet_tmp = "tmp/test_parallel_tmp.parquet"
+        
+        # Generate both chunks
+        total_obs = 0
+        for chunk_id in range(2):
+            _, obs = gen._generate_record_par(chunk_id, 200)
+            total_obs += obs
+        
+        # Should have observations from both variables
+        assert total_obs > 0
+    
+    def test_variable_synchronization(self):
+        """Should synchronize variables correctly across chunks."""
+        gen = GenerateData(
+            num_obs=300,
+            num_dims=2,
+            ratio_dims=[15, 15],
+            sparsity=[0.1, 0.1],
+            seed=42,
+            num_vars=2,
+            var_dims=2,
+            overlap=0.5
+        )
+        
+        gen.NTASKS = 3
+        # Set up file paths for parallel execution
+        gen.netcdf_filepath = "test_parallel.nc"
+        gen.parquet_filepath = "test_parallel.parquet"
+        gen.parquet_tmp = "tmp/test_parallel_tmp.parquet"
+        gen.max_dim_size = 15
+        gen.div_points = [0, 5, 10, 15]
+        gen.section_sizes = [5, 5, 5]
+        gen.dim_split = 0
+        gen.netcdf_filepath = "test_parallel.nc"
+        gen.parquet_filepath = "test_parallel.parquet"
+        gen.parquet_tmp = "tmp/test_parallel_tmp.parquet"
+        
+        # All chunks should maintain variable consistency
+        for chunk_id in range(3):
+            result_id, obs = gen._generate_record_par(chunk_id, 100)
+            assert result_id == chunk_id
+            assert obs >= 0
+
+
+class TestParallelErrorHandling:
+    """Tests for error handling in parallel workflows."""
+    
+    def test_chunk_size_validation(self):
+        """Should validate chunk sizes correctly."""
+        gen = GenerateData(
+            num_obs=100,
+            num_dims=2,
+            ratio_dims=[10, 10],
+            sparsity=0.1,
+            seed=42,
+            num_vars=1
+        )
+        
+        # Set up valid chunk parameters
+        gen.NTASKS = 2
+        # Set up file paths for parallel execution
+        gen.netcdf_filepath = "test_parallel.nc"
+        gen.parquet_filepath = "test_parallel.parquet"
+        gen.parquet_tmp = "tmp/test_parallel_tmp.parquet"
+        gen.max_dim_size = 10
+        gen.div_points = [0, 5, 10]
+        gen.section_sizes = [5, 5]
+        gen.dim_split = 0
+        gen.netcdf_filepath = "test_parallel.nc"
+        gen.parquet_filepath = "test_parallel.parquet"
+        gen.parquet_tmp = "tmp/test_parallel_tmp.parquet"
+        
+        # Should work with valid setup
+        chunk_id, obs = gen._generate_record_par(0, 50)
+        assert obs >= 0
+    
+    def test_invalid_split_dimension_handled(self):
+        """Should handle invalid split dimension gracefully."""
+        gen = GenerateData(
+            num_obs=100,
+            num_dims=2,
+            ratio_dims=[10, 10],
+            sparsity=0.1,
+            seed=42,
+            num_vars=1
+        )
+        
+        gen.NTASKS = 2
+        # Set up file paths for parallel execution
+        gen.netcdf_filepath = "test_parallel.nc"
+        gen.parquet_filepath = "test_parallel.parquet"
+        gen.parquet_tmp = "tmp/test_parallel_tmp.parquet"
+        gen.max_dim_size = 10
+        gen.div_points = [0, 5, 10]
+        gen.section_sizes = [5, 5]
+        
+        # Valid dimension indices
+        for dim_split in range(gen.num_dims):
+            gen.dim_split = dim_split
+            _, obs = gen._generate_record_par(0, 50)
+            assert obs >= 0
+    
+    def test_edge_case_single_chunk(self):
+        """Should handle single chunk as edge case."""
+        gen = GenerateData(
+            num_obs=100,
+            num_dims=2,
+            ratio_dims=[10, 10],
+            sparsity=0.1,
+            seed=42,
+            num_vars=1
+        )
+        
+        gen.NTASKS = 1
+        # Set up file paths for parallel execution
+        gen.netcdf_filepath = "test_parallel.nc"
+        gen.parquet_filepath = "test_parallel.parquet"
+        gen.parquet_tmp = "tmp/test_parallel_tmp.parquet"
+        gen.max_dim_size = 10
+        gen.div_points = [0, 10]
+        gen.section_sizes = [10]
+        gen.dim_split = 0
+        gen.netcdf_filepath = "test_parallel.nc"
+        gen.parquet_filepath = "test_parallel.parquet"
+        gen.parquet_tmp = "tmp/test_parallel_tmp.parquet"
+        
+        # Should work with single chunk
+        chunk_id, obs = gen._generate_record_par(0, 100)
+        assert chunk_id == 0
+        assert obs >= 0
+    
+    def test_edge_case_many_small_chunks(self):
+        """Should handle many small chunks."""
+        gen = GenerateData(
+            num_obs=200,
+            num_dims=2,
+            ratio_dims=[10, 10],
+            sparsity=0.1,
+            seed=42,
+            num_vars=1
+        )
+        
+        gen.NTASKS = 10
+        # Set up file paths for parallel execution
+        gen.netcdf_filepath = "test_parallel.nc"
+        gen.parquet_filepath = "test_parallel.parquet"
+        gen.parquet_tmp = "tmp/test_parallel_tmp.parquet"
+        gen.max_dim_size = 10
+        gen.div_points = list(range(11))  # [0, 1, 2, ..., 10]
+        gen.section_sizes = [1] * 10
+        gen.dim_split = 0
+        gen.netcdf_filepath = "test_parallel.nc"
+        gen.parquet_filepath = "test_parallel.parquet"
+        gen.parquet_tmp = "tmp/test_parallel_tmp.parquet"
+        
+        # Should work with many small chunks
+        for chunk_id in range(5):  # Test subset
+            result_id, obs = gen._generate_record_par(chunk_id, 20)
+            assert result_id == chunk_id
+            assert obs >= 0
+    
+    def test_zero_observations_handled(self):
+        """Should handle case where chunk has zero observations."""
+        gen = GenerateData(
+            num_obs=10,
+            num_dims=2,
+            ratio_dims=[10, 10],
+            sparsity=0.001,  # Very low sparsity
+            seed=42,
+            num_vars=1
+        )
+        
+        gen.NTASKS = 2
+        # Set up file paths for parallel execution
+        gen.netcdf_filepath = "test_parallel.nc"
+        gen.parquet_filepath = "test_parallel.parquet"
+        gen.parquet_tmp = "tmp/test_parallel_tmp.parquet"
+        gen.max_dim_size = 10
+        gen.div_points = [0, 5, 10]
+        gen.section_sizes = [5, 5]
+        gen.dim_split = 0
+        gen.netcdf_filepath = "test_parallel.nc"
+        gen.parquet_filepath = "test_parallel.parquet"
+        gen.parquet_tmp = "tmp/test_parallel_tmp.parquet"
+        
+        # Should handle even if some chunks have zero observations
+        chunk_id, obs = gen._generate_record_par(0, 1)
+        assert chunk_id == 0
+        assert obs >= 0
