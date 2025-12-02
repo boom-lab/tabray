@@ -201,6 +201,9 @@ class ParameterValidator:
 
         """
 
+        if not isinstance(sparsity, (tuple,list)):
+            return sparsity
+
         if isinstance(sparsity, tuple):
             sparsity = [*sparsity]
 
