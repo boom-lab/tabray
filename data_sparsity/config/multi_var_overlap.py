@@ -119,11 +119,53 @@ class MultiVarOverlapConfig:
                 )
 
     @staticmethod
+    def validate_per_variable_space(
+        shape: List[int],
+        var_num_obs: np.ndarray,
+        var_dims_indices: List[List[int]]
+    ) -> None:
+        """Validate that each variable has enough grid space for its observations.
+        
+        Each variable needs grid_points >= observations, regardless of overlap.
+        Overlap just means some observations are at the same spatial locations.
+        
+        Args:
+            shape: Full grid shape
+            var_num_obs: Array of observation counts for each variable
+            var_dims_indices: List of varying dimension indices per variable
+            
+        Raises:
+            ValueError: If any variable doesn't have enough grid space
+        """
+        for var_idx in range(len(var_num_obs)):
+            var_varying_dims = var_dims_indices[var_idx]
+            
+            # Compute effective grid points for this variable
+            if len(var_varying_dims) == 0 or len(var_varying_dims) == len(shape):
+                # All dimensions vary
+                var_grid_points = int(np.prod(shape))
+            else:
+                # Only count grid points in varying dimensions
+                var_grid_points = int(np.prod([shape[d] for d in var_varying_dims]))
+            
+            var_obs = var_num_obs[var_idx]
+            
+            if var_grid_points < var_obs:
+                raise ValueError(
+                    f"Variable {var_idx} needs {var_obs} observations but only has "
+                    f"{var_grid_points} grid points (varying dims: {var_varying_dims}). "
+                    f"Either reduce observations for this variable, increase grid size, "
+                    f"increase sparsity, or allow this variable to vary in more "
+                    f"dimensions."
+                )
+
+    @staticmethod
     def setup_from_parameter(
         overlap: Union[float, str],
         num_vars: int,
-        total_grid_points: int,
-        var_num_obs: np.ndarray
+        shape: List[int],
+        var_num_obs: np.ndarray,
+        var_dims_indices: List[List[int]]
     ) -> Union[float, str]:
         """Setup overlap configuration from parameter.
         
@@ -132,19 +174,27 @@ class MultiVarOverlapConfig:
         Args:
             overlap: Overlap specification (0-1 or 'random')
             num_vars: Number of variables
-            total_grid_points: Total number of grid points available
+            shape: Full grid shape (size per dimension)
             var_num_obs: Array of observation counts for each variable
+            var_dims_indices: List of varying dimension indices per variable
             
         Returns:
             Validated overlap value
             
         Raises:
             TypeError: If overlap is not a valid type
-            ValueError: If overlap is infeasible
+            ValueError: If overlap is infeasible or variables lack sufficient grid space
         """
         overlap = MultiVarOverlapConfig.validate_overlap_value(overlap)
         
         if num_vars > 1:
+            # First validate that each variable has enough grid space
+            MultiVarOverlapConfig.validate_per_variable_space(
+                shape, var_num_obs, var_dims_indices
+            )
+            
+            # Then compute and validate minimum overlap
+            total_grid_points = int(np.prod(shape))
             min_overlap = MultiVarOverlapConfig.compute_min_overlap(
                 total_grid_points, var_num_obs
             )

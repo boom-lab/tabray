@@ -256,7 +256,7 @@ class TestMultiVariableGeneration:
             num_obs=100,
             num_dims=3,
             ratio_dims=1,
-            sparsity=[0.1, 0.15],
+            sparsity=[0.15, 0.07],  # Adjusted: var1 gets ~50 obs (< 81 grid points)
             seed=42,
             num_vars=2,
             var_dims=2,
@@ -275,7 +275,7 @@ class TestMultiVariableGeneration:
             num_obs=200,
             num_dims=3,
             ratio_dims=1,
-            sparsity=[0.1, 0.12, 0.08, 0.15],
+            sparsity=[0.10, 0.06, 0.04, 0.05],  # Adjusted: non-ref vars get ~70,50,60 obs
             seed=42,
             num_vars=4,
             var_dims=2,
@@ -293,7 +293,7 @@ class TestMultiVariableGeneration:
             num_obs=150,
             num_dims=3,
             ratio_dims=1,
-            sparsity=[0.12, 0.15, 0.18],
+            sparsity=[0.20, 0.07, 0.05],  # Adjusted: var1~60 obs, var2~43 obs (well < 81)
             seed=42,
             num_vars=3,
             var_dims=2,
@@ -302,11 +302,11 @@ class TestMultiVariableGeneration:
         dataset, dataframe = gen.generate()
         
         # Each variable should have different number of observations
-        counts = []
-        for i in range(3):
-            var_data = dataset[f'var{i}'].values
-            count = np.count_nonzero(~np.isnan(var_data))
-            counts.append(count)
+        counts_data = dataset.count()
+        print(counts_data)
+        
+        # Extract counts as integers
+        counts = [int(counts_data[f'var{i}'].values) for i in range(3)]
         
         # All counts should be positive
         assert all(c > 0 for c in counts)
@@ -319,10 +319,10 @@ class TestMultiVariableGeneration:
             num_obs=120,
             num_dims=3,
             ratio_dims=1,
-            sparsity=0.15,
+            sparsity=0.10,  # Adjusted to meet minimum sparsity requirement
             seed=42,
             num_vars=2,
-            var_dims=[2, 2],  # Both use 2 dims
+            var_dims=[2, 2],  # Both use 2 dims (but var0 gets all dims per new logic)
             overlap='random'
         )
         dataset, dataframe = gen.generate()
@@ -337,10 +337,10 @@ class TestMultiVariableGeneration:
             num_obs=100,
             num_dims=3,
             ratio_dims=1,
-            sparsity=[0.15, 0.15],
+            sparsity=[0.15, 0.01],  # Adjusted: var1 with 1 dim gets ~7 obs (< 9)
             seed=42,
             num_vars=2,
-            var_dims=[2, 1],  # Different dims for zero overlap
+            var_dims=[2, 1],  # Different dims - var0 all dims, var1 gets 1 dim
             overlap='random'
         )
         dataset, dataframe = gen.generate()
@@ -391,7 +391,7 @@ class TestMultiVariableGeneration:
             num_obs=200,
             num_dims=3,
             ratio_dims=1,
-            sparsity=0.1,
+            sparsity=0.065,  # Adjusted to meet minimum sparsity (0.0625)
             seed=42,
             num_vars=num_vars,
             var_dims=2,
@@ -409,7 +409,7 @@ class TestMultiVariableGeneration:
             num_obs=100,
             num_dims=3,
             ratio_dims=1,
-            sparsity=[0.1, 0.12],
+            sparsity=[0.10, 0.07],  # Adjusted: var1 gets ~50 obs (< 81)
             seed=42,
             num_vars=2,
             var_dims=2,
@@ -429,7 +429,7 @@ class TestMultiVariableGeneration:
             num_obs=80,
             num_dims=3,
             ratio_dims=1,
-            sparsity=[0.15, 0.18],
+            sparsity=[0.15, 0.08],  # Adjusted: var1 gets ~45 obs (< 64 grid points)
             seed=42,
             num_vars=2,
             var_dims=2,
@@ -441,7 +441,7 @@ class TestMultiVariableGeneration:
             num_obs=80,
             num_dims=3,
             ratio_dims=1,
-            sparsity=[0.15, 0.18],
+            sparsity=[0.15, 0.08],  # Adjusted: same as gen1
             seed=42,
             num_vars=2,
             var_dims=2,
@@ -451,9 +451,12 @@ class TestMultiVariableGeneration:
         
         # Datasets should be identical
         for var in dataset1.data_vars:
-            np.testing.assert_array_equal(
+            # Use assert_allclose which handles NaN properly
+            np.testing.assert_allclose(
                 dataset1[var].values,
                 dataset2[var].values,
+                rtol=0,
+                atol=0,
                 equal_nan=True
             )
 
