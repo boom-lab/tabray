@@ -243,7 +243,7 @@ class MultiVarRecordGenerator:
         sorted_var_indices = [0]
         sorted_var_indices = np.concatenate((
             np.asarray(sorted_var_indices),
-            np.argsort(var_num_obs[1:])[::-1]
+            np.argsort(var_num_obs[1:])[::-1]+1 # +1 to take into account first spot is refvar
         ))
         
         # Generate reference (largest) variable first using SHARED_RNG (for positions)
@@ -270,6 +270,7 @@ class MultiVarRecordGenerator:
             replace=False
         )
         refvar_multi = np.unravel_index(refvar_flat_indices, refvar_shape)
+
         # Fill constant dims
         refvar_full_multi = MultiVarRecordGenerator._expand_to_full_coords(
             refvar_multi, var_constant_coords[refvar_idx], refvar_num_obs
