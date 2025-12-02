@@ -166,7 +166,7 @@ def generate_chunk(
         # Save to NetCDF
         nb_digits = len(str(ntasks))
         fpath = f"{netcdf_filepath[:-3]}_{chunk_id:0{nb_digits}d}.nc"
-        NetCDFBuilder.save_to_file(fpath, dataarray, overwrite=False)
+        NetCDFBuilder.save_to_file(dataarray, fpath, overwrite=False)
         del dataarray
         gc.collect()
         
@@ -221,7 +221,7 @@ def generate_chunk(
         # Save to NetCDF
         nb_digits = len(str(ntasks))
         fpath = f"{netcdf_filepath[:-3]}_{chunk_id:0{nb_digits}d}.nc"
-        NetCDFBuilder.save_to_file(fpath, dataset, overwrite=False)
+        NetCDFBuilder.save_to_file(dataset, fpath, overwrite=False)
         del dataset
         gc.collect()
         

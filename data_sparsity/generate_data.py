@@ -681,7 +681,7 @@ class GenerateData:
                 dataarray = dataset
 
             if netcdf_filepath is not None:
-                netcdf_filepath, _, _ = (
+                nc_path, _, _ = (
                     PathManager.setup_output_paths(
                         netcdf_filepath=netcdf_filepath,
                         parquet_filepath=None,
@@ -689,22 +689,37 @@ class GenerateData:
                         overwrite=True
                     )
                 )
-                self.save_to_netcdf(self.netcdf_filepath, dataarray=dataarray)
+                self.save_to_netcdf(nc_path, dataarray=dataarray)
 
             if parquet_filepath is not None:
-                _, parquet_filepath, _ = (
+                _, pq_path, _ = (
                     PathManager.setup_output_paths(
-                        netcdf_filepath=netcdf_filepath,
-                        parquet_filepath=None,
+                        netcdf_filepath=None,
+                        parquet_filepath=parquet_filepath,
                         parquet_tmp=None,
                         overwrite=True
                     )
                 )
-                self.save_to_parquet(self.parquet_filepath, dataframe=dataframe)
+                self.save_to_parquet(pq_path, dataframe=dataframe)
 
             return dataarray, dataframe
 
         if self.NTASKS > 1:
+            # Setup paths for parallel generation
+            # If parquet_tmp not provided, generate default temporary directory
+            if parquet_tmp is None and parquet_filepath is not None:
+                parquet_dir = os.path.dirname(parquet_filepath) or '.'
+                parquet_base = os.path.basename(parquet_filepath).replace('.parquet', '')
+                parquet_tmp = os.path.join(parquet_dir, f"tmp_{parquet_base}")
+            
+            self.netcdf_filepath, self.parquet_filepath, self.parquet_tmp = (
+                PathManager.setup_output_paths(
+                    netcdf_filepath=netcdf_filepath,
+                    parquet_filepath=parquet_filepath,
+                    parquet_tmp=parquet_tmp,
+                    overwrite=True
+                )
+            )
             self._generate_par()
             return None, None
 
