@@ -660,25 +660,9 @@ class GenerateData:
         Returns:
             Tuple of (DataArray/Dataset, DataFrame) containing the generated data
         """
-        if netcdf_filepath is None:
-            netcdf_filepath = "./nc/test.nc"
-        if parquet_filepath is None:
-            parquet_filepath = "./parquet/test.parquet"
-        if parquet_tmp is None:
-            parquet_tmp = "./parquet_tmp/test_tmp.parquet"
-
-        self.netcdf_filepath, self.parquet_filepath, self.parquet_tmp = (
-            PathManager.setup_output_paths(
-                netcdf_filepath=netcdf_filepath,
-                parquet_filepath=parquet_filepath,
-                parquet_tmp=parquet_tmp,
-                overwrite=True
-            )
-        )
 
         # Execute generation pipeline for single process
         if self.NTASKS == 1:
-            #self._coordinates = self._generate_coordinates(self.shape, self._rng)
             self._coordinates = CoordinateGenerator.generate_all_coords(
                 self.shape,
                 self._rng,
@@ -698,9 +682,25 @@ class GenerateData:
                 dataarray = dataset
 
             if netcdf_filepath is not None:
+                netcdf_filepath, _, _ = (
+                    PathManager.setup_output_paths(
+                        netcdf_filepath=netcdf_filepath,
+                        parquet_filepath=None,
+                        parquet_tmp=None,
+                        overwrite=True
+                    )
+                )
                 self.save_to_netcdf(self.netcdf_filepath, dataarray=dataarray)
 
             if parquet_filepath is not None:
+                _, parquet_filepath, _ = (
+                    PathManager.setup_output_paths(
+                        netcdf_filepath=netcdf_filepath,
+                        parquet_filepath=None,
+                        parquet_tmp=None,
+                        overwrite=True
+                    )
+                )
                 self.save_to_parquet(self.parquet_filepath, dataframe=dataframe)
 
             return dataarray, dataframe

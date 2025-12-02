@@ -490,12 +490,17 @@ class TestFileOutput:
             seed=42
         )
         _, dataframe = gen.generate()
-        
+
         parquet_path = os.path.join(temp_dir, "test")
         gen.save_to_parquet(parquet_path, dataframe, overwrite=True)
-        
-        # Parquet creates a directory
-        assert os.path.exists(parquet_path) or os.path.exists(parquet_path + ".parquet")
+
+        parquet_dirpath = os.path.dirname(parquet_path)
+        files = os.listdir(parquet_dirpath)
+        parquet_files = [f for f in files if f.endswith(".parquet")]
+
+        assert "_metadata" in files
+        assert "_common_metadata" in files
+        assert len(parquet_files) > 0
     
     def test_netcdf_roundtrip(self, temp_dir):
         """Should save and load NetCDF correctly."""
@@ -518,7 +523,6 @@ class TestFileOutput:
         np.testing.assert_array_equal(
             dataarray.values,
             loaded.values,
-            equal_nan=True
         )
         loaded.close()
 
