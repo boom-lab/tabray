@@ -52,6 +52,7 @@ General Guidelines:
 - Use coverage annotations (e.g., `# pragma: no cover`) only when justified.
 - Provide clear instructions and rationale if skipping tests or marking them as expected failures (e.g., with `@pytest.mark.skip` or `@pytest.mark.xfail`).
 - Document test requirements and environment steps for contributors.
+- All markdown documents should be generated and maintained in a dedicated `/pm/testing/` directory, and they should be as short possible, but as long as necessary
 
 Parallel Workflow Testing Guidelines:
 - Ensure all parallel code paths (e.g., dask, client.submit) are exercised by dedicated tests.
