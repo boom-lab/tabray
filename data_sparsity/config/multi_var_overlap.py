@@ -119,24 +119,35 @@ class MultiVarOverlapConfig:
                 )
 
     @staticmethod
-    def validate_per_variable_space(
+    def adjust_observations_to_grid_space(
         shape: List[int],
         var_num_obs: np.ndarray,
-        var_dims_indices: List[List[int]]
-    ) -> None:
-        """Validate that each variable has enough grid space for its observations.
+        var_dims_indices: List[List[int]],
+        overlap: Union[float, str]
+    ) -> np.ndarray:
+        """Adjust observation counts to fit within available grid space.
         
-        Each variable needs grid_points >= observations, regardless of overlap.
-        Overlap just means some observations are at the same spatial locations.
+        Each variable needs grid_points >= observations. If a variable's observation
+        count exceeds its available grid space, adjust it down to the maximum feasible
+        value while accounting for overlap requirements with the reference variable.
+        
+        For non-reference variables (index > 0):
+        - Target observations = overlap * refvar_num_obs
+        - If target > available grid points, reduce to grid points
+        - Print warning with actual overlap achieved
         
         Args:
             shape: Full grid shape
             var_num_obs: Array of observation counts for each variable
             var_dims_indices: List of varying dimension indices per variable
+            overlap: Overlap specification (0-1 or 'random')
             
-        Raises:
-            ValueError: If any variable doesn't have enough grid space
+        Returns:
+            Adjusted observation counts (may be modified from input)
         """
+        adjusted_obs = var_num_obs.copy()
+        refvar_num_obs = var_num_obs[0]  # Reference variable is always first
+        
         for var_idx in range(len(var_num_obs)):
             var_varying_dims = var_dims_indices[var_idx]
             
@@ -151,13 +162,53 @@ class MultiVarOverlapConfig:
             var_obs = var_num_obs[var_idx]
             
             if var_grid_points < var_obs:
-                raise ValueError(
-                    f"Variable {var_idx} needs {var_obs} observations but only has "
-                    f"{var_grid_points} grid points (varying dims: {var_varying_dims}). "
-                    f"Either reduce observations for this variable, increase grid size, "
-                    f"increase sparsity, or allow this variable to vary in more "
-                    f"dimensions."
-                )
+                # For non-reference variables, consider overlap
+                if var_idx > 0 and isinstance(overlap, float):
+                    # Target observations based on overlap with reference variable
+                    target_obs = int(np.round(overlap * refvar_num_obs))
+                    
+                    if target_obs > var_grid_points:
+                        # Even overlap target exceeds grid space
+                        max_feasible_obs = var_grid_points
+                        actual_overlap = max_feasible_obs / refvar_num_obs
+                        
+                        print(
+                            f"WARNING: Variable {var_idx} requested {var_obs} observations "
+                            f"with target overlap {overlap:.4f} ({target_obs} obs), "
+                            f"but only has {var_grid_points} grid points "
+                            f"(varying dims: {var_varying_dims}). "
+                            f"Reducing to {max_feasible_obs} observations. "
+                            f"Actual overlap for this variable: {actual_overlap:.4f}"
+                        )
+                    else:
+                        # Use overlap-based target
+                        max_feasible_obs = min(target_obs, var_grid_points)
+                        actual_overlap = max_feasible_obs / refvar_num_obs
+                        
+                        print(
+                            f"WARNING: Variable {var_idx} requested {var_obs} observations "
+                            f"but only has {var_grid_points} grid points "
+                            f"(varying dims: {var_varying_dims}). "
+                            f"Reducing to {max_feasible_obs} observations based on "
+                            f"overlap {overlap:.4f}. "
+                            f"Actual overlap for this variable: {actual_overlap:.4f}"
+                        )
+                    
+                    adjusted_obs[var_idx] = max_feasible_obs
+                else:
+                    # Reference variable or random overlap - just use grid limit
+                    max_feasible_obs = var_grid_points
+                    
+                    print(
+                        f"WARNING: Variable {var_idx} requested {var_obs} observations "
+                        f"but only has {var_grid_points} grid points "
+                        f"(varying dims: {var_varying_dims}). "
+                        f"Reducing to {max_feasible_obs} observations."
+                    )
+                    
+                    adjusted_obs[var_idx] = max_feasible_obs
+        
+        return adjusted_obs
 
     @staticmethod
     def setup_from_parameter(
@@ -166,10 +217,11 @@ class MultiVarOverlapConfig:
         shape: List[int],
         var_num_obs: np.ndarray,
         var_dims_indices: List[List[int]]
-    ) -> Union[float, str]:
+    ) -> tuple[Union[float, str], np.ndarray]:
         """Setup overlap configuration from parameter.
         
-        Main entry point that validates overlap parameter and checks feasibility.
+        Main entry point that validates overlap parameter and adjusts observation
+        counts if variables don't have sufficient grid space.
         
         Args:
             overlap: Overlap specification (0-1 or 'random')
@@ -179,24 +231,26 @@ class MultiVarOverlapConfig:
             var_dims_indices: List of varying dimension indices per variable
             
         Returns:
-            Validated overlap value
+            Tuple of (validated overlap value, adjusted observation counts)
             
         Raises:
             TypeError: If overlap is not a valid type
-            ValueError: If overlap is infeasible or variables lack sufficient grid space
+            ValueError: If overlap is infeasible
         """
         overlap = MultiVarOverlapConfig.validate_overlap_value(overlap)
         
+        adjusted_obs = var_num_obs.copy()
+        
         if num_vars > 1:
-            # First validate that each variable has enough grid space
-            MultiVarOverlapConfig.validate_per_variable_space(
-                shape, var_num_obs, var_dims_indices
+            # Adjust observation counts to fit within grid space
+            adjusted_obs = MultiVarOverlapConfig.adjust_observations_to_grid_space(
+                shape, var_num_obs, var_dims_indices, overlap
             )
             
-            # Then compute and validate minimum overlap
+            # Compute and validate minimum overlap with adjusted observations
             total_grid_points = int(np.prod(shape))
             min_overlap = MultiVarOverlapConfig.compute_min_overlap(
-                total_grid_points, var_num_obs
+                total_grid_points, adjusted_obs
             )
             print(
                 f"Minimum feasible overlap given grid points and observations: "
@@ -206,4 +260,4 @@ class MultiVarOverlapConfig:
                 overlap, min_overlap, num_vars
             )
         
-        return overlap
+        return overlap, adjusted_obs

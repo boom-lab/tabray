@@ -319,11 +319,11 @@ class TestMultiVariableGeneration:
             num_obs=120,
             num_dims=3,
             ratio_dims=1,
-            sparsity=0.10,  # Adjusted to meet minimum sparsity requirement
+            sparsity=0.8,  # Adjusted to meet minimum sparsity requirement
             seed=42,
             num_vars=2,
             var_dims=[2, 2],  # Both use 2 dims (but var0 gets all dims per new logic)
-            overlap='random'
+            overlap=1
         )
         dataset, dataframe = gen.generate()
         
@@ -391,11 +391,11 @@ class TestMultiVariableGeneration:
             num_obs=200,
             num_dims=3,
             ratio_dims=1,
-            sparsity=0.065,  # Adjusted to meet minimum sparsity (0.0625)
+            sparsity=0.75,
             seed=42,
             num_vars=num_vars,
             var_dims=2,
-            overlap=0.5
+            overlap=0.65
         )
         dataset, _ = gen.generate()
         

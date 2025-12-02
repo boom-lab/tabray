@@ -161,17 +161,36 @@ class TestSetupFromParameter:
         shape = [10, 10, 10]  # 1000 total grid points
         var_num_obs = np.array([300, 200])
         var_dims_indices = [[0, 1, 2], [0, 1, 2]]  # Both use all dimensions
-        result = MultiVarOverlapConfig.setup_from_parameter(
+        overlap, adjusted_obs = MultiVarOverlapConfig.setup_from_parameter(
             0.5, 2, shape, var_num_obs, var_dims_indices
         )
-        assert result == 0.5
+        assert overlap == 0.5
+        np.testing.assert_array_equal(adjusted_obs, var_num_obs)  # No adjustment needed
     
     def test_random_overlap(self):
         """Random overlap should return 'random'."""
         shape = [10, 10, 10]  # 1000 total grid points
         var_num_obs = np.array([300, 200])
         var_dims_indices = [[0, 1, 2], [0, 1, 2]]  # Both use all dimensions
-        result = MultiVarOverlapConfig.setup_from_parameter(
+        overlap, adjusted_obs = MultiVarOverlapConfig.setup_from_parameter(
             'random', 2, shape, var_num_obs, var_dims_indices
         )
-        assert result == 'random'
+        assert overlap == 'random'
+        np.testing.assert_array_equal(adjusted_obs, var_num_obs)  # No adjustment needed
+    
+    def test_observation_adjustment(self):
+        """Should adjust observations when they exceed grid space."""
+        shape = [5, 5, 5]  # 125 total grid points
+        var_num_obs = np.array([100, 50])  # var1 with 2 dims has only 25 points
+        var_dims_indices = [[0, 1, 2], [1, 2]]  # var1 has 5*5=25 grid points
+        
+        overlap, adjusted_obs = MultiVarOverlapConfig.setup_from_parameter(
+            0.5, 2, shape, var_num_obs, var_dims_indices
+        )
+        
+        # var0 should remain unchanged
+        assert adjusted_obs[0] == 100
+        # var1 should be reduced to grid capacity (25 points)
+        assert adjusted_obs[1] <= 25
+        # With overlap 0.5, target would be 0.5*100=50, but max is 25
+        assert adjusted_obs[1] == 25

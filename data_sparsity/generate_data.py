@@ -278,10 +278,14 @@ class GenerateData:
             self.var_dims, self.num_vars, self.num_dims, self.shape, self.seed
         )
 
-        # Setup overlap configuration
-        self.overlap_target = MultiVarOverlapConfig.setup_from_parameter(
+        # Setup overlap configuration and adjust observations if needed
+        self.overlap_target, adjusted_obs = MultiVarOverlapConfig.setup_from_parameter(
             self.overlap, self.num_vars, self.shape, self.var_num_obs, self.var_dims_indices
         )
+        
+        # Update observation counts if they were adjusted
+        if not np.array_equal(self.var_num_obs, adjusted_obs):
+            self.var_num_obs = adjusted_obs
 
     def _multiprocessing_setup(self, max_obs: int = None) -> None:
         """Setup multiprocessing configuration.
