@@ -242,11 +242,7 @@ class ParameterValidator:
             ValueError: If sparsity values are not in [0, 1]
 
         """
-
-        if sparsity == 0.0:
-            raise ValueError(
-                f"Input sparsity cannot be zero."
-            )
+        # Allow sparsity=0 as it will be converted to minimum later
         if isinstance(sparsity, (float, int)):
             sparsity_for_grid = float(sparsity)
         elif isinstance(sparsity, (list, tuple)):

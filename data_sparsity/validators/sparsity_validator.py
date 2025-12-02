@@ -19,8 +19,11 @@ class SparsityValidator:
     def compute_min_sparsity(nb_coords_per_dim: np.ndarray) -> float:
         """Compute minimum allowable sparsity for given dimensions.
         
-        The minimum sparsity is 1 / (smallest dimension size), which ensures
-        at least one observation can be placed.
+        The minimum sparsity is 1 / (total grid points), which ensures
+        at least one observation can be placed in the grid.
+        
+        Sparsity is defined as: num_observations / total_grid_points
+        Therefore, minimum sparsity = 1 / total_grid_points
         
         Args:
             nb_coords_per_dim: Number of coordinates per dimension
@@ -28,7 +31,8 @@ class SparsityValidator:
         Returns:
             Minimum sparsity value
         """
-        return 1.0 / np.min(nb_coords_per_dim)
+        total_grid_points = int(np.prod(nb_coords_per_dim))
+        return 1.0 / total_grid_points
 
     @staticmethod
     def validate_sparsity_bounds(
@@ -36,6 +40,9 @@ class SparsityValidator:
         sparsity_min: float
     ) -> float:
         """Validate sparsity is within allowable bounds.
+        
+        Special handling for sparsity = 0.0: automatically adjusts to minimum.
+        This allows users to request the minimum sparsity by setting sparsity=0.
         
         Args:
             sparsity: Input sparsity value
@@ -52,6 +59,15 @@ class SparsityValidator:
             f"{sparsity_min}"
         )
         
+        # Special case: sparsity=0 means "use minimum"
+        if sparsity == 0.0:
+            print(
+                f"Input sparsity is zero, imposing minimum value: "
+                f"{sparsity_min}"
+            )
+            return sparsity_min
+        
+        # Validate non-zero sparsity is above minimum
         if sparsity < sparsity_min:
             raise ValueError(
                 f"Provided sparsity value of {sparsity} is lower than "

@@ -535,8 +535,8 @@ class TestEdgeCases:
         gen = GenerateData(
             num_obs=1,
             num_dims=2,
-            ratio_dims=1,
-            sparsity=0.0,  # Use minimum sparsity
+            ratio_dims=[1., 3.],
+            sparsity=1/3,
             seed=42
         )
         dataarray, dataframe = gen.generate()

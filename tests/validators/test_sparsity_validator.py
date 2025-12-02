@@ -9,34 +9,34 @@ class TestComputeMinSparsity:
     """Tests for compute_min_sparsity method."""
     
     def test_uniform_dimensions(self):
-        """Uniform dimensions should return 1/dim_size."""
+        """Uniform dimensions should return 1/total_grid_points."""
         nb_coords = np.array([10, 10, 10])
         result = SparsityValidator.compute_min_sparsity(nb_coords)
-        assert result == 0.1
+        assert result == 1.0 / 1000  # 1 / (10*10*10)
     
     def test_non_uniform_dimensions(self):
-        """Non-uniform dimensions should return 1/min(dims)."""
+        """Non-uniform dimensions should return 1/total_grid_points."""
         nb_coords = np.array([5, 10, 20])
         result = SparsityValidator.compute_min_sparsity(nb_coords)
-        assert result == 0.2
+        assert result == 1.0 / 1000  # 1 / (5*10*20)
     
     def test_single_dimension(self):
         """Single dimension should work."""
         nb_coords = np.array([8])
         result = SparsityValidator.compute_min_sparsity(nb_coords)
-        assert result == 0.125
+        assert result == 0.125  # 1 / 8
     
-    def test_returns_one_over_min_dim(self):
-        """Should return 1/min(dims)."""
+    def test_returns_one_over_total_grid(self):
+        """Should return 1/total_grid_points."""
         nb_coords = np.array([3, 7, 5, 9])
         result = SparsityValidator.compute_min_sparsity(nb_coords)
-        assert result == pytest.approx(1.0/3.0)
+        assert result == pytest.approx(1.0 / (3*7*5*9))  # 1 / 945
     
     def test_large_dimensions(self):
         """Large dimensions should give small sparsity."""
         nb_coords = np.array([1000, 2000])
         result = SparsityValidator.compute_min_sparsity(nb_coords)
-        assert result == 0.001
+        assert result == 1.0 / 2_000_000  # 1 / (1000*2000)
 
 
 class TestValidateSparsityBounds:
