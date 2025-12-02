@@ -77,6 +77,8 @@ class PathManager:
             ValueError: If file exists and overwrite=False
         """
         if not file_path.endswith('.nc'):
+            if file_path.endswith('/'):
+                file_path = file_path + 'test'
             file_path = file_path + '.nc'
         
         if os.path.isfile(file_path) and not overwrite:
@@ -113,7 +115,7 @@ class PathManager:
         netcdf_filepath: Optional[str] = None,
         parquet_filepath: Optional[str] = None,
         parquet_tmp: Optional[str] = None,
-        overwrite: bool = True
+        overwrite: bool = True,
     ) -> tuple[Optional[str], Optional[str], Optional[str]]:
         """Setup all output paths for a generation run.
         
@@ -126,22 +128,29 @@ class PathManager:
         Returns:
             Tuple of (netcdf_filepath, parquet_filepath, parquet_tmp)
         """
-        if netcdf_filepath:
-            print(f"Setting up netcdf paths {netcdf_filepath}")
-            netcdf_filepath = PathManager.prepare_netcdf_path(
-                netcdf_filepath, overwrite
-            )
-        
-        if parquet_filepath:
-            print(f"Setting up parquet paths {parquet_filepath}")
-            parquet_filepath = PathManager.prepare_parquet_path(
-                parquet_filepath, overwrite
-            )
-        
-        if parquet_tmp:
-            print(f"Setting up temporary parquet paths {parquet_tmp}")
-            parquet_tmp = PathManager.prepare_parquet_path(
-                parquet_tmp, overwrite
-            )
+
+        if netcdf_filepath is None:
+            netcdf_filepath = "./test_nc/"
+        if parquet_filepath is None:
+            parquet_filepath = "./test_parquet/"
+        if parquet_tmp is None:
+            parquet_dir = os.path.dirname(parquet_filepath) or '.'
+            parquet_base = os.path.basename(parquet_filepath).replace('.parquet', '')
+            parquet_tmp = os.path.join(parquet_dir, f"tmp_{parquet_base}")
+
+        print(f"Setting up netcdf paths {netcdf_filepath}")
+        netcdf_filepath = PathManager.prepare_netcdf_path(
+            netcdf_filepath, overwrite
+        )
+
+        print(f"Setting up parquet paths {parquet_filepath}")
+        parquet_filepath = PathManager.prepare_parquet_path(
+            parquet_filepath, overwrite
+        )
+
+        print(f"Setting up temporary parquet paths {parquet_tmp}")
+        parquet_tmp = PathManager.prepare_parquet_path(
+            parquet_tmp, overwrite
+        )
         
         return netcdf_filepath, parquet_filepath, parquet_tmp

@@ -139,10 +139,10 @@ class MultiVarRecordGenerator:
 
             # Scale down number of points if we are in a chunk of the whole
             # variable
-            if chunk_id is not None:
-                chunk_fraction = shape[dim_split] / max_dim_size
-            else:
-                chunk_fraction = 1
+            # if chunk_id is not None:
+            #     chunk_fraction = shape[dim_split] / max_dim_size
+            # else:
+            chunk_fraction = 1
             num_obs = int(np.rint(var_num_obs[var_idx] * chunk_fraction))
             
             # Ensure we don't exceed available points
@@ -253,10 +253,10 @@ class MultiVarRecordGenerator:
 
         # Scale down number of points if we are in a chunk of the whole
         # variable
-        if chunk_id is not None:
-            chunk_fraction = shape[dim_split] / max_dim_size
-        else:
-            chunk_fraction = 1
+        # if chunk_id is not None:
+        #     chunk_fraction = shape[dim_split] / max_dim_size
+        # else:
+        chunk_fraction = 1
         chunk_var_num_obs = [
             int(np.rint(var_num_obs[var_idx] * chunk_fraction))
             for var_idx in range(num_vars)
