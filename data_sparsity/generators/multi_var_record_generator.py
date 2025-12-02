@@ -239,11 +239,15 @@ class MultiVarRecordGenerator:
         var_rngs = [np.random.default_rng(s) for s in var_seeds]
 
         ### Phase 2: Reference Variable
-        # Sort variables by observation count (largest first)
-        sorted_var_indices = np.argsort(var_num_obs)[::-1]
+        # Sort variables by observation count (largest is always the first, refvar)
+        sorted_var_indices = [0]
+        sorted_var_indices = np.concatenate((
+            np.asarray(sorted_var_indices),
+            np.argsort(var_num_obs[1:])[::-1]
+        ))
         
         # Generate reference (largest) variable first using SHARED_RNG (for positions)
-        refvar_idx = int(sorted_var_indices[0])
+        refvar_idx = 0
         refvar_name = f"var{refvar_idx}"
         refvar_shape = var_shapes[refvar_idx]
 

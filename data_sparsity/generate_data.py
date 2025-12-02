@@ -150,7 +150,7 @@ class GenerateData:
         print(f"  Ratio of dimensions: {self.ratio_dims}")
         print(f"  Dimensions shape: {self.shape}")
         print(f"  Maximum available grid sites: {self.total_grid_points}")
-        print(f"  Sparsity: {self.sparsity}")
+        print(f"  Grid sparsity: {self.sparsity[0]}")
         print(f"  Random seed: {self.seed}")
         print(f"  Number of variables: {self.num_vars}")
         if self.num_vars > 1:
@@ -203,6 +203,7 @@ class GenerateData:
         )
 
         # Validate sparsity type and get representative value for grid calculation
+        self.sparsity = ParameterValidator.validate_sparsity_refvar(self.sparsity)
         sparsity_for_grid = ParameterValidator.validate_sparsity_type(self.sparsity)
 
         # Compute and validate dimensions

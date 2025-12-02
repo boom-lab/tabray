@@ -190,6 +190,35 @@ class ParameterValidator:
         return ratio_dims
 
     @staticmethod
+    def validate_sparsity_refvar(
+        sparsity: Union[List,Tuple]
+    ) -> List:
+        """Validate sparsity value when a list is provided
+
+        The sparsity of the reference value (position 0) must
+        be the largest as refvar has the largest number of
+        observations.
+
+        """
+
+        if isinstance(sparsity, tuple):
+            sparsity = [*sparsity]
+
+        max_sparsity = max(sparsity)
+        if not sparsity[0] == max_sparsity:
+            print(
+                f"Reference variable was assigned sparsity "
+                f"{sparsity[0]}, which is lower than the "
+                f"maximum sparsity {max_sparsity} in the "
+                f"sparsity argument provided, but refvar "
+                f"must have the maximum number of observations."
+                f" Imposing refvar sparsity to be {max_sparsity}."
+            )
+            sparsity[0] = max_sparsity
+
+        return sparsity
+
+    @staticmethod
     def validate_sparsity_type(
         sparsity: Union[int, float, List, Tuple]
     ) -> float:
