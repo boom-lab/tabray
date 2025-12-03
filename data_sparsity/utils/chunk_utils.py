@@ -47,20 +47,63 @@ class ChunkUtils:
     @staticmethod
     def generate_rngs(
             seed: int,
-            chunk_id: int
-    ) -> tuple[np.random.Generator,np.random.Generator]:
+            num_dims: int,
+            chunk_id: int = None,
+            dim_split: int = None,
+            obs_in_chunk: int = None
+    ) -> dict:
         """
-        Generate two distinct generators:
-        global_rng: identical across tasks, used for coordinates along non-split dimensions
-        task_rng: unique per task, used for split dimension coordinates and observations
+        Generate dimension-specific RNGs with optional state advancement for parallel mode.
         
-        Note: task_rng uses seed + chunk_id + 1 to ensure it's always different from 
-        global_rng, even when chunk_id=0.
+        Implements deterministic RNG seeding: base_seed = seed + (dim_idx * 1000)
+        
+        For serial execution (chunk_id=None):
+            All dimensions use fresh RNGs with their base seed.
+        
+        For parallel execution (chunk_id provided):
+            Split dimension RNG is advanced by obs_in_chunk * chunk_id to maintain
+            alignment with serial generation mode. Non-split dimensions use fresh RNGs.
+        
+        This ensures coordinates are identical between serial and parallel modes.
+        
+        Args:
+            seed: Base random seed
+            num_dims: Total number of dimensions
+            chunk_id: Chunk index (0-based). None for serial mode.
+            dim_split: Index of split dimension. None for serial mode.
+            obs_in_chunk: Number of observations in this chunk. None for serial mode.
+            
+        Returns:
+            Dict mapping dimension index to RNG (advanced if parallel split dimension)
+            
+        Examples:
+            # Serial mode
+            rngs = generate_rngs(seed=42, num_dims=3)
+            
+            # Parallel mode, chunk 2 of 5
+            rngs = generate_rngs(seed=42, num_dims=3, chunk_id=2, 
+                                dim_split=0, obs_in_chunk=100)
         """
-        global_rng = np.random.default_rng(seed)
-        task_rng = np.random.default_rng(seed + chunk_id + 1)
-
-        return global_rng, task_rng
+        dim_rngs = {}
+        
+        # Determine if this is parallel mode
+        is_parallel = chunk_id is not None and dim_split is not None
+        
+        for dim_idx in range(num_dims):
+            # Base seed: same offset per dimension across all chunks and modes
+            base_seed = seed + (dim_idx * 1000)
+            dim_rng = np.random.default_rng(base_seed)
+            
+            # Advance RNG for split dimension in parallel mode
+            if is_parallel and dim_idx == dim_split and obs_in_chunk is not None:
+                draws_before_this_chunk = chunk_id * obs_in_chunk
+                if draws_before_this_chunk > 0:
+                    # Advance RNG state to align with serial generation
+                    _ = dim_rng.uniform(0, 1, draws_before_this_chunk)
+            
+            dim_rngs[dim_idx] = dim_rng
+        
+        return dim_rngs
 
     @staticmethod
     def update_chunk_shape(
@@ -108,22 +151,22 @@ class ChunkUtils:
     def assign_rngs_to_dimensions(
             dim_split: int,
             task_shape: tuple,
-            global_rng: np.random.Generator,
-            task_rng: np.random.Generator
+            dim_rngs_dict: dict
     ) -> dict:
         """
-        Assign global or task-based RNG to different dimensions.
-        Non-split dimensions use [0, 1) with global_rng.
-        Split dimension uses normalized chunk range with task_rng.
+        Return dimension RNGs (already prepared by generate_rngs).
+        
+        This is now a simple pass-through since generate_rngs() already
+        returns the properly advanced dimension RNGs.
+        
+        Args:
+            dim_split: Index of split dimension (unused, for API compatibility)
+            task_shape: Shape of current chunk (unused, for API compatibility)
+            dim_rngs_dict: Dict from generate_rngs() with per-dimension RNGs
+            
+        Returns:
+            Dict mapping dimension index to RNG
         """
-
-        dim_rngs = {}
-        for idx in range(len(task_shape)):
-            if idx == dim_split:
-                dim_rngs[idx] = task_rng
-            else:
-                dim_rngs[idx] = global_rng
-
-        return dim_rngs
+        return dim_rngs_dict
         
     

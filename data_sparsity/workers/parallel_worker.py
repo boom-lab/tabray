@@ -82,12 +82,7 @@ def generate_chunk(
     logging.debug("")
     logging.debug("######------ NEW CHUNK ------######")
     
-    # Generate two distinct generators:
-    # global_rng: identical across tasks, used for coordinates along non-split dimensions
-    # task_rng: unique per task, used for split dimension coordinates and observations
-    global_rng, task_rng = ChunkUtils.generate_rngs(seed, chunk_id)
-    
-    # Determine chunk dimensions and range along split dimension
+    # Determine chunk dimensions and range along split dimension FIRST
     task_range = (div_points[chunk_id], div_points[chunk_id + 1])
     task_size = section_sizes[chunk_id]
     task_shape = ChunkUtils.update_chunk_shape(shape, dim_split, task_size)
@@ -99,27 +94,30 @@ def generate_chunk(
     total_chunk_points = ChunkUtils.validate_chunk_points(task_shape)
     logging.debug("total_chunk_points: %s", total_chunk_points)
     
-    # Build dimension ranges and RNGs for coordinate generation
-    dim_ranges = ChunkUtils.generate_split_dimension_range(
-        dim_split,
-        task_range,
-        max_dim_size
+    # Generate dimension-specific RNGs for coordinates (no chunk-specific parameters)
+    # All chunks use the same base RNGs to ensure coordinate alignment
+    coord_dim_rngs = ChunkUtils.generate_rngs(
+        seed=seed,
+        num_dims=num_dims
     )
     
-    dim_rngs = ChunkUtils.assign_rngs_to_dimensions(
-        dim_split,
-        task_shape,
-        global_rng,
-        task_rng
-    )
+    # For split dimension: generate FULL coordinate array, then slice to chunk portion
+    # This ensures parallel chunks have same coordinate values as serial at same positions
+    full_split_coords = np.sort(coord_dim_rngs[dim_split].uniform(0, 1, max_dim_size))
+    chunk_split_coords = full_split_coords[task_range[0]:task_range[1]]
     
-    # Generate coordinates with optional dimension-specific ranges and RNGs
-    coordinates = CoordinateGenerator.generate_all_coords(
-        task_shape,
-        global_rng,
-        dim_ranges,
-        dim_rngs
-    )
+    # For non-split dimensions: generate normally (same as serial)
+    coordinates = {}
+    for dim_idx in range(num_dims):
+        dim_name = f"x{dim_idx}"
+        if dim_idx == dim_split:
+            # Use sliced coordinates from full array
+            coordinates[dim_name] = chunk_split_coords
+        else:
+            # Generate full coordinates (same across all chunks)
+            coordinates[dim_name] = np.sort(
+                coord_dim_rngs[dim_idx].uniform(0, 1, shape[dim_idx])
+            )
     
     logging.debug("obs in chunk: %s", obs_in_chunk)
     logging.debug("total chunk points: %s", total_chunk_points)
