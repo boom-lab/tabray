@@ -38,7 +38,9 @@ class SparsityValidator:
             Minimum sparsity value
 
         """
-        return 1.0 / min(nb_coords_per_dim)
+        d = len(nb_coords_per_dim)
+        nmin = min(nb_coords_per_dim)
+        return 1.0 / (np.power( nmin, (d-1) ))
 
     @staticmethod
     def validate_sparsity_bounds(

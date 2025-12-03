@@ -158,12 +158,10 @@ class MultiVarRecordGenerator:
                 var_seed += chunk_id*100
             var_rng = np.random.default_rng(var_seed)
             
-            # Generate random indices in the reduced space (with size 1 for constant dims)
-            flat_indices = RecordGenerator.generate_flat_indices(
-                var_total_points, num_obs, var_rng
-            )
-            multi_indices = RecordGenerator.convert_to_multi_indices(
-                flat_indices, var_shape
+            # Use hybrid LHS + random sampling for optimal coordinate coverage
+            # This guarantees all coordinates are used at any sparsity level
+            multi_indices = RecordGenerator.generate_hybrid_indices(
+                var_shape, num_obs, var_rng
             )
 
             # Expand to FULL space by filling constant dims with a single coordinate value
