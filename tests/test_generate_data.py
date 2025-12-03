@@ -1205,3 +1205,217 @@ class TestParallelErrorHandling:
         chunk_id, obs = gen._generate_record_par(0, 1)
         assert chunk_id == 0
         assert obs >= 0
+
+class TestScenarios:
+    """Tests for specific scenarios whose outcome is known"""
+
+    def test_scenario_1a(self):
+        """Should generate a full 1D array"""
+
+        gen = GenerateData(
+            num_obs=100,
+            num_dims=1,
+            ratio_dims=1,
+            sparsity=1.,
+            seed=34
+        )
+        dataarray, dataframe = gen.generate()
+
+        # Add checks for dataarray
+        # Check 1: there is only one dimension
+        assert len(dataarray.dims) == 1, "DataArray should have exactly one dimension"
+        
+        # Check 2: the only dimension present is called 'x0'
+        assert 'x0' in dataarray.dims, "Dimension should be named 'x0'"
+        
+        # Check 3: 'x0' has 100 coordinates
+        assert len(dataarray.coords['x0']) == 100, "'x0' should have 100 coordinates"
+        
+        # Check 4: all coordinates have a corresponding measurement in 'record'
+        non_nan_count = np.count_nonzero(~np.isnan(dataarray.values))
+        assert non_nan_count == 100, "All 100 coordinates should have non-NaN values"
+        
+        # Check 5: all coordinates in x0 are unique
+        assert len(dataarray.coords['x0']) == len(np.unique(dataarray.coords['x0'])), \
+            "All coordinates in x0 should be unique"
+        
+        # Check 6: all record values are unique
+        valid_values = dataarray.values[~np.isnan(dataarray.values)]
+        assert len(valid_values) == len(np.unique(valid_values)), \
+            "All record values should be unique"
+
+        # Add checks for dataframe
+        # Check 1: there are two columns ('x0' and 'record')
+        assert list(dataframe.columns) == ['x0', 'record'], \
+            "DataFrame should have exactly two columns: 'x0' and 'record'"
+        
+        # Check 2: 'x0' has 100 rows
+        assert len(dataframe['x0']) == 100, "'x0' column should have 100 rows"
+        
+        # Check 3: 'record' has 100 rows
+        assert len(dataframe['record']) == 100, "'record' column should have 100 rows"
+        
+        # Check 4: all coordinates in x0 are unique
+        assert len(dataframe['x0']) == len(dataframe['x0'].unique()), \
+            "All coordinates in 'x0' should be unique"
+        
+        # Check 5: all record values are unique
+        assert len(dataframe['record']) == len(dataframe['record'].unique()), \
+            "All record values should be unique"
+        
+    def test_scenario_1b(self):
+        """Should generate a full 2D array"""
+
+        m = 100
+        n = 33
+        gen = GenerateData(
+            num_obs=m*n,
+            num_dims=2,
+            ratio_dims=[m,n],
+            sparsity=1.,
+            seed=76
+        )
+        dataarray, dataframe = gen.generate()
+
+        # Add checks for dataarray
+        # Check 1: there are two dimensions
+        assert len(dataarray.dims) == 2, "DataArray should have exactly two dimensions"
+        
+        # Check 2: the dimensions present are called 'x0' (first) and 'x1' (second)
+        assert list(dataarray.dims) == ['x0', 'x1'], \
+            "Dimensions should be named 'x0' and 'x1' in that order"
+        
+        # Check 3: 'x0' has 100 coordinates
+        assert len(dataarray.coords['x0']) == m, f"'x0' should have {m} coordinates"
+        
+        # Check 4: 'x1' has 33 coordinates
+        assert len(dataarray.coords['x1']) == n, f"'x1' should have {n} coordinates"
+        
+        # Check 5: all coordinates tuples have a corresponding measurement in 'record'
+        non_nan_count = np.count_nonzero(~np.isnan(dataarray.values))
+        assert non_nan_count == m * n, \
+            f"All {m * n} coordinate pairs should have non-NaN values"
+        
+        # Check 6: all coordinates in x0 and x1 are unique
+        assert len(dataarray.coords['x0']) == len(np.unique(dataarray.coords['x0'])), \
+            "All coordinates in x0 should be unique"
+        assert len(dataarray.coords['x1']) == len(np.unique(dataarray.coords['x1'])), \
+            "All coordinates in x1 should be unique"
+        
+        # Check 7: all record values are unique
+        valid_values = dataarray.values[~np.isnan(dataarray.values)].flatten()
+        assert len(valid_values) == len(np.unique(valid_values)), \
+            "All record values should be unique"
+
+        # Add checks for dataframe
+        # Check 1: there are three columns ('x0', 'x1' and 'record')
+        assert list(dataframe.columns) == ['x0', 'x1', 'record'], \
+            "DataFrame should have exactly three columns: 'x0', 'x1', and 'record'"
+        
+        # Check 2: 'x0' has m*n rows
+        assert len(dataframe['x0']) == m * n, f"'x0' column should have {m * n} rows"
+        
+        # Check 2b: 'x0' has 100 unique values
+        assert len(dataframe['x0'].unique()) == m, \
+            f"'x0' should have {m} unique values"
+        
+        # Check 3: 'x1' has m*n rows
+        assert len(dataframe['x1']) == m * n, f"'x1' column should have {m * n} rows"
+        
+        # Check 3b: 'x1' has 33 unique values
+        assert len(dataframe['x1'].unique()) == n, \
+            f"'x1' should have {n} unique values"
+        
+        # Check 4: Each row has a unique combination of x0 and x1 values
+        unique_combinations = dataframe[['x0', 'x1']].drop_duplicates()
+        assert len(unique_combinations) == m * n, \
+            "Each row should have a unique combination of x0 and x1 values"
+        
+        # Check 5: 'record' has m*n rows
+        assert len(dataframe['record']) == m * n, \
+            f"'record' column should have {m * n} rows"
+        
+        # Check 6: all record values are unique
+        assert len(dataframe['record']) == len(dataframe['record'].unique()), \
+            "All record values should be unique"
+        
+    def test_scenario_1c(self):
+        """Should generate a full 10-D array"""
+
+        m = [10,5,6,8,2,4,5,3,3,7]
+    
+        gen = GenerateData(
+            num_obs=int(np.prod(m)),
+            num_dims=len(m),
+            ratio_dims=m,
+            sparsity=1.,
+            seed=10
+        )
+        dataarray, dataframe = gen.generate()
+
+        # Add checks for dataarray
+        # Check 1: there are 10 dimensions
+        assert len(dataarray.dims) == len(m), \
+            f"DataArray should have exactly {len(m)} dimensions"
+        
+        # Check 2: the dimensions present are called 'x0' (first) and 'x1' (second), and 'x2', etc until 'x9'
+        expected_dims = [f'x{i}' for i in range(len(m))]
+        assert list(dataarray.dims) == expected_dims, \
+            f"Dimensions should be named {expected_dims} in that order"
+        
+        # Check 3: 'x0' has 10 coordinates, 'x1' has 5 coordinates, etc until x9 has 7 coordinates
+        for i, size in enumerate(m):
+            dim_name = f'x{i}'
+            assert len(dataarray.coords[dim_name]) == size, \
+                f"'{dim_name}' should have {size} coordinates"
+        
+        # Check 5: all coordinates tuples (of size 10) have a corresponding measurement in 'record'
+        total_points = np.prod(m)
+        non_nan_count = np.count_nonzero(~np.isnan(dataarray.values))
+        assert non_nan_count == total_points, \
+            f"All {total_points} coordinate tuples should have non-NaN values"
+        
+        # Check 6: all coordinates in x0, x1, x2, etc are unique
+        for i, size in enumerate(m):
+            dim_name = f'x{i}'
+            coords = dataarray.coords[dim_name]
+            assert len(coords) == len(np.unique(coords)), \
+                f"All coordinates in {dim_name} should be unique"
+        
+        # Check 7: all record values are unique
+        valid_values = dataarray.values[~np.isnan(dataarray.values)].flatten()
+        assert len(valid_values) == len(np.unique(valid_values)), \
+            "All record values should be unique"
+
+        # Add checks for dataframe
+        # Check 1: there are 11 columns ('x0', 'x1', etc, 'x9' and 'record')
+        expected_columns = [f'x{i}' for i in range(len(m))] + ['record']
+        assert list(dataframe.columns) == expected_columns, \
+            f"DataFrame should have columns {expected_columns}"
+        
+        # Check 2: the dataframe has np.prod(m) rows
+        total_rows = np.prod(m)
+        assert len(dataframe) == total_rows, \
+            f"DataFrame should have {total_rows} rows"
+        
+        # Check 3: 'x0' has 10 unique values, 'x1' has 5 values etc
+        for i, size in enumerate(m):
+            col_name = f'x{i}'
+            unique_count = len(dataframe[col_name].unique())
+            assert unique_count == size, \
+                f"'{col_name}' should have {size} unique values, but has {unique_count}"
+        
+        # Check 4: Each row has a unique combination of (x0, x1, x2, ..., x9) values
+        coord_cols = [f'x{i}' for i in range(len(m))]
+        unique_combinations = dataframe[coord_cols].drop_duplicates()
+        assert len(unique_combinations) == total_rows, \
+            "Each row should have a unique combination of coordinate values"
+        
+        # Check 5: 'record' has np.prod(m) rows
+        assert len(dataframe['record']) == total_rows, \
+            f"'record' column should have {total_rows} rows"
+        
+        # Check 6: all record values are unique
+        assert len(dataframe['record']) == len(dataframe['record'].unique()), \
+            "All record values should be unique"
+        
