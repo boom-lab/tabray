@@ -532,11 +532,14 @@ class TestEdgeCases:
     
     def test_single_observation(self):
         """Should handle single observation."""
+
+        # Single obs make sense only with sparsity = 1 and 1 element per
+        # dimension [ratio_dims=1]
         gen = GenerateData(
             num_obs=1,
-            num_dims=2,
-            ratio_dims=[1., 3.],
-            sparsity=1/3,
+            num_dims=10,
+            ratio_dims=1,
+            sparsity=1,
             seed=42
         )
         dataarray, dataframe = gen.generate()
