@@ -252,9 +252,8 @@ class TestRNGAlignment:
         
         # Parallel chunks should match serial RNG sequence
         for i, chunk_val in enumerate(chunks_x0):
-            np.testing.assert_almost_equal(
+            np.testing.assert_array_equal(
                 chunk_val, serial_x0_values[i],
-                decimal=10,
                 err_msg=f"Chunk {i} x0 doesn't match serial RNG position {i}"
             )
     
