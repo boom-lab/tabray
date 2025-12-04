@@ -104,7 +104,11 @@ class MultiVarRecordGenerator:
         seed: int,
         chunk_id: Optional[int] = None,
         max_dim_size: Optional[int] = None,
-        dim_split: Optional[int] = None
+        dim_split: Optional[int] = None,
+        lhs_rng: Optional[np.random.Generator] = None,
+        lhs_shape: Optional[List[int]] = None,
+        num_obs_global: Optional[int] = None,
+        div_points: Optional[List[int]] = None
     ) -> Dict[str, np.ndarray]:
         """Generate multi-variable records without overlap constraints.
         
@@ -120,7 +124,11 @@ class MultiVarRecordGenerator:
             seed: Random seed
             chunk_id: Identifier for this chunk (if parallel workflow)
             max_dim_size: Size of largest dimension (if parallel workflow)
-            dim_split: Dimension along which to split dataset  (if parallel workflow)            
+            dim_split: Dimension along which to split dataset (if parallel workflow)
+            lhs_rng: Pre-advanced LHS RNG for parallel mode
+            lhs_shape: Global shape for LHS generation in parallel mode
+            num_obs_global: Global observation count for validation
+            div_points: Division points for chunk filtering in parallel mode
             
         Returns:
             Dictionary of filled record arrays
@@ -136,14 +144,7 @@ class MultiVarRecordGenerator:
             var_name = f"var{var_idx}"
             var_shape = var_shapes[var_idx]
             var_total_points = int(np.prod(var_shape))
-
-            # Scale down number of points if we are in a chunk of the whole
-            # variable
-            # if chunk_id is not None:
-            #     chunk_fraction = shape[dim_split] / max_dim_size
-            # else:
-            chunk_fraction = 1
-            num_obs = int(np.rint(var_num_obs[var_idx] * chunk_fraction))
+            num_obs = int(np.rint(var_num_obs[var_idx]))
             
             # Ensure we don't exceed available points
             if num_obs < var_num_obs[var_idx]:
@@ -152,24 +153,42 @@ class MultiVarRecordGenerator:
                     f"observations (requested {var_num_obs[var_idx]})"
                 )
             
-            # Create a separate RNG for this variable
-            var_seed = seed + var_idx + 1000
+            # Create observation RNG (separate from index RNG)
+            obs_seed = seed + var_idx + 1000
             if chunk_id is not None:
-                var_seed += chunk_id*100
-            var_rng = np.random.default_rng(var_seed)
+                obs_seed += chunk_id*100
+            obs_rng = np.random.default_rng(obs_seed)
             
-            # Use hybrid LHS + random sampling for optimal coordinate coverage
-            # This guarantees all coordinates are used at any sparsity level
-            multi_indices = RecordGenerator.generate_hybrid_indices(
-                var_shape, num_obs, var_rng
-            )
+            # Determine index generation approach
+            if lhs_rng is not None and num_vars == 1 and chunk_id is not None and div_points is not None:
+                # Parallel mode with single var: use global LHS with chunk filtering
+                # This maintains strict LHS property across all chunks
+                multi_indices = RecordGenerator.generate_global_lhs_indices_for_chunk(
+                    global_shape=lhs_shape,
+                    num_obs_global=num_obs_global,
+                    rng=lhs_rng,
+                    chunk_id=chunk_id,
+                    div_points=div_points,
+                    dim_split=dim_split
+                )
+                # Use actual number of filtered observations
+                num_obs_actual = len(multi_indices[0])
+            else:
+                # Serial mode or multi-var: use chunk-local LHS
+                # Note: Multi-var LHS coordination not yet implemented
+                multi_indices = RecordGenerator.generate_hybrid_indices(
+                    shape=var_shape,
+                    num_obs=num_obs,
+                    rng=obs_rng
+                )
+                num_obs_actual = num_obs
 
             # Expand to FULL space by filling constant dims with a single coordinate value
             full_multi_indices = MultiVarRecordGenerator._expand_to_full_coords(
-                multi_indices, var_constant_coords[var_idx], num_obs
+                multi_indices, var_constant_coords[var_idx], num_obs_actual
             )
             # Generate random observation values
-            observations = ObservationGenerator.generate_observations(num_obs, var_rng)
+            observations = ObservationGenerator.generate_observations(num_obs_actual, obs_rng)
 
             # Assign observations to the full-space coordinates
             RecordGenerator.assign_observations(
@@ -190,7 +209,11 @@ class MultiVarRecordGenerator:
         seed: int,
         chunk_id: Optional[int],
         max_dim_size: Optional[int],
-        dim_split: Optional[int]
+        dim_split: Optional[int],
+        lhs_rng: Optional[np.random.Generator] = None,
+        lhs_shape: Optional[List[int]] = None,
+        num_obs_global: Optional[int] = None,
+        div_points: Optional[List[int]] = None
     ) -> Dict[str, np.ndarray]:
         """Generate multi-variable records with controlled overlap.
         
@@ -337,7 +360,11 @@ class MultiVarRecordGenerator:
         seed: int,
         chunk_id: Optional[int] = None,
         max_dim_size: Optional[int] = None,
-        dim_split: Optional[int] = None
+        dim_split: Optional[int] = None,
+        lhs_rng: Optional[np.random.Generator] = None,
+        lhs_shape: Optional[List[int]] = None,
+        num_obs_global: Optional[int] = None,
+        div_points: Optional[List[int]] = None
     ) -> tuple[Dict[str, np.ndarray], float]:
         """Generate multi-variable records with overlap control.
         
@@ -353,6 +380,13 @@ class MultiVarRecordGenerator:
             var_constant_coord_indices: Pre-seeded RNGs for constant dims
             num_dims: Total number of dimensions
             seed: Random seed
+            chunk_id: Chunk ID for parallel mode
+            max_dim_size: Maximum dimension size for parallel mode
+            dim_split: Split dimension for parallel mode
+            lhs_rng: Pre-advanced LHS RNG for parallel mode
+            lhs_shape: Global shape for LHS generation in parallel mode
+            num_obs_global: Global observation count for validation
+            div_points: Division points for chunk filtering in parallel mode
             
         Returns:
             Tuple of (records dict, actual overlap achieved)
@@ -366,13 +400,14 @@ class MultiVarRecordGenerator:
             records = MultiVarRecordGenerator.generate_without_overlap(
                 shape, records, num_vars, var_num_obs, var_constant_dims,
                 var_constant_coord_indices, seed, chunk_id, max_dim_size,
-                dim_split
+                dim_split, lhs_rng, lhs_shape, num_obs_global, div_points
             )
         else:
             records = MultiVarRecordGenerator.generate_with_overlap(
                 shape, records, float(overlap), num_vars, var_num_obs,
                 var_constant_dims, var_constant_coord_indices, seed,
-                chunk_id, max_dim_size, dim_split
+                chunk_id, max_dim_size, dim_split, lhs_rng, lhs_shape, 
+                num_obs_global, div_points
             )
         
         overlap_actual = OverlapCalculator.compute_actual_overlap(

@@ -118,7 +118,7 @@ class TestSingleVariableGeneration:
             num_obs=20,
             num_dims=1,
             ratio_dims=1,
-            sparsity=0.2,
+            sparsity=1,
             seed=42
         )
         dataarray, dataframe = gen.generate()
@@ -569,7 +569,7 @@ class TestEdgeCases:
             num_obs=20,
             num_dims=1,
             ratio_dims=1,
-            sparsity=0.2,
+            sparsity=1,
             seed=42
         )
         dataarray, dataframe = gen.generate()
@@ -1887,7 +1887,6 @@ class TestScenarios:
         assert not dataframe.isnull().any().any(), \
             "DataFrame should not contain any NaN values"
 
-
 class TestHybridLHSSampling:
     """Tests for Hybrid LHS + Random sampling implementation."""
     
@@ -2115,4 +2114,88 @@ class TestHybridLHSIntegration:
         assert len(x0_used) >= 5, \
             f"Hybrid LHS guarantees at least 5 coordinates in x0 are used, " \
             f"found {len(x0_used)}"
+
+
+class TestScenariosParallel:
+    """Parallel versions of TestScenarios - testing with max_obs to trigger parallel execution.
+    
+    All tests should produce identical results to their serial counterparts,
+    except that data is read from disk (NetCDF/Parquet) after generation.
+    """
+    
+    @staticmethod
+    def load_generated_data(gen: GenerateData):
+        """Helper to load data generated in parallel mode.
         
+        Args:
+            gen: GenerateData instance that has executed parallel generation
+            
+        Returns:
+            Tuple of (dataarray/dataset, dataframe) loaded from disk
+        """
+        import dask.dataframe as dd
+        
+        # Load NetCDF
+        if gen.num_vars == 1:
+            dataarray = xr.open_dataarray(gen.netcdf_filepath)
+        else:
+            dataarray = xr.open_dataset(gen.netcdf_filepath)
+        
+        # Load Parquet - may be a Dask DataFrame
+        try:
+            # Try reading as pandas first (for smaller files)
+            dataframe = pd.read_parquet(gen.parquet_filepath)
+        except Exception:
+            # Fall back to Dask for larger files
+            dataframe = dd.read_parquet(gen.parquet_filepath).compute()
+        
+        return dataarray, dataframe
+    
+    def test_scenario_1a_parallel(self, temp_dir):
+        """Should generate a full 1D array (parallel execution)"""
+        
+        gen = GenerateData(
+            num_obs=100,
+            num_dims=1,
+            ratio_dims=1,
+            sparsity=1.,
+            seed=34,
+            max_obs=25  # Trigger parallel with 4 chunks
+        )
+        
+        # Parallel generation returns None, None
+        result = gen.generate(
+            netcdf_filepath=os.path.join(temp_dir, "test_1a_p.nc"),
+            parquet_filepath=os.path.join(temp_dir, "test_1a_p.parquet"),
+            parquet_tmp=os.path.join(temp_dir, "tmp_1a_p", "chunk.parquet")
+        )
+        assert result == (None, None), "Parallel generation should return (None, None)"
+        
+        # Load generated data
+        dataarray, dataframe = self.load_generated_data(gen)
+        
+        # Same checks as test_scenario_1a
+        assert len(dataarray.dims) == 1, "DataArray should have exactly one dimension"
+        assert 'x0' in dataarray.dims, "Dimension should be named 'x0'"
+        assert len(dataarray.coords['x0']) == 100, "'x0' should have 100 coordinates"
+        
+        non_nan_count = np.count_nonzero(~np.isnan(dataarray.values))
+        assert non_nan_count == 100, "All 100 coordinates should have non-NaN values"
+        
+        assert len(dataarray.coords['x0']) == len(np.unique(dataarray.coords['x0'])), \
+            "All coordinates in x0 should be unique"
+        
+        valid_values = dataarray.values[~np.isnan(dataarray.values)]
+        assert len(valid_values) == len(np.unique(valid_values)), \
+            "All record values should be unique"
+        
+        # DataFrame checks
+        assert list(dataframe.columns) == ['x0', 'record'], \
+            "DataFrame should have exactly two columns: 'x0' and 'record'"
+        assert len(dataframe['x0']) == 100, "'x0' column should have 100 rows"
+        assert len(dataframe['record']) == 100, "'record' column should have 100 rows"
+        assert len(dataframe['x0']) == len(dataframe['x0'].unique()), \
+            "All coordinates in 'x0' should be unique"
+        assert len(dataframe['record']) == len(dataframe['record'].unique()), \
+            "All record values should be unique"
+

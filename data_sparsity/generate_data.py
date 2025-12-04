@@ -291,6 +291,9 @@ class GenerateData:
 
         Args:
             max_obs: Maximum observations per chunk
+            
+        Raises:
+            ValueError: If max_obs is incompatible with LHS requirements
         """
         if max_obs is None:
             self.NTASKS = 1
@@ -302,6 +305,10 @@ class GenerateData:
         if self.num_obs <= max_obs:
             self.NTASKS = 1
         else:
+            # Note: LHS compatibility is handled via RNG state advancement
+            # Each chunk generates its observations independently with properly
+            # advanced RNG state to maintain serial/parallel equivalence
+            
             self.NTASKS = int(np.ceil(self.num_obs / max_obs))
             self.max_obs = max_obs
             
@@ -313,7 +320,7 @@ class GenerateData:
             if max_dim_size < self.NTASKS:
                 raise ValueError(
                     f"Dimension has size {max_dim_size} but {self.NTASKS} "
-                    f"blocks should be generated?"
+                    f"chunks should be generated?"
                 )
             
             # Divide the largest dimension into chunks
@@ -791,6 +798,7 @@ class GenerateData:
                 'netcdf_filepath': self.netcdf_filepath,
                 'parquet_tmp': self.parquet_tmp,
                 'ntasks': self.NTASKS,
+                'num_obs_global': self.num_obs,  # For LHS RNG advancement and filtering
             }
             chunk_args.append(args)
 

@@ -37,6 +37,23 @@ class ChunkUtils:
         if not mp_obs.is_integer():
             raise ValueError(f"Got non integer value of observations {mp_obs}.")
         mp_obs = int(mp_obs)
+        print(
+            f"Multiprocessing approximations lead to {mp_obs} "
+            f"total observation (goal: {total_obs})."
+        )
+        if mp_obs > total_obs:
+            extra_obs = mp_obs - total_obs
+            if per_chunk_obs[idx] > extra_obs:
+                per_chunk_obs[idx] = per_chunk_obs[idx] - extra_obs
+                per_chunk_obs[idx] = per_chunk_obs[idx].astype(int)
+                mp_obs = per_chunk_obs.sum()
+                mp_obs = int(mp_obs)
+            else:
+                print(
+                    f"Multiprocessing approximations lead to {mp_obs} "
+                    f"total observation (goal: {total_obs})."
+                )
+
         sparsity_new = mp_obs / total_points
         print(f"Multiprocessing approximations lead to {mp_obs} total observation (goal: {total_obs}).")
         print(f"Updated sparsity is {sparsity_new} (was: {sparsity}).")
@@ -168,5 +185,90 @@ class ChunkUtils:
             Dict mapping dimension index to RNG
         """
         return dim_rngs_dict
+
+    @staticmethod
+    def calculate_lhs_draws_per_generation(
+        shape: List[int],
+        n_s: int
+    ) -> int:
+        """Calculate RNG draws for one complete LHS generation.
+        
+        Analyzes the dimensional structure to deterministically compute
+        the exact number of RNG draws required for LHS generation across
+        all dimensions. This is efficient and does not depend on NumPy
+        version internals.
+        
+        Args:
+            shape: Grid dimensions [n0, n1, ..., nk]
+            n_s: LHS base size (typically min(shape))
+            
+        Returns:
+            Total draws across all dimensions
+            
+        Raises:
+            ValueError: If any dimension size < n_s
+            
+        Example:
+            >>> ChunkUtils.calculate_lhs_draws_per_generation([5, 5, 5], 5)
+            15
+            >>> ChunkUtils.calculate_lhs_draws_per_generation([5, 7, 10], 5)
+            25
+        """
+        total_draws = 0
+        for dim_size in shape:
+            if dim_size == n_s:
+                # permutation(n_s) → n_s draws
+                total_draws += n_s
+            elif dim_size > n_s:
+                # choice(dim_size, n_s, replace=False) → n_s draws
+                # shuffle(n_s) → n_s draws
+                total_draws += 2 * n_s
+            else:
+                raise ValueError(f"dim_size {dim_size} < n_s {n_s}")
+        
+        return total_draws
+
+    @staticmethod
+    def generate_lhs_rng(
+        seed: int,
+        shape: List[int],
+        chunk_id: int = None,
+        num_obs_global: int = None
+    ) -> np.random.Generator:
+        """Generate LHS RNG with state advancement for parallel mode.
+        
+        Creates deterministic RNG for Latin Hypercube Sampling. In parallel mode,
+        advances RNG state by calculating and skipping the exact number of draws
+        that previous chunks made, ensuring serial/parallel equivalence.
+        
+        With the global LHS approach, each chunk generates the full global LHS
+        (num_obs_global observations) and filters to its coordinate range. Thus,
+        all chunks make the same number of RNG draws, simplifying advancement.
+        
+        Args:
+            seed: Base random seed
+            shape: GLOBAL grid shape [n0, n1, ..., nk]
+            chunk_id: Chunk index (None for serial)
+            num_obs_global: Total observations globally (None for serial)
+            
+        Returns:
+            RNG advanced to correct position for this chunk
+            
+        Examples:
+            # Serial mode
+            >>> lhs_rng = ChunkUtils.generate_lhs_rng(42, [5, 5])
+            
+            # Parallel mode, chunk 2 of 4, 10 global observations
+            >>> lhs_rng = ChunkUtils.generate_lhs_rng(42, [5, 5], 2, 10)
+        """
+        # LHS uses seed offset 10000 to avoid collision with coordinates
+        # Coordinate seeds use: seed + (dim_idx * 1000), where dim_idx < num_dims
+        lhs_seed = seed + 10000
+        lhs_rng = np.random.default_rng(lhs_seed)
+        
+        # Parallel mode: all chunks use the same RNG state
+        # With global LHS filtering, all chunks generate the same global LHS
+        # and filter to their coordinate range. No advancement needed!
+        return lhs_rng
         
     

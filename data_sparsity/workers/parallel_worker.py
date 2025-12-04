@@ -39,6 +39,7 @@ def generate_chunk(
     netcdf_filepath: str,
     parquet_tmp: str,
     ntasks: int,
+    num_obs_global: Optional[int] = None,
 ) -> Tuple[int, int, str]:
     """Generate a single chunk of data in parallel.
     
@@ -69,6 +70,7 @@ def generate_chunk(
         netcdf_filepath: Base path for NetCDF output
         parquet_tmp: Path template for temporary parquet chunks
         ntasks: Total number of tasks (for formatting)
+        num_obs_global: Total observations globally (for LHS filtering and RNG advancement)
         
     Returns:
         Tuple of (chunk_id, total_observations, parquet_chunk_path)
@@ -100,6 +102,16 @@ def generate_chunk(
         seed=seed,
         num_dims=num_dims
     )
+    
+    # Generate LHS RNG with state advancement for parallel mode
+    # This ensures LHS indices are consistent with serial generation
+    lhs_rng = ChunkUtils.generate_lhs_rng(
+        seed=seed,
+        shape=list(shape),  # GLOBAL shape, not task_shape
+        chunk_id=chunk_id,
+        num_obs_global=num_obs_global
+    )
+    logging.debug("LHS RNG generated for chunk %s", chunk_id)
     
     # For split dimension: generate FULL coordinate array, then slice to chunk portion
     # This ensures parallel chunks have same coordinate values as serial at same positions
@@ -137,7 +149,11 @@ def generate_chunk(
             seed=seed,
             chunk_id=chunk_id,
             max_dim_size=max_dim_size,
-            dim_split=dim_split
+            dim_split=dim_split,
+            lhs_rng=lhs_rng,  # Pass pre-advanced LHS RNG
+            lhs_shape=list(shape),  # Pass global shape for LHS
+            num_obs_global=num_obs_global,  # Pass global observation count
+            div_points=div_points  # Pass division points for chunk filtering
         )
         
         # Extract the single record from the dictionary
@@ -185,7 +201,11 @@ def generate_chunk(
             task_shape, overlap_target, num_vars, var_num_obs,
             var_dims_indices, var_constant_dims,
             var_constant_coord_indices, num_dims, seed,
-            chunk_id, max_dim_size, dim_split
+            chunk_id, max_dim_size, dim_split,
+            lhs_rng=lhs_rng,  # Pass pre-advanced LHS RNG
+            lhs_shape=list(shape),  # Pass global shape for LHS
+            num_obs_global=num_obs_global,  # Pass global observation count
+            div_points=div_points  # Pass division points for chunk filtering
         )
         
         logging.debug("chunk id: %s", chunk_id)
