@@ -19,20 +19,30 @@ class SparsityValidator:
     def compute_min_sparsity(nb_coords_per_dim: np.ndarray) -> float:
         """Compute minimum allowable sparsity for given dimensions.
         
-        The minimum sparsity is 1 / total_grid_points, representing the 
-        sparsity when only a single observation is present.
+        The minimum sparsity is 1.0 / (np.power( nmin, (d-1) )), which ensures
+        that all coordinates tuples are used. d is number of dimensions, nmin is
+        the size of the smallest dimension (number of coordinates along it).
+        
+        While sparsity is generally defined as
+        num_observations/total_grid_points ,
+        if minimum were sparsity_min = 1 / total_grid_points, there would be
+        inefficient data storage, e.g. in xarray we would store to disk unused
+        coordinates values
+
+        E.g. a 3x1 grid with 1 record, is more efficiently stored to disk as a
+        1x1 grid (a point) with 1 record; the assumption is to compare dataset
+        that already have all the data necessary
         
         Args:
             nb_coords_per_dim: Number of coordinates per dimension
             
         Returns:
-            Minimum sparsity value (1 / product of all dimensions)
-        
-        Example:
-            >>> compute_min_sparsity(np.array([10, 10, 10]))
-            0.001  # 1 / (10 * 10 * 10)
+            Minimum sparsity value
+
         """
-        return 1.0 / np.prod(nb_coords_per_dim)
+        d = len(nb_coords_per_dim)
+        nmin = min(nb_coords_per_dim)
+        return 1.0 / (np.power( nmin, (d-1) ))
 
     @staticmethod
     def validate_sparsity_bounds(
