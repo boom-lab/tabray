@@ -113,11 +113,15 @@ def generate_chunk(
     )
     logging.debug("LHS RNG generated for chunk %s", chunk_id)
     
-    # For split dimension: generate FULL coordinate array, then slice to chunk portion
-    # This ensures parallel chunks have same coordinate values as serial at same positions
-    full_split_coords = np.sort(coord_dim_rngs[dim_split].uniform(0, 1, max_dim_size))
-    chunk_split_coords = full_split_coords[task_range[0]:task_range[1]]
-    
+    # For split dimension: generate chunk only part. This prevents parallel
+    # chunks to have same coordinate values as serial at same positions, but
+    # allows to generate smaller dimension coordinates
+    split_dim_range = [task_range[0]/max_dim_size, task_range[1]/max_dim_size]
+    chunk_split_coords = coord_dim_rngs[dim_split].uniform(
+        split_dim_range[0], split_dim_range[1], task_size
+    )
+            
+    chunk_split_coords = np.sort(np.asarray(chunk_split_coords))
     # For non-split dimensions: generate normally (same as serial)
     coordinates = {}
     for dim_idx in range(num_dims):
@@ -172,7 +176,7 @@ def generate_chunk(
         )
         chunk_attrs["chunk_id"] = chunk_id
         chunk_attrs["description"] = "Sparse observation data (chunk)"
-        
+
         dataarray = NetCDFBuilder.build_dataarray(
             record, coordinates, attrs=chunk_attrs
         )
