@@ -734,6 +734,7 @@ class GenerateData:
         external dependencies.
         """
         from concurrent.futures import ProcessPoolExecutor, as_completed
+        import multiprocessing
         from data_sparsity.workers import generate_chunk
         import shutil
         
@@ -805,8 +806,9 @@ class GenerateData:
         # Execute in parallel with limited workers to avoid memory issues
         max_workers = min(self.NTASKS, 4)
         print(f"Starting parallel generation with {max_workers} workers for {self.NTASKS} chunks")
-        
-        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+
+        ctx = multiprocessing.get_context("spawn")
+        with ProcessPoolExecutor(max_workers=max_workers, mp_context=ctx) as executor:
             futures = [executor.submit(generate_chunk, **args) for args in chunk_args]
             
             tot_completed = 0
