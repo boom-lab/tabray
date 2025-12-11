@@ -6,6 +6,7 @@ multiple smaller datasets.
 
 from typing import List, Union
 import numpy as np
+import logging
 
 class ChunkUtils:
     """Utilities manager for chunked dataset generation"""
@@ -263,7 +264,7 @@ class ChunkUtils:
         """
         # LHS uses seed offset 10000 to avoid collision with coordinates
         # Coordinate seeds use: seed + (dim_idx * 1000), where dim_idx < num_dims
-        lhs_seed = seed + 10000
+        lhs_seed = seed + 1000
         lhs_rng = np.random.default_rng(lhs_seed)
         
         # Parallel mode: all chunks use the same RNG state

@@ -690,3 +690,76 @@ class TestGenerateLhsRng:
         
         assert not np.array_equal(vals1, vals2)
 
+
+class TestGenerateGlobalLHSIndicesForChunks:
+    """Tests for generate_global_lhs_indices_for_chunk method."""
+
+    def test_serial_mode_basic(self):
+        """Should generate RNGs for serial mode (no chunk_id)."""
+
+        from data_sparsity.generators.record_generator import RecordGenerator
+        
+        global_shape = [5, 5]
+        num_obs_global = 5
+
+        # generate lhs indices in parallel
+        ntasks = 3
+        Neach_section, extras = divmod(max(global_shape), ntasks)
+        Neach_section = int(Neach_section)
+        section_sizes = ([0] + extras * [Neach_section + 1] + 
+                       (ntasks - extras) * [Neach_section])
+        div_points = np.array(section_sizes, dtype=int).cumsum()
+        chunk_ids = np.asarray(range(len(div_points)-1))
+        dim_split = 0
+        dim_nonsplit = 1
+
+        pairs_par = []
+        for chunk_id in chunk_ids:
+            rng = np.random.default_rng(42)
+            chunk_local_indices = RecordGenerator.generate_global_lhs_indices_for_chunk(
+                global_shape,
+                num_obs_global,
+                rng,
+                chunk_id,
+                div_points,
+                dim_split                
+            )
+
+            print(chunk_local_indices)
+            chunk_start = div_points[chunk_id]
+            pairs_par.append(
+                np.stack(
+                    (
+                        chunk_local_indices[dim_split] + chunk_start,
+                        chunk_local_indices[dim_nonsplit]
+                    ),
+                    axis=1)
+            )
+
+        # global_pairs_par: left col -> dim_split ids; right col -> dim_nonsplit ids
+        global_pairs_par = np.vstack(pairs_par) 
+
+        # generate lhs indices serly
+        rng = np.random.default_rng(42)
+        global_indices = RecordGenerator.generate_hybrid_indices(
+            shape=global_shape,
+            num_obs=num_obs_global,
+            rng=rng
+        )
+        # global_pairs_ser: left col -> dim_split ids; right col -> dim_nonsplit ids
+        global_pairs_ser = np.stack(
+            (global_indices[dim_split], global_indices[dim_nonsplit]), axis=1
+        )
+
+        global_pairs_par_sort = np.argsort(global_pairs_par[:,0])
+        global_pairs_ser_sort = np.argsort(global_pairs_ser[:,0])
+
+        assert np.array_equal(
+            global_pairs_par[:,0][global_pairs_par_sort],
+            global_pairs_ser[:,0][global_pairs_ser_sort]
+        )
+
+        assert np.array_equal(
+            global_pairs_par[:,1][global_pairs_par_sort],
+            global_pairs_ser[:,1][global_pairs_ser_sort]
+        )
