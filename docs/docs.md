@@ -51,3 +51,6 @@ In brief:
 - the strength of array-like structures is to store all the coordinates values only once, but their weakness is to require and store a variable value at every site (occupied or vacant) described by the coordinates;
 - the weakness of tabular structures is to store all coordinates values as many times as they are occupied, but their strength is to store records only of occupied sites.
 
+#### parquet/pandas vs netCDF/xarray (and zarr)
+
+To the above tabular and array structures correspond in-memory and on-disk representations. The most common on-disk formats are probably csv and parquet for tabular data, and netCDF and zarr for array structures. In the Python world, tabular data are generally handled with the `pandas` library, while array data are handled with `xarray`.  
