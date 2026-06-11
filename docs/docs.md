@@ -14,6 +14,8 @@ The opposite end of purely gridded is *purely irregular*: in this case we cannot
 
 Anything in between has some degree of both, so I refer to it as gridded or irregular depending on what extreme they look closest to to me, purely based on my gut feeling. This is heavily based on the sparsity of the data, so let's talk about it next.
 
+Note that these definition are independent of the nature of the dimensions (spatial, time, indices...)
+
 ^1 to be rigorous the coordinates of the occupied sites would also have to be incommensurable or one can generate a grid with empty sites that satisfies the purely gridded definition, but because of some later assumptions on data sparsity I stick to this less rigorous definition that makes communication easier.
 
 ### Sparse vs dense
@@ -33,4 +35,19 @@ Note that the value of largest sparsity depends on the grid (number of dimension
 ^2 pun intended
 
 ^3 this is the later assumption mentioned in ^1
+
+### Tabular vs array
+
+This is the only real, sharp, dicotomy of the three, and it identifies that data structure (in memory or on disk), which is either tabular or array-like.
+
+Tabular means that each data point is a row of a table, which has as many columns as the number of dimensions of the data points plus the number variables hosted throughout the data points. For example: assuming that the points in the 3x3 grid of [TD ADD FIGURE] are measurements of air temperature and humidity, to represent them in a table we need 4 columns: 2 for the coordinates and 2 for the variables. If not all the points have measurements of both temperature and humidty, little matters and I still need 4 columns as long as at least one point measure one variable and another point another. How many rows do I need? As many as the points (i.e. occupied sites), so 9 in our examples. The total number of values stored is n_cols x n_rows (= 36 in our example).
+
+Array-like data structures are a bit more complex (but still quite intuitive). They generally store as many 1D arrays as there dimensions, and as many nD arrays as there are variables (where n potentially varies per variable and depends on the dimensions on which each variable is measured). The dimensions arrays contains the coordinates that define the grid. In the 3x3 grid of [TD ADD FIGURE] we'd have 2 dimensions arrays (lat = [lat1, lat2, lat3] and lon = [lon1, lon2, lon3]) and 2 variables arrays (temperature = [temp11, temp12, temp13; temp21, temp22, temp23; temp31, temp32, temp33], similar for humidity). The total number of values stored in this case is 24 (6 for the dimensions, 18 for the variables). Note that the variables arrays are linked to the dimensions arrays, such that it's fast to access the variable at a given location.
+
+It's easy to see from the example that the array-like structure requires fewer data to fully describe the points of a fully occupied grid. On the other hand, the tabular structure requires fewer data for sparse cases. In the most sparse 3x3 case, a table requires 12 values: n_rows = 3 occupied points, and n_cols = 4 (assuming again two variables). An array instead still requires 24: because of the link between variables arrays and their dimensions, missing variables values at vacant sites must be recorded (e.g. as NaNs).
+
+In brief: 
+
+- the strength of array-like structures is to store all the coordinates values only once, but their weakness is to require and store a variable value at every site (occupied or vacant) described by the coordinates;
+- the weakness of tabular structures is to store all coordinates values as many times as they are occupied, but their strength is to store records only of occupied sites.
 
