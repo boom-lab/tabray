@@ -1,4 +1,4 @@
-# Tutorials and Explainers
+# Explainer and definitions
 
 ## Data points: sparse vs dense, irregular vs gridded, tabular vs array
 
@@ -30,7 +30,7 @@ The most interesting largest sparsity (smallest density) value is the one such t
 
 This is why I only consider cases where all coordinates are occupied at least once^3. I try to refer to cases like [TD ADD FIGURE] as 'least dense' or 'most sparse', but I might accidentally call them 'purely irregular' or 'irregular', as they are the most irregular I consider in this work.
 
-Note that the value of largest sparsity depends on the grid (number of dimensions and their sizes).
+Note that the value of largest sparsity depends on the grid (number of dimensions and their sizes). [TD ADD FORMULA].
 
 ^2 pun intended
 
@@ -54,3 +54,21 @@ In brief:
 #### parquet/pandas vs netCDF/xarray (and zarr)
 
 To the above tabular and array structures correspond in-memory and on-disk representations. The most common on-disk formats are probably csv and parquet for tabular data, and netCDF and zarr for array structures. In the Python world, tabular data are generally handled with the `pandas` library, while array data are handled with `xarray`.  
+
+### Mixed terminology
+
+#### Site
+
+Here, a site is a set of coordinates on the grid, i.e. a grid point. I try not to use the word point to prevent confusion with data point.
+
+#### Variable
+
+Any physical measurement or any other record at a site: temperature, date, names, birthday, favourite colour, etc depending on what type of data you're working on.
+
+#### Observation
+
+It's the record of a variable at a site + the site's coordinates.
+
+#### Data point
+
+It's an occupied site, i.e. a grid point to which one or more variable values (e.g. temperature, date, etc.) is associated. A data point contains as many observations as variables have values there.
