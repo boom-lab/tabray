@@ -12,11 +12,11 @@ If a set of points is spaced such that we can identify a set of dimensions whose
 
 The opposite end of purely gridded is *purely irregular*: in this case we cannot identify a set of dimensions whose coordinates are regularly spaced where the points are located. For example, 3 points on a 2D space and whose coordinates are all different^1 [TD ADD FIGURE]
 
+Note that these definitions are independent of the nature of the dimensions (spatial, time, indices...)
+
 Anything in between has some degree of both, so I refer to it as gridded or irregular depending on what extreme they look closest to to me, purely based on my gut feeling. This is heavily based on the sparsity of the data, so let's talk about it next.
 
-Note that these definition are independent of the nature of the dimensions (spatial, time, indices...)
-
-^1 to be rigorous the coordinates of the occupied sites would also have to be incommensurable or one can generate a grid with empty sites that satisfies the purely gridded definition, but because of some later assumptions on data sparsity I stick to this less rigorous definition that makes communication easier.
+^1 to be rigorous the coordinates of the occupied sites would also have to be incommensurable or one cangenerate a grid with empty sites that satisfies the purely gridded definition, but because of some later assumptions on data sparsity I stick to this less rigorous definition that makes communication easier.
 
 ### Sparse vs dense
 
