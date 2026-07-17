@@ -223,7 +223,7 @@ class TestParallelSerialComparison:
             ratio_dims=1,
             sparsity=1.,
             seed=34,
-            max_obs=30  # Trigger parallel mode
+            max_obs=26  # Trigger parallel mode
         )
         
         result = gen_parallel.generate(
