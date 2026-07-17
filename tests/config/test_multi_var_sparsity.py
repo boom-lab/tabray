@@ -128,12 +128,12 @@ class TestFromFullList:
     
     def test_wrong_length_raises_value_error(self):
         """Wrong length should raise ValueError."""
-        with pytest.raises(ValueError, match=r"sparsity list must have \d+ elements, got \d+"):
+        with pytest.raises(ValueError, match=r"density list must have \d+ elements, got \d+"):
             MultiVarSparsityConfig.from_full_list([0.2, 0.5], 3)
     
     def test_empty_list_raises_value_error(self):
         """Empty list should raise ValueError."""
-        with pytest.raises(ValueError, match=r"sparsity list must have \d+ elements, got \d+"):
+        with pytest.raises(ValueError, match=r"density list must have \d+ elements, got \d+"):
             MultiVarSparsityConfig.from_full_list([], 1)
     
     def test_single_element_for_single_var(self):

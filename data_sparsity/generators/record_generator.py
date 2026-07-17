@@ -258,8 +258,6 @@ class RecordGenerator:
             )
 
     @staticmethod
-
-    @staticmethod
     def generate_global_lhs_indices_for_chunk(
         global_shape: List[int],
         num_obs_global: int,
