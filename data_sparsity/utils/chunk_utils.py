@@ -17,7 +17,7 @@ class ChunkUtils:
             shape: tuple,
             max_dim_size: int,
             section_sizes: list,
-            sparsity: float,
+            density: float,
     ) -> tuple[int, float, int]:
 
         total_points = np.prod(shape)
@@ -29,7 +29,7 @@ class ChunkUtils:
         print("chunk_points", chunk_points)
         
         # As randomness is uniform
-        per_chunk_obs = np.rint(sparsity * chunk_points).astype(int)
+        per_chunk_obs = np.rint(density * chunk_points).astype(int)
         for idx, c in enumerate(per_chunk_obs):
             if c > chunk_points[idx]:
                 per_chunk_obs[idx] = chunk_points[idx]
@@ -55,11 +55,11 @@ class ChunkUtils:
                     f"total observation (goal: {total_obs})."
                 )
 
-        sparsity_new = mp_obs / total_points
+        density_new = mp_obs / total_points
         print(f"Multiprocessing approximations lead to {mp_obs} total observation (goal: {total_obs}).")
-        print(f"Updated sparsity is {sparsity_new} (was: {sparsity}).")
+        print(f"Updated density is {density_new} (was: {density}).")
 
-        return mp_obs, sparsity_new, per_chunk_obs
+        return mp_obs, density_new, per_chunk_obs
 
 
     @staticmethod

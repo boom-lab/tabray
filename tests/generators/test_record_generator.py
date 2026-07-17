@@ -204,44 +204,44 @@ class TestAssignObservations:
             assert record[i, 5-i] == obs
 
 
-class TestValidateSparsity:
-    """Tests for validate_sparsity method."""
+class TestValidateDensity:
+    """Tests for validate_density method."""
     
     def test_matching_sparsity_passes(self):
-        """Should pass when sparsity matches expected."""
+        """Should pass when density matches expected."""
         shape = (10,10)
         total_grid_points = np.prod(shape)
         num_obs = 10
-        expected_sparsity = 0.1
+        expected_density = 0.1
 
         # Should not raise
-        RecordGenerator.validate_sparsity(
-            num_obs, total_grid_points, expected_sparsity
+        RecordGenerator.validate_density(
+            num_obs, total_grid_points, expected_density
         )
     
     def test_close_sparsity_passes(self):
-        """Should pass when sparsity is within tolerance."""
+        """Should pass when density is within tolerance."""
         shape = (10,10)
         total_grid_points = np.prod(shape)
         num_obs = 10
-        expected_sparsity = 0.099999  # Within tolerance
+        expected_density = 0.099999  # Within tolerance
 
         # Should not raise
-        RecordGenerator.validate_sparsity(
-            num_obs, total_grid_points, expected_sparsity
+        RecordGenerator.validate_density(
+            num_obs, total_grid_points, expected_density
         )
     
     def test_different_sparsity_raises_value_error(self):
-        """Should raise ValueError when sparsity differs significantly."""
+        """Should raise ValueError when density differs significantly."""
         shape = (10,10)
         total_grid_points = np.prod(shape)
         num_obs = 10
-        expected_sparsity = 0.2  # Within tolerance
+        expected_density = 0.2  # Within tolerance
 
-        pattern = r"Sparsity \d+\.\d+ determined from number of coordinates differs from expected sparsity \d+\.\d+"
+        pattern = r"Density \d+\.\d+ determined from number of coordinates differs from expected density \d+\.\d+"
         with pytest.raises(ValueError, match=pattern):
-            RecordGenerator.validate_sparsity(
-                num_obs, total_grid_points, expected_sparsity
+            RecordGenerator.validate_density(
+                num_obs, total_grid_points, expected_density
             )
     
     def test_error_message_contains_values(self):
@@ -249,34 +249,34 @@ class TestValidateSparsity:
         shape = (10,10)
         total_grid_points = np.prod(shape)
         num_obs = 4
-        expected_sparsity = 0.1
+        expected_density = 0.1
         with pytest.raises(ValueError) as exc_info:
-            RecordGenerator.validate_sparsity(
-                num_obs, total_grid_points, expected_sparsity
+            RecordGenerator.validate_density(
+                num_obs, total_grid_points, expected_density
             )
         assert "0.04" in str(exc_info.value) or "4.0%" in str(exc_info.value)
         assert "0.1" in str(exc_info.value) or "10" in str(exc_info.value)
     
     def test_edge_case_full_sparsity(self):
-        """Should handle sparsity = 1."""
+        """Should handle density = 1."""
         shape = (5, 5)
         total_grid_points = np.prod(shape)
         num_obs = 25
-        expected_sparsity = 1.
+        expected_density = 1.
 
         # Should not raise
-        RecordGenerator.validate_sparsity(
-            num_obs, total_grid_points, expected_sparsity
+        RecordGenerator.validate_density(
+            num_obs, total_grid_points, expected_density
         )
     
     def test_edge_case_very_small_sparsity(self):
-        """Should handle very small sparsity."""
+        """Should handle very small density."""
         shape = (1e8, 1e8)
         total_grid_points = np.prod(shape)
         num_obs = 1
-        expected_sparsity = 1./total_grid_points
+        expected_density = 1./total_grid_points
 
         # Should not raise
-        RecordGenerator.validate_sparsity(
-            num_obs, total_grid_points, expected_sparsity
+        RecordGenerator.validate_density(
+            num_obs, total_grid_points, expected_density
         )

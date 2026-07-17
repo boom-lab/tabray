@@ -40,55 +40,55 @@ class TestValidateNumObs:
             ParameterValidator.validate_num_obs(None)
 
 
-class TestValidateSparsityType:
-    """Tests for validate_sparsity_type method."""
+class TestValidateDensityType:
+    """Tests for validate_density_type method."""
     
     def test_valid_float_returns_float(self):
         """Valid float should return float."""
-        result = ParameterValidator.validate_sparsity_type(0.5)
+        result = ParameterValidator.validate_density_type(0.5)
         assert result == 0.5
         assert isinstance(result, float)
     
     def test_valid_int_returns_float(self):
         """Valid int should return float."""
-        result = ParameterValidator.validate_sparsity_type(1)
+        result = ParameterValidator.validate_density_type(1)
         assert result == 1.0
         assert isinstance(result, float)
     
     def test_valid_list_returns_max(self):
         """Valid list should return max value."""
-        result = ParameterValidator.validate_sparsity_type([0.2, 0.5, 0.3])
+        result = ParameterValidator.validate_density_type([0.2, 0.5, 0.3])
         assert result == 0.5
     
     def test_valid_tuple_returns_max(self):
         """Valid tuple should return max value."""
-        result = ParameterValidator.validate_sparsity_type((0.1, 0.9))
+        result = ParameterValidator.validate_density_type((0.1, 0.9))
         assert result == 0.9
     
     def test_zero_is_allowed(self):
         """Sparsity = 0 is now allowed (will be converted to minimum later)."""
-        result = ParameterValidator.validate_sparsity_type(0.0)
+        result = ParameterValidator.validate_density_type(0.0)
         assert result == 0.0
     
     def test_negative_raises_value_error(self):
         """Negative value should raise ValueError."""
         with pytest.raises(ValueError, match="must be between 0 and 1"):
-            ParameterValidator.validate_sparsity_type(-0.1)
+            ParameterValidator.validate_density_type(-0.1)
     
     def test_greater_than_one_raises_value_error(self):
         """Value > 1 should raise ValueError."""
         with pytest.raises(ValueError, match="must be between 0 and 1"):
-            ParameterValidator.validate_sparsity_type(1.5)
+            ParameterValidator.validate_density_type(1.5)
     
     def test_string_raises_type_error(self):
         """String should raise TypeError."""
         with pytest.raises(TypeError, match="must be a number, list, or tuple"):
-            ParameterValidator.validate_sparsity_type("0.5")
+            ParameterValidator.validate_density_type("0.5")
     
     def test_list_with_invalid_values_raises_value_error(self):
         """List with values outside [0,1] should raise ValueError."""
         with pytest.raises(ValueError, match="must be between 0 and 1"):
-            ParameterValidator.validate_sparsity_type([0.5, 1.5])
+            ParameterValidator.validate_density_type([0.5, 1.5])
 
 
 class TestValidateNumDims:

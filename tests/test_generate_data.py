@@ -12,6 +12,32 @@ from data_sparsity.generate_data import GenerateData
 
 class TestInitialization:
     """Tests for GenerateData initialization."""
+
+    def test_density_kwarg_is_supported(self):
+        """Should initialize when density is passed directly."""
+        gen = GenerateData(
+            num_obs=100,
+            num_dims=2,
+            ratio_dims=1,
+            sparsity=None,
+            density=0.75,
+            seed=42,
+        )
+        assert gen.density == 0.75
+
+    def test_density_wins_over_sparsity(self):
+        """Should warn and prefer density when both inputs are present."""
+        with pytest.warns(UserWarning, match="Both density and sparsity"):
+            gen = GenerateData(
+                num_obs=100,
+                num_dims=2,
+                ratio_dims=1,
+                sparsity=0.1,
+                density=0.8,
+                seed=42,
+            )
+            assert gen.num_obs == 97
+            assert np.isclose(gen.density, 97 / 121)
     
     def test_minimal_valid_parameters(self):
         """Should initialize with minimal valid parameters."""
@@ -19,7 +45,7 @@ class TestInitialization:
             num_obs=100,
             num_dims=2,
             ratio_dims=1,
-            sparsity=1.,
+            density=1.,
             seed=42
         )
         assert gen.num_obs == 100
@@ -33,7 +59,7 @@ class TestInitialization:
             num_obs=200,
             num_dims=3,
             ratio_dims=1,
-            sparsity=[0.15, 0.2],
+            density=[0.15, 0.2],
             seed=123,
             num_vars=2,
             var_dims=2,
@@ -51,7 +77,7 @@ class TestInitialization:
                 num_obs=0,
                 num_dims=2,
                 ratio_dims=1,
-                sparsity=0.1,
+                density=0.1,
                 seed=42
             )
     
@@ -62,7 +88,7 @@ class TestInitialization:
                 num_obs=100,
                 num_dims=2,
                 ratio_dims=1,
-                sparsity=1.5,  # > 1.0
+                density=1.5,  # > 1.0
                 seed=42
             )
     
@@ -72,13 +98,13 @@ class TestInitialization:
             num_obs=150,
             num_dims=3,
             ratio_dims=[2, 1, 3],
-            sparsity=0.2,
+            density=0.2,
             seed=999
         )
         assert hasattr(gen, 'num_obs')
         assert hasattr(gen, 'num_dims')
         assert hasattr(gen, 'ratio_dims')
-        assert hasattr(gen, 'sparsity')
+        assert hasattr(gen, 'density')
         assert hasattr(gen, 'seed')
     
     def test_single_variable_defaults(self):
@@ -87,7 +113,7 @@ class TestInitialization:
             num_obs=100,
             num_dims=2,
             ratio_dims=1,
-            sparsity=0.1,
+            density=0.1,
             seed=42
         )
         assert gen.num_vars == 1
@@ -99,14 +125,14 @@ class TestInitialization:
             num_obs=200,
             num_dims=3,
             ratio_dims=1,
-            sparsity=[0.1, 0.2, 0.15],
+            density=[0.1, 0.2, 0.15],
             seed=42,
             num_vars=3,
             var_dims=[2, 2, 3],
             overlap=0.6
         )
         assert gen.num_vars == 3
-        assert isinstance(gen.sparsity, (list, tuple))
+        assert isinstance(gen.density, (list, tuple))
 
 
 class TestSingleVariableGeneration:
@@ -118,7 +144,7 @@ class TestSingleVariableGeneration:
             num_obs=20,
             num_dims=1,
             ratio_dims=1,
-            sparsity=1,
+            density=1,
             seed=42
         )
         dataarray, dataframe = gen.generate()
@@ -133,7 +159,7 @@ class TestSingleVariableGeneration:
             num_obs=50,
             num_dims=2,
             ratio_dims=1,
-            sparsity=0.2,
+            density=0.2,
             seed=42
         )
         dataarray, dataframe = gen.generate()
@@ -148,7 +174,7 @@ class TestSingleVariableGeneration:
             num_obs=100,
             num_dims=3,
             ratio_dims=1,
-            sparsity=0.15,
+            density=0.15,
             seed=42
         )
         dataarray, dataframe = gen.generate()
@@ -164,7 +190,7 @@ class TestSingleVariableGeneration:
             num_obs=num_obs,
             num_dims=2,
             ratio_dims=1,
-            sparsity=0.2,
+            density=0.2,
             seed=42
         )
         dataarray, dataframe = gen.generate()
@@ -182,7 +208,7 @@ class TestSingleVariableGeneration:
             num_obs=90,
             num_dims=2,
             ratio_dims=[1, 1],
-            sparsity=0.9,
+            density=0.9,
             seed=42
         )
         dataarray, dataframe = gen.generate()
@@ -197,7 +223,7 @@ class TestSingleVariableGeneration:
             num_obs=50,
             num_dims=2,
             ratio_dims=1,
-            sparsity=0.2,
+            density=0.2,
             seed=42
         )
         dataarray1, dataframe1 = gen1.generate()
@@ -206,7 +232,7 @@ class TestSingleVariableGeneration:
             num_obs=50,
             num_dims=2,
             ratio_dims=1,
-            sparsity=0.2,
+            density=0.2,
             seed=42
         )
         dataarray2, dataframe2 = gen2.generate()
@@ -225,7 +251,7 @@ class TestSingleVariableGeneration:
             num_obs=50,
             num_dims=2,
             ratio_dims=1,
-            sparsity=0.1,
+            density=0.1,
             seed=42
         )
         dataarray1, _ = gen1.generate()
@@ -234,7 +260,7 @@ class TestSingleVariableGeneration:
             num_obs=50,
             num_dims=2,
             ratio_dims=1,
-            sparsity=0.1,
+            density=0.1,
             seed=999
         )
         dataarray2, _ = gen2.generate()
@@ -256,7 +282,7 @@ class TestMultiVariableGeneration:
             num_obs=100,
             num_dims=3,
             ratio_dims=1,
-            sparsity=[0.15, 0.07],  # Adjusted: var1 gets ~50 obs (< 81 grid points)
+            density=[0.15, 0.07],  # Adjusted: var1 gets ~50 obs (< 81 grid points)
             seed=42,
             num_vars=2,
             var_dims=2,
@@ -275,7 +301,7 @@ class TestMultiVariableGeneration:
             num_obs=200,
             num_dims=3,
             ratio_dims=1,
-            sparsity=[0.10, 0.06, 0.04, 0.05],  # Adjusted: non-ref vars get ~70,50,60 obs
+            density=[0.10, 0.06, 0.04, 0.05],  # Adjusted: non-ref vars get ~70,50,60 obs
             seed=42,
             num_vars=4,
             var_dims=2,
@@ -293,7 +319,7 @@ class TestMultiVariableGeneration:
             num_obs=150,
             num_dims=3,
             ratio_dims=1,
-            sparsity=[0.20, 0.07, 0.05],  # Adjusted: var1~60 obs, var2~43 obs (well < 81)
+            density=[0.20, 0.07, 0.05],  # Adjusted: var1~60 obs, var2~43 obs (well < 81)
             seed=42,
             num_vars=3,
             var_dims=2,
@@ -319,7 +345,7 @@ class TestMultiVariableGeneration:
             num_obs=120,
             num_dims=3,
             ratio_dims=1,
-            sparsity=0.8,  # Adjusted to meet minimum sparsity requirement
+            density=0.8,  # Adjusted to meet minimum sparsity requirement
             seed=42,
             num_vars=2,
             var_dims=[2, 2],  # Both use 2 dims (but var0 gets all dims per new logic)
@@ -337,7 +363,7 @@ class TestMultiVariableGeneration:
             num_obs=100,
             num_dims=3,
             ratio_dims=1,
-            sparsity=[0.15, 0.01],  # Adjusted: var1 with 1 dim gets ~7 obs (< 9)
+            density=[0.15, 0.01],  # Adjusted: var1 with 1 dim gets ~7 obs (< 9)
             seed=42,
             num_vars=2,
             var_dims=[2, 1],  # Different dims - var0 all dims, var1 gets 1 dim
@@ -355,7 +381,7 @@ class TestMultiVariableGeneration:
             num_obs=100,
             num_dims=3,
             ratio_dims=1,
-            sparsity=[0.1, 0.1],
+            density=[0.1, 0.1],
             seed=42,
             num_vars=2,
             var_dims=2,
@@ -373,7 +399,7 @@ class TestMultiVariableGeneration:
             num_obs=100,
             num_dims=3,
             ratio_dims=1,
-            sparsity=[0.1, 0.1],
+            density=[0.1, 0.1],
             seed=42,
             num_vars=2,
             var_dims=2,
@@ -391,7 +417,7 @@ class TestMultiVariableGeneration:
             num_obs=200,
             num_dims=3,
             ratio_dims=1,
-            sparsity=0.75,
+            density=0.75,
             seed=42,
             num_vars=num_vars,
             var_dims=2,
@@ -409,7 +435,7 @@ class TestMultiVariableGeneration:
             num_obs=100,
             num_dims=3,
             ratio_dims=1,
-            sparsity=[0.10, 0.07],  # Adjusted: var1 gets ~50 obs (< 81)
+            density=[0.10, 0.07],  # Adjusted: var1 gets ~50 obs (< 81)
             seed=42,
             num_vars=2,
             var_dims=2,
@@ -429,7 +455,7 @@ class TestMultiVariableGeneration:
             num_obs=80,
             num_dims=3,
             ratio_dims=1,
-            sparsity=[0.15, 0.08],  # Adjusted: var1 gets ~45 obs (< 64 grid points)
+            density=[0.15, 0.08],  # Adjusted: var1 gets ~45 obs (< 64 grid points)
             seed=42,
             num_vars=2,
             var_dims=2,
@@ -441,7 +467,7 @@ class TestMultiVariableGeneration:
             num_obs=80,
             num_dims=3,
             ratio_dims=1,
-            sparsity=[0.15, 0.08],  # Adjusted: same as gen1
+            density=[0.15, 0.08],  # Adjusted: same as gen1
             seed=42,
             num_vars=2,
             var_dims=2,
@@ -511,7 +537,7 @@ class TestMultiVariableEdgeCases:
             num_obs=200,
             num_dims=4,
             ratio_dims=1,
-            sparsity=[0.2, 0.15],
+            density=[0.2, 0.15],
             seed=42,
             num_vars=2,
             var_dims=3,  # var0 gets all 4 dims, var1 gets 3 dims
@@ -540,7 +566,7 @@ class TestMultiVariableEdgeCases:
             num_obs=150,
             num_dims=3,
             ratio_dims=1,
-            sparsity=0.15,
+            density=0.15,
             seed=42,
             num_vars=2,
             var_dims=2,  # Use integer to trigger reference variable logic
@@ -567,7 +593,7 @@ class TestMultiVariableEdgeCases:
             num_obs=500,
             num_dims=3,
             ratio_dims=1,
-            sparsity=[0.25, 0.20, 0.15, 0.10, 0.05],
+            density=[0.25, 0.20, 0.15, 0.10, 0.05],
             seed=42,
             num_vars=5,
             var_dims=3,
@@ -602,7 +628,7 @@ class TestMultiVariableEdgeCases:
             num_obs=200,
             num_dims=3,
             ratio_dims=1,
-            sparsity=[0.15, 0.15],  # Same sparsity for both
+            density=[0.15, 0.15],  # Same sparsity for both
             seed=42,
             num_vars=2,
             var_dims=3,  # All dimensions vary for both
@@ -628,7 +654,7 @@ class TestMultiVariableEdgeCases:
             num_obs=150,
             num_dims=3,
             ratio_dims=1,
-            sparsity=[0.15, 0.10],
+            density=[0.15, 0.10],
             seed=42,
             num_vars=2,
             var_dims=3,
@@ -656,7 +682,7 @@ class TestMultiVariableEdgeCases:
             num_obs=100,
             num_dims=3,
             ratio_dims=1,
-            sparsity=[0.20, 0.10],  # Different sparsities
+            density=[0.20, 0.10],  # Different sparsities
             seed=42,
             num_vars=2,
             var_dims=3,
@@ -682,7 +708,7 @@ class TestMultiVariableEdgeCases:
             num_obs=200,
             num_dims=3,
             ratio_dims=1,
-            sparsity=[0.15, 0.10],
+            density=[0.15, 0.10],
             seed=42,
             num_vars=2,
             var_dims=3,
@@ -713,7 +739,7 @@ class TestFileOutput:
             num_obs=50,
             num_dims=2,
             ratio_dims=1,
-            sparsity=0.1,
+            density=0.1,
             seed=42
         )
         dataarray, _ = gen.generate()
@@ -729,7 +755,7 @@ class TestFileOutput:
             num_obs=50,
             num_dims=2,
             ratio_dims=1,
-            sparsity=0.1,
+            density=0.1,
             seed=42
         )
         _, dataframe = gen.generate()
@@ -751,7 +777,7 @@ class TestFileOutput:
             num_obs=30,
             num_dims=2,
             ratio_dims=1,
-            sparsity=0.2,
+            density=0.2,
             seed=42
         )
         dataarray, _ = gen.generate()
@@ -782,7 +808,7 @@ class TestEdgeCases:
             num_obs=1,
             num_dims=10,
             ratio_dims=1,
-            sparsity=1,
+            density=1,
             seed=42
         )
         dataarray, dataframe = gen.generate()
@@ -797,7 +823,7 @@ class TestEdgeCases:
             num_obs=100,
             num_dims=2,
             ratio_dims=[1, 1],
-            sparsity=1.0,
+            density=1.0,
             seed=42
         )
         dataarray, dataframe = gen.generate()
@@ -812,7 +838,7 @@ class TestEdgeCases:
             num_obs=20,
             num_dims=1,
             ratio_dims=1,
-            sparsity=1,
+            density=1,
             seed=42
         )
         dataarray, dataframe = gen.generate()
@@ -826,7 +852,7 @@ class TestEdgeCases:
             num_obs=100,
             num_dims=4,
             ratio_dims=1,
-            sparsity=0.2,
+            density=0.2,
             seed=42
         )
         dataarray, dataframe = gen.generate()
@@ -840,7 +866,7 @@ class TestEdgeCases:
             num_obs=150,
             num_dims=3,
             ratio_dims=[1, 2, 1],
-            sparsity=0.2,
+            density=0.2,
             seed=42
         )
         dataarray, dataframe = gen.generate()
@@ -855,7 +881,7 @@ class TestEdgeCases:
             num_obs=4,
             num_dims=2,
             ratio_dims=[1, 1],
-            sparsity=1.0,
+            density=1.0,
             seed=42
         )
         dataarray, dataframe = gen.generate()
@@ -869,7 +895,7 @@ class TestEdgeCases:
             num_obs=100,
             num_dims=3,
             ratio_dims=1,
-            sparsity=0.15,
+            density=0.15,
             seed=42,
             num_vars=2,
             var_dims=2,  # All use 2 dimensions
@@ -885,7 +911,7 @@ class TestEdgeCases:
             num_obs=120,
             num_dims=3,
             ratio_dims=1,
-            sparsity=0.1,
+            density=0.1,
             seed=42,
             num_vars=3,
             var_dims=[1, 2, 3],  # Each different
@@ -906,7 +932,7 @@ class TestErrorHandling:
                 num_obs=100,
                 num_dims=2,
                 ratio_dims=1,
-                sparsity=2.0,  # > 1.0
+                density=2.0,  # > 1.0
                 seed=42
             )
     
@@ -917,7 +943,7 @@ class TestErrorHandling:
                 num_obs=-10,
                 num_dims=2,
                 ratio_dims=1,
-                sparsity=0.1,
+                density=0.1,
                 seed=42
             )
     
@@ -928,7 +954,7 @@ class TestErrorHandling:
                 num_obs=100,
                 num_dims=0,
                 ratio_dims=1,
-                sparsity=0.1,
+                density=0.1,
                 seed=42
             )
     
@@ -939,7 +965,7 @@ class TestErrorHandling:
                 num_obs=100,
                 num_dims=2,
                 ratio_dims=1,
-                sparsity=0.1,
+                density=0.1,
                 seed=42,
                 num_vars=0
             )
@@ -951,7 +977,7 @@ class TestErrorHandling:
                 num_obs=100,
                 num_dims=3,
                 ratio_dims=1,
-                sparsity=[0.1, 0.1],
+                density=[0.1, 0.1],
                 seed=42,
                 num_vars=2,
                 var_dims=2,
@@ -969,7 +995,7 @@ class TestScenarios:
             num_obs=100,
             num_dims=1,
             ratio_dims=1,
-            sparsity=1.,
+            density=1.,
             seed=34
         )
         dataarray, dataframe = gen.generate()
@@ -1025,7 +1051,7 @@ class TestScenarios:
             num_obs=m*n,
             num_dims=2,
             ratio_dims=[m,n],
-            sparsity=1.,
+            density=1.,
             seed=76
         )
         dataarray, dataframe = gen.generate()
@@ -1101,7 +1127,7 @@ class TestScenarios:
             num_obs=int(np.prod(m)),
             num_dims=len(m),
             ratio_dims=m,
-            sparsity=1.,
+            density=1.,
             seed=10
         )
         dataarray, dataframe = gen.generate()
@@ -1177,12 +1203,12 @@ class TestScenarios:
         
         # With 5 observations across a 7x5 grid (35 points), minimum sparsity would be higher
         # This configuration should raise a ValueError during initialization
-        with pytest.raises(ValueError, match="Provided sparsity value.*is lower than minimum"):
+        with pytest.raises(ValueError, match="Provided density value.*is lower than minimum"):
             gen = GenerateData(
                 num_obs=5,
                 num_dims=2,
                 ratio_dims=[7, 5],
-                sparsity=5/35,  # This is below the minimum sparsity for this grid
+                density=5/35,  # This is below the minimum sparsity for this grid
                 seed=10
             )
 
@@ -1193,7 +1219,7 @@ class TestScenarios:
             num_obs=5,
             num_dims=2,
             ratio_dims=1,
-            sparsity=1/5,
+            density=1/5,
             seed=35
         )
         dataarray, dataframe = gen.generate()
@@ -1270,7 +1296,7 @@ class TestScenarios:
             num_obs=3,
             num_dims=10,
             ratio_dims=1,
-            sparsity=1/(3**9),  # Minimum sparsity: 1/3^9 ≈ 5.08e-05
+            density=1/(3**9),  # Minimum sparsity: 1/3^9 ≈ 5.08e-05
             seed=11
         )
         dataarray, dataframe = gen.generate()
@@ -1330,13 +1356,13 @@ class TestScenarios:
         assert len(valid_values) == len(np.unique(valid_values)), \
             "All record values should be unique"
         
-        # Check 8: the ratio of non-nan entries should match the sparsity for the grid
+        # Check 8: the ratio of non-nan entries should match the density for the grid
         total_points = np.prod(dataarray.shape)
-        actual_sparsity = non_nan_count / total_points
-        expected_sparsity = gen.sparsity[0] if isinstance(gen.sparsity, list) else gen.sparsity
+        actual_density = non_nan_count / total_points
+        expected_density = gen.density[0] if isinstance(gen.density, list) else gen.density
         # Allow small difference due to rounding
-        assert abs(actual_sparsity - expected_sparsity) < 0.01, \
-            f"Sparsity should be approximately {expected_sparsity}, got {actual_sparsity}"
+        assert abs(actual_density - expected_density) < 0.01, \
+            f"Density should be approximately {expected_density}, got {actual_density}"
 
         # Add checks for dataframe
         # Check 1: there are 11 columns ('x0', 'x1', etc, 'x9' and 'record')
@@ -1382,7 +1408,7 @@ class TestScenarios:
             num_obs=10,
             num_dims=2,
             ratio_dims=[7,5],
-            sparsity=10/35,
+            density=10/35,
             seed=31
         )
         dataarray, dataframe = gen.generate()
@@ -1429,10 +1455,10 @@ class TestScenarios:
             "All record values should be unique"
         
         # Check 10: the ratio of non-nan entries in record over the length of record should be 10/35
-        actual_sparsity = non_nan_count / total_points
-        expected_sparsity = 10/35
-        assert abs(actual_sparsity - expected_sparsity) < 0.01, \
-            f"Sparsity ratio should be approximately {expected_sparsity}, got {actual_sparsity}"
+        actual_density = non_nan_count / total_points
+        expected_density = 10/35
+        assert abs(actual_density - expected_density) < 0.01, \
+            f"Density ratio should be approximately {expected_density}, got {actual_density}"
 
         # Add checks for dataframe
         # Check 1: there are three columns ('x0', 'x1' and 'record')
@@ -1469,7 +1495,7 @@ class TestScenarios:
             num_obs=(m*n-1),
             num_dims=2,
             ratio_dims=[m,n],
-            sparsity=(m*n-1)/(m*n),
+            density=(m*n-1)/(m*n),
             seed=20
         )
         dataarray, dataframe = gen.generate()
@@ -1518,10 +1544,10 @@ class TestScenarios:
             "All record values should be unique"
         
         # Check 8: the ratio of non-nan entries in record over the length of record should be (m*n-1)/(m*n)=59/60
-        actual_sparsity = non_nan_count / total_points
-        expected_sparsity = (m * n - 1) / (m * n)
-        assert abs(actual_sparsity - expected_sparsity) < 0.001, \
-            f"Sparsity ratio should be approximately {expected_sparsity}, got {actual_sparsity}"
+        actual_density = non_nan_count / total_points
+        expected_density = (m * n - 1) / (m * n)
+        assert abs(actual_density - expected_density) < 0.001, \
+            f"Density ratio should be approximately {expected_density}, got {actual_density}"
 
         # Add checks for dataframe
         # Check 1: there are three columns ('x0', 'x1' and 'record')
@@ -1554,7 +1580,7 @@ class TestScenarios:
             num_obs=int(np.prod(m)-1),
             num_dims=len(m),
             ratio_dims=m,
-            sparsity=(np.prod(m)-1)/np.prod(m),
+            density=(np.prod(m)-1)/np.prod(m),
             seed=20
         )
         dataarray, dataframe = gen.generate()
@@ -1603,10 +1629,10 @@ class TestScenarios:
             "All record values should be unique"
         
         # Check 8: the ratio of non-nan entries in record over the length of record should be (np.prod(m)-1)/np.prod(m)
-        actual_sparsity = non_nan_count / total_points
-        expected_sparsity = (np.prod(m) - 1) / np.prod(m)
-        assert abs(actual_sparsity - expected_sparsity) < 0.0001, \
-            f"Sparsity ratio should be approximately {expected_sparsity}, got {actual_sparsity}"
+        actual_density = non_nan_count / total_points
+        expected_density = (np.prod(m) - 1) / np.prod(m)
+        assert abs(actual_density - expected_density) < 0.0001, \
+            f"Density ratio should be approximately {expected_density}, got {actual_density}"
 
         # Add checks for dataframe
         # Check 1: there are 11 columns ('x0', 'x1', etc, 'x9' and 'record')
@@ -1791,7 +1817,7 @@ class TestHybridLHSIntegration:
             num_obs=5,
             num_dims=2,
             ratio_dims=1,
-            sparsity=1/5,  # Minimum sparsity
+            density=1/5,  # Minimum sparsity
             seed=35
         )
         dataarray, dataframe = gen.generate()
@@ -1825,7 +1851,7 @@ class TestHybridLHSIntegration:
                 num_obs=scenario['num_obs'],
                 num_dims=2,
                 ratio_dims=1,
-                sparsity=scenario['sparsity'],
+                density=scenario['sparsity'],
                 seed=42
             )
             dataarray, dataframe = gen.generate()
@@ -1846,7 +1872,7 @@ class TestHybridLHSIntegration:
             num_obs=10,
             num_dims=2,
             ratio_dims=[7, 5],
-            sparsity=10/35,
+            density=10/35,
             seed=12
         )
         dataarray, dataframe = gen.generate()

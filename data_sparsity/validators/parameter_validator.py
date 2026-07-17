@@ -190,72 +190,72 @@ class ParameterValidator:
         return ratio_dims
 
     @staticmethod
-    def validate_sparsity_refvar(
-        sparsity: Union[List,Tuple]
+    def validate_density_refvar(
+        density: Union[List, Tuple]
     ) -> List:
-        """Validate sparsity value when a list is provided
+        """Validate density value when a list is provided.
 
-        The sparsity of the reference value (position 0) must
+        The density of the reference value (position 0) must
         be the largest as refvar has the largest number of
         observations.
 
         """
 
-        if not isinstance(sparsity, (tuple,list)):
-            return sparsity
+        if not isinstance(density, (tuple, list)):
+            return density
 
-        if isinstance(sparsity, tuple):
-            sparsity = [*sparsity]
+        if isinstance(density, tuple):
+            density = [*density]
 
-        max_sparsity = max(sparsity)
-        if not sparsity[0] == max_sparsity:
+        max_density = max(density)
+        if not density[0] == max_density:
             print(
-                f"Reference variable was assigned sparsity "
-                f"{sparsity[0]}, which is lower than the "
-                f"maximum sparsity {max_sparsity} in the "
-                f"sparsity argument provided, but refvar "
+                f"Reference variable was assigned density "
+                f"{density[0]}, which is lower than the "
+                f"maximum density {max_density} in the "
+                f"density argument provided, but refvar "
                 f"must have the maximum number of observations."
-                f" Imposing refvar sparsity to be {max_sparsity}."
+                f" Imposing refvar density to be {max_density}."
             )
-            sparsity[0] = max_sparsity
+            density[0] = max_density
 
-        return sparsity
+        return density
 
     @staticmethod
-    def validate_sparsity_type(
-        sparsity: Union[int, float, List, Tuple]
+    def validate_density_type(
+        density: Union[int, float, List, Tuple]
     ) -> float:
-        """Validate sparsity type and return representative value for grid calculations.
+        """Validate density type and return representative value for grid calculations.
 
-        The sparsity at the whole grid level is determined as the maximum value
-        of sparsity available across variables (if sparsity is an int, it is the
+        The density at the whole grid level is determined as the maximum value
+        of density available across variables (if density is an int, it is the
         same for all variables)
         
         Args:
-            sparsity: Sparsity value(s) - scalar, 2-element, or num_vars-element
+            density: Density value(s) - scalar, 2-element, or num_vars-element
             
         Returns:
-            Representative sparsity value (max if list/tuple) for grid calculation
-            
+            Representative density value (max if list/tuple) for grid calculation
+
         Raises:
-            TypeError: If sparsity is not a valid type
-            ValueError: If sparsity values are not in [0, 1]
+            TypeError: If density is not a valid type
+            ValueError: If density values are not in [0, 1]
 
         """
-        # Allow sparsity=0 as it will be converted to minimum later
-        if isinstance(sparsity, (float, int)):
-            sparsity_for_grid = float(sparsity)
-        elif isinstance(sparsity, (list, tuple)):
-            sparsity_for_grid = float(max(sparsity))
+        # Allow density=0 as it will be converted to minimum later
+        if isinstance(density, (float, int)):
+            density_for_grid = float(density)
+        elif isinstance(density, (list, tuple)):
+            density_for_grid = float(max(density))
         else:
             raise TypeError(
-                f"sparsity must be a number, list, or tuple, got {type(sparsity)}"
+                f"density must be a number, list, or tuple, got {type(density)}"
             )
         
-        if not 0.0 <= sparsity_for_grid <= 1.0:
+        if not 0.0 <= density_for_grid <= 1.0:
             raise ValueError(
-                f"sparsity values must be between 0 and 1.0, "
-                f"got max={sparsity_for_grid}"
+                f"density values must be between 0 and 1.0, "
+                f"got max={density_for_grid}"
             )
         
-        return sparsity_for_grid
+        return density_for_grid

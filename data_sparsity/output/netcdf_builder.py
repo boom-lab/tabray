@@ -20,7 +20,7 @@ class NetCDFBuilder:
         num_obs: int,
         num_dims: int,
         ratio_dims: np.ndarray,
-        sparsity: float,
+        density: float,
         seed: int
     ) -> Dict:
         """Create default attributes dictionary.
@@ -29,7 +29,7 @@ class NetCDFBuilder:
             num_obs: Number of observations
             num_dims: Number of dimensions
             ratio_dims: Dimension ratios
-            sparsity: Sparsity value
+            density: Density value
             seed: Random seed
             
         Returns:
@@ -40,7 +40,7 @@ class NetCDFBuilder:
             "num_obs": num_obs,
             "num_dims": num_dims,
             "ratio_dims": ratio_dims.tolist() if isinstance(ratio_dims, np.ndarray) else ratio_dims,
-            "sparsity": float(sparsity),
+            "density": float(density),
             "seed": seed
         }
 

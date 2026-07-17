@@ -21,12 +21,12 @@ def generate_chunk(
     obs_in_chunk: int,
     seed: int,
     shape: Tuple[int, ...],
-    sparsity: float,
+    density: float,
     num_vars: int,
     num_dims: int,
     ratio_dims: Tuple[float, ...],
     num_obs: int,
-    var_sparsities: Optional[ArrayLike],
+    var_densities: Optional[ArrayLike],
     var_num_obs: Optional[ArrayLike],
     var_dims_indices: Optional[List[List[int]]],
     var_constant_dims: Optional[List[List[int]]],
@@ -52,12 +52,12 @@ def generate_chunk(
         obs_in_chunk: Number of observations to generate in this chunk
         seed: Random seed for the base RNG
         shape: Full shape of the dataset
-        sparsity: Sparsity level (0-1)
+        density: Density level (0-1)
         num_vars: Number of variables (1 for single-var)
         num_dims: Number of dimensions
         ratio_dims: Ratio of dimensions
         num_obs: Total number of observations across all chunks
-        var_sparsities: Array of sparsity per variable (multi-var only)
+        var_densities: Array of density per variable (multi-var only)
         var_num_obs: Array of observation counts per variable (multi-var only)
         var_dims_indices: List of dimension indices per variable (multi-var only)
         var_constant_dims: List of constant dimensions per variable (multi-var only)
@@ -172,7 +172,7 @@ def generate_chunk(
         
         # Create DataArray with chunk-specific attributes
         chunk_attrs = NetCDFBuilder.create_default_attrs(
-            num_obs, num_dims, ratio_dims, sparsity, seed
+            num_obs, num_dims, ratio_dims, density, seed
         )
         chunk_attrs["chunk_id"] = chunk_id
         chunk_attrs["description"] = "Sparse observation data (chunk)"
@@ -223,13 +223,13 @@ def generate_chunk(
         # Create Dataset with chunk-specific attributes
         chunk_attrs = NetCDFBuilder.create_default_attrs(
             num_obs, num_dims, ratio_dims,
-            float(var_sparsities[0]), seed
+            float(var_densities[0]), seed
         )
         chunk_attrs.update({
             "chunk_id": chunk_id,
             "description": "Multi-variable sparse observation data (chunk)",
             "num_vars": num_vars,
-            "var_sparsities": var_sparsities.tolist() if var_sparsities is not None else [],
+            "var_densities": var_densities.tolist() if var_densities is not None else [],
             "var_num_obs": var_num_obs.tolist() if var_num_obs is not None else [],
             "overlap_target": overlap_target if isinstance(
                 overlap_target, str

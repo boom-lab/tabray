@@ -18,7 +18,7 @@ class DimensionValidator:
     @staticmethod
     def compute_nb_coords_dim1(
         num_obs: int,
-        sparsity: float,
+        density: float,
         ratio_dims_prod: float,
         num_dims: int
     ) -> float:
@@ -28,7 +28,7 @@ class DimensionValidator:
         
         Args:
             num_obs: Number of observations
-            sparsity: Sparsity value
+            density: Density value
             ratio_dims_prod: Product of ratio_dims array
             num_dims: Number of dimensions
             
@@ -38,7 +38,7 @@ class DimensionValidator:
         Raises:
             ValueError: If computed value is less than 1
         """
-        base = num_obs / (sparsity * ratio_dims_prod)
+        base = num_obs / (density * ratio_dims_prod)
         nb_coords_dim1 = np.power(base, 1 / num_dims)
         
         if nb_coords_dim1 < 1:

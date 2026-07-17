@@ -87,7 +87,7 @@ class TestScenariosParallel:
             num_obs=100,
             num_dims=1,
             ratio_dims=1,
-            sparsity=1.,
+            density=1.,
             seed=34,
             max_obs=25  # Trigger parallel with 4 chunks
         )
@@ -137,7 +137,7 @@ class TestScenariosParallel:
             num_obs=m*n,
             num_dims=2,
             ratio_dims=[m,n],
-            sparsity=1.,
+            density=1.,
             seed=76,
             max_obs=800  # Trigger parallel with ~4 chunks
         )
@@ -194,7 +194,7 @@ class TestScenariosParallel:
             num_obs=int(np.prod(m)),
             num_dims=len(m),
             ratio_dims=m,
-            sparsity=1.,
+            density=1.,
             seed=10,
             max_obs=int(np.floor(np.prod(m)/np.max(m)))  # Trigger parallel
         )
@@ -256,7 +256,7 @@ class TestScenariosParallel:
             num_obs=5,
             num_dims=2,
             ratio_dims=1,
-            sparsity=1/5,
+            density=1/5,
             seed=35,
             max_obs=2  # Very small chunks to test chunking with minimal data
         )
@@ -310,7 +310,7 @@ class TestScenariosParallel:
             num_obs=3,
             num_dims=10,
             ratio_dims=1,
-            sparsity=1/(3**9),
+            density=1/(3**9),
             seed=11,
             max_obs=1  # Each observation in separate chunk
         )
@@ -390,7 +390,7 @@ class TestScenariosParallel:
             num_obs=10,
             num_dims=2,
             ratio_dims=[7,5],
-            sparsity=10/35,
+            density=10/35,
             seed=31,
             max_obs=5
         )
@@ -453,7 +453,7 @@ class TestScenariosParallel:
             num_obs=(m*n-1),
             num_dims=2,
             ratio_dims=[m,n],
-            sparsity=(m*n-1)/(m*n),
+            density=(m*n-1)/(m*n),
             seed=20,
             max_obs=100  # ~3 chunks
         )
@@ -513,7 +513,7 @@ class TestScenariosParallel:
             num_obs=num_obs,
             num_dims=len(m),
             ratio_dims=m,
-            sparsity=(np.prod(m)-1)/np.prod(m),
+            density=(np.prod(m)-1)/np.prod(m),
             seed=20,
             max_obs=max_obs
         )
