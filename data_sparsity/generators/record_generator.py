@@ -161,8 +161,8 @@ class RecordGenerator:
                                random sampling without replacement, ensuring
                                no duplicates across LHS and random samples.
         
-        This hybrid approach works at ALL sparsity levels:
-        - At minimum sparsity (num_obs = min(shape)): Pure LHS
+        This hybrid approach works at ALL density levels:
+        - At minimum density (num_obs = min(shape)): Pure LHS
         - Above minimum: LHS base + random fill
         
         Args:
@@ -176,7 +176,7 @@ class RecordGenerator:
         Example:
             >>> rng = np.random.default_rng(42)
             >>> shape = [5, 5]
-            >>> # Minimum sparsity: pure LHS
+            >>> # Minimum density: pure LHS
             >>> indices_min = RecordGenerator.generate_hybrid_indices(shape, 5, rng)
             >>> len(indices_min[0])
             5
@@ -198,7 +198,7 @@ class RecordGenerator:
         lhs_indices = RecordGenerator.generate_lhs_indices(shape, n_s, rng)
         
         if n_random == 0:
-            # At minimum sparsity, pure LHS is sufficient
+            # At minimum density, pure LHS is sufficient
             return lhs_indices
         
         # Stage 2: Random sampling for additional observations
@@ -235,27 +235,29 @@ class RecordGenerator:
         return combined_indices
 
     @staticmethod
-    def validate_sparsity(
+    def validate_density(
         num_obs: int,
         total_grid_points: int,
-        expected_sparsity: float
+        expected_density: float
     ) -> None:
-        """Validate that computed sparsity matches expected value.
+        """Validate that computed density matches expected value.
         
         Args:
             num_obs: Number of observations
             total_grid_points: Total grid points
-            expected_sparsity: Expected sparsity value
+            expected_density: Expected density value
             
         Raises:
-            ValueError: If computed sparsity doesn't match expected
+            ValueError: If computed density doesn't match expected
         """
-        computed_sparsity = num_obs / total_grid_points
-        if not np.isclose(computed_sparsity, expected_sparsity):
+        computed_density = num_obs / total_grid_points
+        if not np.isclose(computed_density, expected_density):
             raise ValueError(
-                f"Sparsity {computed_sparsity} determined from number "
-                f"of coordinates differs from expected sparsity {expected_sparsity}"
+                f"Density {computed_density} determined from number "
+                f"of coordinates differs from expected density {expected_density}"
             )
+
+    @staticmethod
 
     @staticmethod
     def generate_global_lhs_indices_for_chunk(

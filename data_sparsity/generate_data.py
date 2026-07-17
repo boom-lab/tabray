@@ -10,6 +10,7 @@ generators, and output builders for improved testability and maintainability.
 import gc
 import logging
 import os
+import warnings
 from typing import Dict, List, Tuple, Union, Optional
 import dask.dataframe as dd
 import numpy as np
@@ -44,7 +45,7 @@ from data_sparsity.utils import (
 class GenerateData:
     """Generate synthetic observation data in array and tabular formats.
 
-    This class creates dummy observations with specified sparsity levels
+    This class creates dummy observations with specified density levels
     and stores them in both netCDF (array) and Parquet (tabular) formats
     for performance comparison studies.
 
@@ -52,7 +53,7 @@ class GenerateData:
         num_obs: Number of observations to generate
         num_dims: Number of dimensions in the coordinate space
         ratio_dims: Tuple of relative sizes for each dimension
-        sparsity: Sparsity of observation (between smin>0. and 1.)
+        density: Density of observation (between minimum allowed density and 1.)
         seed: Random seed for reproducibility
         max_obs: Maximum observations per chunk for parallel generation
         num_vars: Number of variables in the dataset
@@ -65,12 +66,13 @@ class GenerateData:
         num_obs: int,
         num_dims: int,
         ratio_dims: Union[int, ArrayLike],
-        sparsity: Union[int, float, List, Tuple],
-        seed: int,
+        sparsity: Union[int, float, List, Tuple, None] = None,
+        seed: int = None,
         max_obs: int = None,
         num_vars: int = 1,
         var_dims: Union[int, List, Tuple] = None,
         overlap: Union[float, str] = 'random',
+        density: Union[int, float, List, Tuple, None] = None,
     ) -> None:
         """Initialize the data generator with validation.
 
@@ -78,7 +80,13 @@ class GenerateData:
             num_obs: Number of observations to generate
             num_dims: Number of dimensions in the coordinate space
             ratio_dims: Tuple of relative sizes for each dimension
-            sparsity: Sparsity of observations (scalar, 2-element, or num_vars-element)
+            sparsity: Sparsity of observations, i.e. fraction of vacant grid
+                points (scalar, 2-element, or num_vars-element).
+                sparsity = 1 - density. Provide either density or sparsity,
+                not both.
+            density: Density of observations, i.e. fraction of occupied grid
+                points (scalar, 2-element, or num_vars-element). Provide
+                either density or sparsity, not both.
             seed: Random seed for reproducibility
             max_obs: Maximum observations per chunk for parallel generation
             num_vars: Number of variables in the dataset (default=1)
@@ -93,11 +101,13 @@ class GenerateData:
         self.num_obs = num_obs
         self.num_dims = num_dims
         self.ratio_dims = ratio_dims
-        self.sparsity = sparsity
+        self._input_sparsity = sparsity
+        self._input_density = density
         self.seed = seed
         self.num_vars = num_vars
         self.var_dims = var_dims if var_dims is not None else num_dims
         self.overlap = overlap
+        self._resolve_density_input()
 
         self._print_input_config()
 
@@ -105,7 +115,7 @@ class GenerateData:
         self._rng = np.random.default_rng(seed)
 
         # Initialize attributes set during validation
-        self.var_sparsities = None
+        self.var_densities = None
         self.var_num_obs = None
         self.var_dims_indices = None
         self.var_constant_dims = None
@@ -129,13 +139,46 @@ class GenerateData:
         self._records = None
         self._dataset = None
 
+    def _resolve_density_input(self) -> None:
+        """Resolve input density and sparsity values into internal density."""
+        if self.seed is None:
+            raise TypeError("seed must be provided")
+
+        if self._input_density is not None and self._input_sparsity is not None:
+            warnings.warn(
+                "Both density and sparsity were provided; using density and "
+                "ignoring sparsity.",
+                UserWarning,
+                stacklevel=2,
+            )
+            density = self._input_density
+        elif self._input_density is not None:
+            density = self._input_density
+        elif self._input_sparsity is not None:
+            density = self._sparsity_to_density(self._input_sparsity)
+        else:
+            raise TypeError("Either density or sparsity must be provided")
+
+        self.density = density
+
+    @staticmethod
+    def _sparsity_to_density(
+        sparsity: Union[int, float, List, Tuple]
+    ) -> Union[float, List[float]]:
+        """Convert sparsity input to density."""
+        if isinstance(sparsity, (list, tuple)):
+            return [1.0 - float(value) for value in sparsity]
+        return 1.0 - float(sparsity)
+
     def _print_input_config(self) -> None:
         """Print input configuration."""
         print("Input configuration:")
         print(f"  Number of observations: {self.num_obs}")
         print(f"  Number of dimensions: {self.num_dims}")
         print(f"  Ratio of dimensions: {self.ratio_dims}")
-        print(f"  Sparsity: {self.sparsity}")
+        print(f"  Density: {self.density}")
+        if self._input_sparsity is not None:
+            print(f"  Sparsity input: {self._input_sparsity}")
         print(f"  Random seed: {self.seed}")
         print(f"  Number of variables: {self.num_vars}")
         print(f"  Variable dimensions: {self.var_dims}")
@@ -154,7 +197,7 @@ class GenerateData:
         if self.num_vars > 1:
             print(f"  Variable varying dimensions: {self.var_dims_indices}")
             print(f"  Variable constant dimensions: {self.var_constant_dims}")
-        print(f"  Variable sparsities: {self.var_sparsities}")
+        print(f"  Variable densities: {self.var_densities}")
         print(f"  Variable observations: {self.var_num_obs}")
         print(f"  Overlap: {self.overlap}")
 
@@ -166,10 +209,9 @@ class GenerateData:
         * all dimensions have at least two elements (one element does not make
           sense, as we can drop that dimension and reduce the system's size)
         * all dimensions have a natural number of elements (no floats)
-        * sparsity is larger than the minimum theoretical value and smaller
-          than 1
+        * density is larger than the minimum theoretical value and at most 1
         * input number of observations is consistent with input number of
-          dimensions and sparsity
+          dimensions and density
 
         Some checks are hard checks (i.e. an error is raised if the check fails),
         others are soft (i.e. the expected values is enforced instead of raising
@@ -200,13 +242,13 @@ class GenerateData:
             self.ratio_dims, self.num_dims
         )
 
-        # Validate sparsity type and get representative value for grid calculation
-        self.sparsity = ParameterValidator.validate_sparsity_refvar(self.sparsity)
-        sparsity_for_grid = ParameterValidator.validate_sparsity_type(self.sparsity)
+        # Validate density type and get representative value for grid calculation
+        self.density = ParameterValidator.validate_density_refvar(self.density)
+        density_for_grid = ParameterValidator.validate_density_type(self.density)
 
         # Compute and validate dimensions
         nb_coords_dim1 = DimensionValidator.compute_nb_coords_dim1(
-            self.num_obs, sparsity_for_grid, self.ratio_dims_prod, self.num_dims
+            self.num_obs, density_for_grid, self.ratio_dims_prod, self.num_dims
         )
         self.nb_coords_dim1 = DimensionValidator.round_to_integer(nb_coords_dim1)
 
@@ -222,34 +264,34 @@ class GenerateData:
             self.nb_coords_per_dim
         )
 
-        # Check that sparsity is larger than minimum allowed for this set of parameters
-        self.sparsity_zero = SparsityValidator.compute_min_sparsity(self.nb_coords_per_dim)
-        sparsity_for_grid = SparsityValidator.validate_sparsity_bounds(
-            sparsity_for_grid, self.sparsity_zero
+        # Check that density is larger than minimum allowed for this set of parameters
+        self.density_zero = SparsityValidator.compute_min_density(self.nb_coords_per_dim)
+        density_for_grid = SparsityValidator.validate_density_bounds(
+            density_for_grid, self.density_zero
         )
 
-        # Check that num_obs is consistent with sparsity and dimensions size
-        self.num_obs, sparsity_for_grid = SparsityValidator.validate_num_obs_consistency(
-            self.num_obs, sparsity_for_grid, self.nb_coords_per_dim
+        # Check that num_obs is consistent with density and dimensions size
+        self.num_obs, density_for_grid = SparsityValidator.validate_num_obs_consistency(
+            self.num_obs, density_for_grid, self.nb_coords_per_dim
         )
 
-        # Update sparsity if it was a scalar
-        if isinstance(self.sparsity, (float, int)):
-            self.sparsity = sparsity_for_grid
+        # Update density if it was a scalar
+        if isinstance(self.density, (float, int)):
+            self.density = density_for_grid
 
         # Configure multi-variable settings
         if self.num_vars > 1:
-            self._configure_multi_var(sparsity_for_grid)
+            self._configure_multi_var(density_for_grid)
         else:
-            self._configure_single_var(sparsity_for_grid)
+            self._configure_single_var(density_for_grid)
 
-    def _configure_single_var(self, sparsity: float) -> None:
+    def _configure_single_var(self, density: float) -> None:
         """Configure for single variable case.
 
         Args:
-            sparsity: Validated sparsity value
+            density: Validated density value
         """
-        self.var_sparsities = np.array([sparsity])
+        self.var_densities = np.array([density])
         self.var_num_obs = np.array([self.num_obs])
         self.var_dims_indices = [list(range(self.num_dims))]
         self.var_constant_dims = [[]]
@@ -257,15 +299,15 @@ class GenerateData:
         self.overlap_target = None
         self.overlap_actual = None
 
-    def _configure_multi_var(self, sparsity_for_grid: float) -> None:
+    def _configure_multi_var(self, density_for_grid: float) -> None:
         """Configure for multiple variables case.
 
         Args:
-            sparsity_for_grid: Representative sparsity value
+            density_for_grid: Representative density value
         """
-        # Setup sparsity values for each variable
-        self.var_sparsities, self.var_num_obs = MultiVarSparsityConfig.setup_from_parameter(
-            self.sparsity, self.num_vars, self.num_obs, self.sparsity_zero, self._rng
+        # Setup density values for each variable
+        self.var_densities, self.var_num_obs = MultiVarSparsityConfig.setup_from_parameter(
+            self.density, self.num_vars, self.num_obs, self.density_zero, self._rng
         )
 
         # Setup dimensions: the grid is defined over num_dims dimensions, but
@@ -502,7 +544,7 @@ class GenerateData:
         if attrs is None:
             attrs = NetCDFBuilder.create_default_attrs(
                 self.num_obs, self.num_dims, self.ratio_dims,
-                float(self.var_sparsities[0]), self.seed
+                float(self.var_densities[0]), self.seed
             )
 
         dataarray = NetCDFBuilder.build_dataarray(record, coordinates, "record", attrs)
@@ -536,7 +578,7 @@ class GenerateData:
         if attrs is None:
             attrs = NetCDFBuilder.create_default_attrs(
                 self.num_obs, self.num_dims, self.ratio_dims,
-                float(self.var_sparsities[0]), self.seed
+                float(self.var_densities[0]), self.seed
             )
 
         dataset = NetCDFBuilder.build_dataset(records, coordinates, attrs)
@@ -761,14 +803,14 @@ class GenerateData:
         if tmp_dir:
             os.makedirs(tmp_dir, exist_ok=True)
 
-        mp_obs, sparsity_new, per_chunk_obs = ChunkUtils.get_observations_per_chunk(
+        mp_obs, density_new, per_chunk_obs = ChunkUtils.get_observations_per_chunk(
             self.num_obs,
             self.shape,
             self.max_dim_size,
             self.section_sizes,
-            self.sparsity
+            self.density
         )
-        self.sparsity = sparsity_new
+        self.density = density_new
         self.num_obs = mp_obs
 
         # Prepare arguments for all chunks
@@ -779,12 +821,12 @@ class GenerateData:
                 'obs_in_chunk': chunk_obs,
                 'seed': self.seed,
                 'shape': self.shape,
-                'sparsity': self.sparsity,
+                'density': self.density,
                 'num_vars': self.num_vars,
                 'num_dims': self.num_dims,
                 'ratio_dims': self.ratio_dims,
                 'num_obs': self.num_obs,
-                'var_sparsities': self.var_sparsities if self.num_vars > 1 else None,
+                'var_densities': self.var_densities if self.num_vars > 1 else None,
                 'var_num_obs': self.var_num_obs if self.num_vars > 1 else None,
                 'var_dims_indices': self.var_dims_indices if self.num_vars > 1 else None,
                 'var_constant_dims': self.var_constant_dims if self.num_vars > 1 else None,

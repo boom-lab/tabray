@@ -53,7 +53,7 @@ gen = GenerateData(
     num_obs=1000,           # Number of observations
     num_dims=3,             # Number of dimensions
     ratio_dims=(1.0, 1.0, 1.0),  # Relative size of each dimension
-    sparsity=0.1,           # 10% of grid points contain observations
+    density=0.1,            # 10% of grid points contain observations
     seed=42                 # Random seed for reproducibility
 )
 
@@ -76,7 +76,7 @@ gen = GenerateData(
     num_obs=500,
     num_dims=2,
     ratio_dims=(2.0, 1.0),  # First dimension twice as large as second
-    sparsity=0.2,
+    density=0.2,
     seed=123
 )
 
@@ -102,7 +102,7 @@ gen = GenerateData(
     num_obs=50_000_000,     # 50 million observations
     num_dims=3,
     ratio_dims=(2.0, 1.5, 1.0),
-    sparsity=0.05,
+    density=0.05,
     seed=42,
     max_obs=10_000_000      # Split into chunks of 10M observations each
 )
@@ -115,10 +115,10 @@ gen.generate(
 
 # Generate a large multi-variable dataset with parallel processing
 gen_multi = GenerateData(
-    num_obs=30_000_000,     # 30 million observations (for highest sparsity variable)
+    num_obs=30_000_000,     # 30 million observations (for highest density variable)
     num_dims=4,
     ratio_dims=(2.0, 1.5, 1.0, 1.0),
-    sparsity=[0.05, 0.10],  # Multiple variables with different sparsities
+    density=[0.05, 0.10],   # Multiple variables with different densities
     seed=42,
     max_obs=10_000_000,
     num_vars=3,
@@ -144,7 +144,7 @@ gen_multi.generate(
 
 **Memory Management:**
 - Set `max_obs` based on available memory (default: 10 million observations)
-- For multi-variable datasets, `max_obs` refers to the observations of the variable with highest sparsity
+- For multi-variable datasets, `max_obs` refers to the observations of the variable with highest density
 - Lower values create more chunks but use less memory per chunk
 - Higher values reduce overhead but require more memory
 
@@ -160,7 +160,7 @@ gen = GenerateData(
     num_obs=1000,
     num_dims=3,
     ratio_dims=(1.0, 1.0, 1.0),
-    sparsity=[0.1, 0.3],  # Variable 0 gets min, variable 2 gets max, variable 1 gets random
+    density=[0.1, 0.3],   # Variable 0 gets max, variable 2 gets min, variable 1 gets random
     seed=42,
     num_vars=3,           # Number of variables
     var_dims=3,           # Each variable uses all 3 dimensions
@@ -180,9 +180,9 @@ print(dataframe['variable'].value_counts())
 ```
 
 **Sparsity Options for Multiple Variables:**
-- Scalar (e.g., `0.2`): All variables have the same sparsity
-- 2-element list/tuple (e.g., `[0.1, 0.3]`): One variable gets min, one gets max, rest are random
-- num_vars-element list/tuple (e.g., `[0.1, 0.2, 0.3]`): Each variable gets its specified sparsity
+- Scalar (e.g., `0.8`): All variables have the same density
+- 2-element list/tuple (e.g., `[0.7, 0.9]`): One variable gets min, one gets max, rest are random
+- num_vars-element list/tuple (e.g., `[0.8, 0.9, 1.0]`): Each variable gets its specified density
 
 **Variable Dimensions Options:**
 - Int (e.g., `2`): Each variable randomly uses 2 dimensions
@@ -202,7 +202,7 @@ gen = GenerateData(
     num_obs=500,
     num_dims=4,
     ratio_dims=(1.0, 1.0, 1.0, 1.0),
-    sparsity=0.2,
+    density=0.2,
     seed=42,
     num_vars=3,
     var_dims=[[0,1,2], [1,2,3], [0,3]],  # Different dimensions per variable
@@ -214,13 +214,16 @@ dataset, df = gen.generate()
 
 ### Parameters
 
-- **num_obs** (int): Number of observations to generate (must be positive). For multi-variable datasets, this refers to the observations in the variable with the highest sparsity.
+- **density** and **sparsity** are both valid, independent ways to specify grid occupancy (`sparsity = 1 - density`). Provide exactly one; if both are passed, `density` takes precedence and a warning is raised.
+
+- **num_obs** (int): Number of observations to generate (must be positive). For multi-variable datasets, this refers to the observations in the variable with the highest density.
 - **num_dims** (int): Number of dimensions in the coordinate space (must be positive)
 - **ratio_dims** (tuple): Tuple with `num_dims` elements defining the relative size of each dimension (all must be positive)
-- **sparsity** (float, list, or tuple): 
+- **density** (float, list, or tuple, optional): 
   - Float: Fraction of grid points that contain observations, range [0.0, 1.0]
-  - 2-element list/tuple: Min and max sparsity values; one variable gets min, one gets max, rest are random
-  - num_vars-element list/tuple: Specific sparsity for each variable
+  - 2-element list/tuple: Min and max density values; one variable gets min, one gets max, rest are random
+  - num_vars-element list/tuple: Specific density for each variable
+- **sparsity** (float, list, or tuple, optional): Fraction of grid points that are vacant, `sparsity = 1 - density`. Accepts the same float/list/tuple forms as `density` and is converted to `density` internally. Provide either `density` or `sparsity` (not both).
 - **seed** (int): Random seed for reproducibility (non-negative integer)
 - **max_obs** (int, optional): Maximum number of observations per chunk when using parallel generation (default: 10,000,000). When `num_obs` exceeds this value, the dataset is automatically split into chunks and generated in parallel.
 - **num_vars** (int, optional): Number of variables in the dataset (default: 1)

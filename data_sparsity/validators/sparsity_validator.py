@@ -1,6 +1,6 @@
-"""Sparsity validation and adjustment for data generation.
+"""Density validation and adjustment for data generation.
 
-This module handles validation of sparsity values, bounds checking,
+This module handles validation of density values, bounds checking,
 and consistency validation between observations and grid parameters.
 """
 
@@ -9,23 +9,21 @@ import numpy as np
 
 
 class SparsityValidator:
-    """Validator for sparsity-related parameters and consistency checks.
+    """Validator for density-related parameters and consistency checks.
     
-    This class provides static methods to validate sparsity bounds and
-    ensure consistency between number of observations, sparsity, and grid size.
+    This class provides static methods to validate density bounds and
+    ensure consistency between number of observations, density, and grid size.
     """
-
-    @staticmethod
-    def compute_min_sparsity(nb_coords_per_dim: np.ndarray) -> float:
-        """Compute minimum allowable sparsity for given dimensions.
+    def compute_min_density(nb_coords_per_dim: np.ndarray) -> float:
+        """Compute minimum allowable density for given dimensions.
         
-        The minimum sparsity is 1.0 / (np.power( nmin, (d-1) )), which ensures
+        The minimum density is 1.0 / (np.power( nmin, (d-1) )), which ensures
         that all coordinates tuples are used. d is number of dimensions, nmin is
         the size of the smallest dimension (number of coordinates along it).
         
-        While sparsity is generally defined as
+        While density is generally defined as
         num_observations/total_grid_points ,
-        if minimum were sparsity_min = 1 / total_grid_points, there would be
+        if minimum were density_min = 1 / total_grid_points, there would be
         inefficient data storage, e.g. in xarray we would store to disk unused
         coordinates values
 
@@ -37,86 +35,84 @@ class SparsityValidator:
             nb_coords_per_dim: Number of coordinates per dimension
             
         Returns:
-            Minimum sparsity value
+            Minimum density value
 
         """
         d = len(nb_coords_per_dim)
         nmin = min(nb_coords_per_dim)
         return 1.0 / (np.power( nmin, (d-1) ))
-
-    @staticmethod
-    def validate_sparsity_bounds(
-        sparsity: float,
-        sparsity_min: float
+    def validate_density_bounds(
+        density: float,
+        density_min: float
     ) -> float:
-        """Validate sparsity is within allowable bounds.
+        """Validate density is within allowable bounds.
         
-        Special handling for sparsity = 0.0: automatically adjusts to minimum.
-        This allows users to request the minimum sparsity by setting sparsity=0.
+        Special handling for density = 0.0: automatically adjusts to minimum.
+        This allows users to request the minimum density by setting density=0.
         
         Args:
-            sparsity: Input sparsity value
-            sparsity_min: Minimum allowable sparsity
+            density: Input density value
+            density_min: Minimum allowable density
             
         Returns:
-            Validated sparsity (adjusted to min if input was 0)
+            Validated density (adjusted to min if input was 0)
             
         Raises:
-            ValueError: If sparsity is below minimum and not 0
+            ValueError: If density is below minimum and not 0
         """
         print(
-            f"Minimum sparsity value for the current set of dimensions: "
-            f"{sparsity_min}"
+            f"Minimum density value for the current set of dimensions: "
+            f"{density_min}"
         )
         
-        # Special case: sparsity=0 means "use minimum"
-        if sparsity == 0.0:
+        # Special case: density=0 means "use minimum"
+        if density == 0.0:
             print(
-                f"Input sparsity is zero, imposing minimum value: "
-                f"{sparsity_min}"
+                f"Input density is zero, imposing minimum value: "
+                f"{density_min}"
             )
-            return sparsity_min
+            return density_min
         
-        # Validate non-zero sparsity is above minimum
-        if sparsity < sparsity_min:
+        # Validate non-zero density is above minimum
+        if density < density_min:
             raise ValueError(
-                f"Provided sparsity value of {sparsity} is lower than "
-                f"minimum value of {sparsity_min}. If you want to impose "
-                "the minimum value possible, set sparsity to 0. as input."
+                f"Provided density value of {density} is lower than "
+                f"minimum value of {density_min}. If you want to impose "
+                "the minimum value possible, set density to 0. as input."
             )
         
-        return sparsity
+        return density
 
     @staticmethod
     def validate_num_obs_consistency(
         num_obs: int,
-        sparsity: float,
+        density: float,
         nb_coords_per_dim: np.ndarray
     ) -> tuple[int, float]:
-        """Validate and adjust num_obs to be consistent with sparsity and dimensions.
+        """Validate and adjust num_obs to be consistent with density and dimensions.
         
         Due to rounding, the input num_obs may not exactly match the expected
-        value from sparsity * grid_size. This method adjusts num_obs and
-        recomputes sparsity to maintain consistency.
+        value from density * grid_size. This method adjusts num_obs and
+        recomputes density to maintain consistency.
         
         Args:
             num_obs: Input number of observations
-            sparsity: Input sparsity value
+            density: Input density value
             nb_coords_per_dim: Number of coordinates per dimension
             
         Returns:
-            Tuple of (adjusted num_obs, adjusted sparsity)
+            Tuple of (adjusted num_obs, adjusted density)
             
         Raises:
-            ValueError: If adjusted sparsity falls outside valid bounds
+            ValueError: If adjusted density falls outside valid bounds
         """
-        num_obs_exp = sparsity * np.prod(nb_coords_per_dim)
+        num_obs_exp = density * np.prod(nb_coords_per_dim)
         
         if num_obs_exp != num_obs:
             print(
                 f"Input number of observations num_obs ({num_obs}) does not "
                 f"match the number of observations num_obs_exp {num_obs_exp} "
-                "expected from values of sparsity and the number of elements per "
+                "expected from values of density and the number of elements per "
                 "dimension. This can happen due to rounding operations and is not "
                 "necessarily an issue, so we are enforcing num_obs to match "
                 "num_obs_exp and rounding it."
@@ -124,14 +120,14 @@ class SparsityValidator:
             num_obs = int(np.rint(num_obs_exp))
             print(f"New number of observations is {num_obs}")
             
-            sparsity = num_obs / np.prod(nb_coords_per_dim)
-            print(f"Actual sparsity for grid is now {sparsity}")
+            density = num_obs / np.prod(nb_coords_per_dim)
+            print(f"Actual density for grid is now {density}")
             
-            sparsity_min = SparsityValidator.compute_min_sparsity(nb_coords_per_dim)
-            if sparsity < sparsity_min or sparsity > 1:
+            density_min = SparsityValidator.compute_min_density(nb_coords_per_dim)
+            if density < density_min or density > 1:
                 raise ValueError(
-                    f"Sparsity value {sparsity} out of bounds "
-                    f"[{sparsity_min}, 1]"
+                    f"Density value {density} out of bounds "
+                    f"[{density_min}, 1]"
                 )
         
-        return num_obs, sparsity
+        return num_obs, density

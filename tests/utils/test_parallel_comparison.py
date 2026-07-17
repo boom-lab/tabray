@@ -206,7 +206,7 @@ class TestParallelSerialComparison:
             num_obs=100,
             num_dims=1,
             ratio_dims=1,
-            sparsity=1.,
+            density=1.,
             seed=34
         )
         da_serial, df_serial = gen_serial.generate()
@@ -221,7 +221,7 @@ class TestParallelSerialComparison:
             num_obs=100,
             num_dims=1,
             ratio_dims=1,
-            sparsity=1.,
+            density=1.,
             seed=34,
             max_obs=26  # Trigger parallel mode
         )
@@ -272,7 +272,7 @@ class TestParallelSerialComparison:
             num_obs=m*n,
             num_dims=2,
             ratio_dims=[m, n],
-            sparsity=1.,
+            density=1.,
             seed=76
         )
         da_serial, df_serial = gen_serial.generate()
@@ -287,7 +287,7 @@ class TestParallelSerialComparison:
             num_obs=m*n,
             num_dims=2,
             ratio_dims=[m, n],
-            sparsity=1.,
+            density=1.,
             seed=76,
             max_obs=500  # Trigger parallel mode
         )        
@@ -347,7 +347,7 @@ class TestParallelSerialComparison:
             num_obs=num_obs,
             num_dims=num_dims,
             ratio_dims=ratio_dims,
-            sparsity=sparsity,
+            density=sparsity,
             seed=seed,
         )
         da_serial, df_serial = gen_serial.generate()
@@ -362,7 +362,7 @@ class TestParallelSerialComparison:
             num_obs=num_obs,
             num_dims=num_dims,
             ratio_dims=ratio_dims,
-            sparsity=sparsity,
+            density=sparsity,
             seed=seed,
             max_obs=3  # Very small chunks to test chunking with minimal data
         )
@@ -412,7 +412,7 @@ class TestParallelSerialComparison:
             num_obs=200,
             num_dims=3,
             ratio_dims=[2, 1, 1.5],
-            sparsity=0.15,
+            density=0.15,
             seed=123
         )
         da_serial, df_serial = gen_serial.generate()
@@ -427,7 +427,7 @@ class TestParallelSerialComparison:
             num_obs=200,
             num_dims=3,
             ratio_dims=[2, 1, 1.5],
-            sparsity=0.15,
+            density=0.15,
             seed=123,
             max_obs=60  # Trigger parallel mode
         )        

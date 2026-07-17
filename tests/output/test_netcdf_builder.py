@@ -15,7 +15,7 @@ class TestCreateDefaultAttrs:
             num_obs=100,
             num_dims=3,
             ratio_dims=np.array([1, 2, 1]),
-            sparsity=0.5,
+            density=0.5,
             seed=42
         )
         
@@ -23,7 +23,8 @@ class TestCreateDefaultAttrs:
         assert "num_obs" in attrs
         assert "num_dims" in attrs
         assert "ratio_dims" in attrs
-        assert "sparsity" in attrs
+        assert "density" in attrs
+        assert "density" in attrs
         assert "seed" in attrs
     
     def test_correct_values(self):
@@ -32,14 +33,14 @@ class TestCreateDefaultAttrs:
             num_obs=150,
             num_dims=2,
             ratio_dims=np.array([1, 1]),
-            sparsity=0.3,
+            density=0.3,
             seed=999
         )
         
         assert attrs["num_obs"] == 150
         assert attrs["num_dims"] == 2
         assert attrs["ratio_dims"] == [1, 1]
-        assert attrs["sparsity"] == 0.3
+        assert attrs["density"] == 0.3
         assert attrs["seed"] == 999
     
     def test_ratio_dims_as_array(self):
@@ -47,7 +48,7 @@ class TestCreateDefaultAttrs:
         ratio_dims = np.array([1, 2, 3])
         attrs = NetCDFBuilder.create_default_attrs(
             num_obs=100, num_dims=3, ratio_dims=ratio_dims,
-            sparsity=0.5, seed=42
+            density=0.5, seed=42
         )
         
         assert isinstance(attrs["ratio_dims"], list)
@@ -58,19 +59,19 @@ class TestCreateDefaultAttrs:
         ratio_dims = [2, 3, 1]
         attrs = NetCDFBuilder.create_default_attrs(
             num_obs=100, num_dims=3, ratio_dims=ratio_dims,
-            sparsity=0.5, seed=42
+            density=0.5, seed=42
         )
         
         assert attrs["ratio_dims"] == [2, 3, 1]
     
-    def test_sparsity_as_float(self):
-        """Should convert sparsity to float."""
+    def test_density_as_float(self):
+        """Should convert density to float."""
         attrs = NetCDFBuilder.create_default_attrs(
             num_obs=100, num_dims=2, ratio_dims=[1, 1],
-            sparsity=0.5, seed=42
+            density=0.5, seed=42
         )
         
-        assert isinstance(attrs["sparsity"], float)
+        assert isinstance(attrs["density"], float)
 
 
 class TestBuildDataarray:
