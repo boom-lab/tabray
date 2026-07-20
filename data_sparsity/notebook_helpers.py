@@ -28,9 +28,9 @@ __all__ = [
 ]
 
 
-def case_paths(case_slug: str, base_dir: str = "./tutorial1") -> tuple[str, str, str]:
+def case_paths(case_name: str, base_dir: str = "./tutorial1") -> tuple[str, str, str]:
     """Return the NetCDF and Parquet output paths for a tutorial case."""
-    case_root = Path(base_dir) / case_slug
+    case_root = Path(base_dir) / case_name
     return (
         str(case_root / "netCDF" / "ds.nc"),
         str(case_root / "parquet" / "ddf"),
@@ -38,9 +38,9 @@ def case_paths(case_slug: str, base_dir: str = "./tutorial1") -> tuple[str, str,
     )
 
 
-def run_case(case_slug, num_obs, density, seed, title, base_dir: str = "./tutorial1"):
+def run_case(case_name, num_obs, density, seed, title, base_dir: str = "./tutorial1"):
     """Generate a tutorial case, print size statistics, and plot the result."""
-    ncpath, pqpath, pqpathtmp = case_paths(case_slug, base_dir=base_dir)
+    ncpath, pqpath, pqpathtmp = case_paths(case_name, base_dir=base_dir)
     gen = GenerateData(
         num_obs=num_obs,
         num_dims=2,
