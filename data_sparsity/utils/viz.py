@@ -131,13 +131,11 @@ def draw_storage_schema(ax, ds, df):
     return ax
 
 
-def plot_grid_case(ds, df, title):
+def plot_grid_case(ds, df, var, var_id, title):
     """Plot a 2D grid case and show the storage-schema comparison."""
     x0 = ds["x0"].values
     x1 = ds["x1"].values
     support_x1, support_x0 = np.meshgrid(x1, x0)
-    present_mask = np.isfinite(ds["record"].values)
-
     fig = plt.figure(figsize=(13, 5))
     outer = fig.add_gridspec(1, 2, width_ratios=[1.1, 1.0], wspace=0.15)
     ax = fig.add_subplot(outer[0, 0])
@@ -156,15 +154,21 @@ def plot_grid_case(ds, df, title):
     for yv in x0:
         ax.axhline(yv, color="dimgray", linestyle=":", linewidth=1, zorder=0)
 
-    ax.scatter(
-        support_x1.ravel()[present_mask.ravel()],
-        support_x0.ravel()[present_mask.ravel()],
-        facecolors="green",
-        edgecolors="green",
-        s=50,
-        linewidths=1.2,
-        zorder=3,
-    )
+    colors = ["green", "orange"]
+    mask_finite = np.isfinite(ds[var].values)
+    mask_nans = np.isnan(ds[var].values)
+    masks = [mask_finite, mask_nans]
+    for k, mask in enumerate(masks):
+        face = colors[var_id] if k==0 else "none"
+        ax.scatter(
+            support_x1.ravel()[mask.ravel()],
+            support_x0.ravel()[mask.ravel()],
+            facecolors=face,
+            edgecolors=colors[var_id],
+            s=50,
+            linewidths=1.2,
+            zorder=3,
+        )
 
     ax.set_xticks(x1)
     ax.set_yticks(x0)
