@@ -64,7 +64,7 @@ def draw_table(ax, cell_text, col_labels, row_labels=None, title=None):
     return table
 
 
-def draw_storage_schema(ax, ds, df):
+def draw_storage_schema(ax, ds, df, var):
     """Draw the storage comparison schema for the tutorial figures."""
     occupied_sites = len(df)
     num_dims = len(ds.dims)
@@ -103,7 +103,7 @@ def draw_storage_schema(ax, ds, df):
     tab_ax = ax.inset_axes([0.02, 0.53, 0.96, 0.34])
     arr_ax = ax.inset_axes([0.02, 0.07, 0.96, 0.34])
 
-    tabular_preview = df[[col for col in df.columns if col.startswith("x") or col == "record"]].head(occupied_sites)
+    tabular_preview = df[[col for col in df.columns if col.startswith("x") or col == var]].head(occupied_sites)
     tabular_cell_text = [[format_table_value(value) for value in row] for row in tabular_preview.to_numpy()]
     draw_table(
         tab_ax,
@@ -115,7 +115,7 @@ def draw_storage_schema(ax, ds, df):
         ),
     )
 
-    record = ds["record"].values
+    record = ds[var].values
     array_cell_text = [["NaN" if np.isnan(value) else f"{value:.3f}" for value in row] for row in record]
     draw_table(
         arr_ax,
@@ -184,6 +184,6 @@ def plot_grid_case(ds, df, var, var_id, title):
     ax.grid(False)
 
     schema_ax = fig.add_subplot(outer[0, 1])
-    draw_storage_schema(schema_ax, ds, df)
+    draw_storage_schema(schema_ax, ds, df, var)
     plt.tight_layout()
     plt.show()

@@ -38,16 +38,41 @@ def case_paths(case_name: str, base_dir: str = "./tutorial1") -> tuple[str, str,
     )
 
 
-def run_case(case_name, num_obs, density, seed, title, base_dir: str = "./tutorial1"):
+def run_case(
+        case_name,
+        num_obs,
+        density,
+        seed,
+        title,
+        base_dir: str = "./tutorial1",
+        num_vars = None,
+        var_dims = None,
+        overlap = None,
+):
     """Generate a tutorial case, print size statistics, and plot the result."""
+
     ncpath, pqpath, pqpathtmp = case_paths(case_name, base_dir=base_dir)
-    gen = GenerateData(
-        num_obs=num_obs,
-        num_dims=2,
-        ratio_dims=1,
-        density=density,
-        seed=seed,
-    )
+    if num_vars is None or num_vars==1:
+        gen = GenerateData(
+            num_obs=num_obs,
+            num_dims=2,
+            ratio_dims=1,
+            density=density,
+            seed=seed,
+        )        
+        
+    else:
+        gen = GenerateData(
+            num_obs=num_obs,
+            num_dims=2,
+            ratio_dims=1,
+            density=density,
+            seed=seed,
+            num_vars=num_vars,
+            var_dims=var_dims,
+            overlap=overlap
+        )
+    
     gen.generate(
         netcdf_filepath=ncpath,
         parquet_filepath=pqpath,
@@ -65,5 +90,6 @@ def run_case(case_name, num_obs, density, seed, title, base_dir: str = "./tutori
     print(f"Loaded parquet into pandas: {format_bytes(df_memory_bytes)} in memory")
     print(f"On-disk netCDF size: {format_bytes(nc_disk_bytes)}")
     print(f"On-disk parquet size: {format_bytes(pq_disk_bytes)}")
-    plot_grid_case(ds, df, title)
+    for var_id, var in enumerate(ds.data_vars):
+        plot_grid_case(ds, df, var, var_id, title)
     return ds, df
