@@ -258,6 +258,46 @@ class TestBuildDataset:
         result = NetCDFBuilder.build_dataset(records, coordinates)
         
         assert isinstance(result.attrs, dict)
+
+    def test_drops_constant_dimension_by_index(self):
+        """Should squeeze the declared constant dimension, not the first one."""
+        records = {
+            'var0': np.full((3, 4, 5), np.nan),
+        }
+        records['var0'][:, 2, :] = 1.0
+        coordinates = {
+            'x0': np.linspace(0, 1, 3),
+            'x1': np.linspace(0, 1, 4),
+            'x2': np.linspace(0, 1, 5),
+        }
+
+        result = NetCDFBuilder.build_dataset(
+            records,
+            coordinates,
+            var_constant_dims=[[1]],
+        )
+
+        assert result['var0'].dims == ('x0', 'x2')
+        assert result['var0'].shape == (3, 5)
+
+    def test_handles_empty_constant_dimension_without_crashing(self):
+        """Should leave empty variables unsqueezed instead of failing."""
+        records = {
+            'var0': np.full((3, 4, 5), np.nan),
+        }
+        coordinates = {
+            'x0': np.linspace(0, 1, 3),
+            'x1': np.linspace(0, 1, 4),
+            'x2': np.linspace(0, 1, 5),
+        }
+
+        result = NetCDFBuilder.build_dataset(
+            records,
+            coordinates,
+            var_constant_dims=[[0]],
+        )
+
+        assert result['var0'].sizes['x0'] == 0
     
     def test_preserves_data_values(self):
         """Should preserve data values for all variables."""
