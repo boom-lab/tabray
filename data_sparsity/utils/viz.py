@@ -66,6 +66,7 @@ def draw_table(ax, cell_text, col_labels, row_labels=None, title=None):
 
 def draw_storage_schema(ax, ds, df, var):
     """Draw the storage comparison schema for the tutorial figures."""
+    data_var = ds[var]
     occupied_sites = len(df)
     num_dims = len(ds.dims)
     num_vars = len(ds.data_vars)
@@ -115,70 +116,158 @@ def draw_storage_schema(ax, ds, df, var):
         ),
     )
 
-    record = ds[var].values
-    array_cell_text = [["NaN" if np.isnan(value) else f"{value:.3f}" for value in row] for row in record]
-    draw_table(
-        arr_ax,
-        array_cell_text,
-        [format_table_value(value) for value in ds["x1"].values],
-        row_labels=[format_table_value(value) for value in ds["x0"].values],
-        title=(
-            f"Array: {array_coord_values} coordinate values + {array_values} grid values\n"
-            f"empty sites stored as NaN: {array_missing}"
-        ),
-    )
+    record = data_var.values
+    if record.ndim == 1:
+        array_cell_text = [[
+            "NaN" if np.isnan(value) else f"{value:.3f}"
+            for value in record
+        ]]
+        draw_table(
+            arr_ax,
+            array_cell_text,
+            [format_table_value(value) for value in ds[data_var.dims[0]].values],
+            row_labels=None,
+            title=(
+                f"Array: {array_coord_values} coordinate values + {array_values} grid values\n"
+                f"empty sites stored as NaN: {array_missing}"
+            ),
+        )
+    else:
+        array_cell_text = [
+            ["NaN" if np.isnan(value) else f"{value:.3f}" for value in row]
+            for row in record
+        ]
+        draw_table(
+            arr_ax,
+            array_cell_text,
+            [format_table_value(value) for value in ds[data_var.dims[1]].values],
+            row_labels=[format_table_value(value) for value in ds[data_var.dims[0]].values],
+            title=(
+                f"Array: {array_coord_values} coordinate values + {array_values} grid values\n"
+                f"empty sites stored as NaN: {array_missing}"
+            ),
+        )
 
     return ax
 
 
-def plot_grid_case(ds, df, var, var_id, title):
-    """Plot a 2D grid case and show the storage-schema comparison."""
-    x0 = ds["x0"].values
-    x1 = ds["x1"].values
-    support_x1, support_x0 = np.meshgrid(x1, x0)
-    fig = plt.figure(figsize=(13, 5))
-    outer = fig.add_gridspec(1, 2, width_ratios=[1.1, 1.0], wspace=0.15)
-    ax = fig.add_subplot(outer[0, 0])
+def _plot_observation_masks(ax, x_values, y_values, values, color):
+    """Plot observed and missing points using a shared mask-based routine."""
+    mask_finite = np.isfinite(values)
+    mask_nans = np.isnan(values)
+    masks = [mask_finite, mask_nans]
+    for k, mask in enumerate(masks):
+        face = color if k == 0 else "none"
+        ax.scatter(
+            np.asarray(x_values).ravel()[mask.ravel()],
+            np.asarray(y_values).ravel()[mask.ravel()],
+            facecolors=face,
+            edgecolors=color,
+            s=50,
+            linewidths=1.2,
+            zorder=3,
+        )
+
+
+def _plot_full_grid_support(ax, x_values, y_values):
+    """Draw the full 2D support grid for the main comparison plot."""
+    support_x, support_y = np.meshgrid(x_values, y_values)
     ax.scatter(
-        support_x1.ravel(),
-        support_x0.ravel(),
+        support_x.ravel(),
+        support_y.ravel(),
         s=160,
         facecolors="none",
         edgecolors="dimgray",
         linewidths=1.2,
         zorder=2,
     )
-
-    for xv in x1:
+    for xv in x_values:
         ax.axvline(xv, color="dimgray", linestyle=":", linewidth=1, zorder=0)
-    for yv in x0:
+    for yv in y_values:
         ax.axhline(yv, color="dimgray", linestyle=":", linewidth=1, zorder=0)
+    return support_x, support_y
 
-    colors = ["green", "orange"]
-    mask_finite = np.isfinite(ds[var].values)
-    mask_nans = np.isnan(ds[var].values)
-    masks = [mask_finite, mask_nans]
-    for k, mask in enumerate(masks):
-        face = colors[var_id] if k==0 else "none"
-        ax.scatter(
-            support_x1.ravel()[mask.ravel()],
-            support_x0.ravel()[mask.ravel()],
-            facecolors=face,
-            edgecolors=colors[var_id],
-            s=50,
-            linewidths=1.2,
-            zorder=3,
+
+def plot_grid_case(ds, df, var, var_id, title):
+    """Plot a 1D or 2D grid case and show the storage-schema comparison."""
+    var_dims = ds[var].dims
+    if len(var_dims) not in (1, 2):
+        raise ValueError(
+            f"plot_grid_case supports only 1D or 2D variables, got {len(var_dims)}D"
         )
 
-    ax.set_xticks(x1)
-    ax.set_yticks(x0)
-    ax.set_xticklabels([f"{value:.3f}" for value in x1], color="dimgray")
-    ax.set_yticklabels([f"{value:.3f}" for value in x0], color="dimgray")
-    ax.set_xlabel("x1", color="dimgray")
-    ax.set_ylabel("x0", color="dimgray")
+    fig = plt.figure(figsize=(13, 5))
+    outer = fig.add_gridspec(1, 2, width_ratios=[1.1, 1.0], wspace=0.15)
+    ax = fig.add_subplot(outer[0, 0])
+
+    colors = ["green", "orange"]
+    values = ds[var].values
+
+    if len(var_dims) == 2:
+        y_dim, x_dim = var_dims
+        y_values = ds[y_dim].values
+        x_values = ds[x_dim].values
+        support_x, support_y = _plot_full_grid_support(ax, x_values, y_values)
+        _plot_observation_masks(ax, support_x, support_y, values, colors[var_id])
+
+        ax.set_xticks(x_values)
+        ax.set_yticks(y_values)
+        ax.set_xticklabels([f"{value:.3f}" for value in x_values], color="dimgray")
+        ax.set_yticklabels([f"{value:.3f}" for value in y_values], color="dimgray")
+        ax.set_xlabel(x_dim, color="dimgray")
+        ax.set_ylabel(y_dim, color="dimgray")
+        ax.set_aspect("equal", adjustable="box")
+    else:
+        if len(ds.dims) == 2:
+            data_dims = list(ds.dims)
+            y_dim, x_dim = data_dims[0], data_dims[1]
+            y_values = ds[y_dim].values
+            x_values = ds[x_dim].values
+            support_x, support_y = _plot_full_grid_support(ax, x_values, y_values)
+
+            observed = df[df[var].notna()]
+            ax.scatter(
+                observed[x_dim].to_numpy(),
+                observed[y_dim].to_numpy(),
+                facecolors=colors[var_id],
+                edgecolors=colors[var_id],
+                s=50,
+                linewidths=1.2,
+                zorder=3,
+            )
+
+            ax.set_xticks(x_values)
+            ax.set_yticks(y_values)
+            ax.set_xticklabels([f"{value:.3f}" for value in x_values], color="dimgray")
+            ax.set_yticklabels([f"{value:.3f}" for value in y_values], color="dimgray")
+            ax.set_xlabel(x_dim, color="dimgray")
+            ax.set_ylabel(y_dim, color="dimgray")
+            ax.set_aspect("equal", adjustable="box")
+        else:
+            x_dim = var_dims[0]
+            x_values = ds[x_dim].values
+            support_y = np.zeros_like(x_values, dtype=float)
+            ax.axhline(0.0, color="dimgray", linestyle=":", linewidth=1, zorder=0)
+            ax.scatter(
+                x_values,
+                support_y,
+                s=160,
+                facecolors="none",
+                edgecolors="dimgray",
+                linewidths=1.2,
+                zorder=2,
+            )
+
+            _plot_observation_masks(ax, x_values, support_y, values, colors[var_id])
+
+            ax.set_xticks(x_values)
+            ax.set_xticklabels([f"{value:.3f}" for value in x_values], color="dimgray")
+            ax.set_yticks([])
+            ax.set_xlabel(x_dim, color="dimgray")
+            ax.set_ylabel("present", color="dimgray")
+
     ax.set_title(title, color="dimgray")
     ax.tick_params(axis="both", colors="dimgray")
-    ax.set_aspect("equal", adjustable="box")
     for spine in ax.spines.values():
         spine.set_color("dimgray")
     ax.grid(False)
