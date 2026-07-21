@@ -182,7 +182,7 @@ class TestComputePairwiseOverlapNonNormalized:
         assert overlap == 1
     
     def test_different_dimension_combinations(self):
-        """Should handle different varying dimensions."""
+        """Should require exact full-coordinate matches."""
         coords1 = {(0, 1, 2), (1, 1, 3), (2, 1, 4)}
         coords2 = {(0, 2, 1), (0, 2, 3), (0, 2, 5)}
         varying_dims1 = [0, 2]
@@ -191,12 +191,7 @@ class TestComputePairwiseOverlapNonNormalized:
         overlap = OverlapCalculator.compute_pairwise_overlap_non_normalized(
             coords1, coords2, varying_dims1, varying_dims2
         )
-        # Shared dim is 2, project both to that dimension
-        # coords1 projected: {(2,), (3,), (4,)}
-        # coords2 projected: {(1,), (3,), (5,)}
-        # Common: {(3,)}, max size = 3
-        # non-normalized overlap = 1
-        assert overlap == 1
+        assert overlap == 0
     
     def test_one_observation_each(self):
         """Should handle single observation case."""
@@ -388,3 +383,26 @@ class TestComputeActualOverlap:
         )
 
         assert overlap == 1.0
+
+    def test_mixed_dimensions_require_full_coordinate_match(self):
+        """Shared coordinates alone should not count when full coordinates differ."""
+        records = {
+            'var0': np.full((3, 3), np.nan),
+            'var1': np.full((3, 3), np.nan)
+        }
+        records['var0'][0, 1] = 0.5
+        records['var1'][2, 1] = 0.7
+
+        var_varying_dims = [
+            [0, 1],
+            [1]
+        ]
+        num_vars = 2
+        num_dims = 2
+        var_num_obs = np.array([1, 1])
+
+        overlap = OverlapCalculator.compute_actual_overlap(
+            records, num_vars, num_dims, var_num_obs, var_varying_dims, ref_var="var0"
+        )
+
+        assert overlap == 0.0

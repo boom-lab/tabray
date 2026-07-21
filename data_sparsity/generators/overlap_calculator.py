@@ -79,24 +79,7 @@ class OverlapCalculator:
         Returns:
             Number of overlapping observations
         """
-        shared_varying_dims = sorted(
-            set(ref_varying_dims).intersection(set(var_varying_dims))
-        )
-        
-        if len(shared_varying_dims) == 0:
-            return 0
-        
-        ref_projected = OverlapCalculator.project_coordinates(
-            ref_coords, shared_varying_dims
-        )
-        var_projected = OverlapCalculator.project_coordinates(
-            var_coords, shared_varying_dims
-        )
-
-        ref_count = len(ref_projected)
-        var_count = len(var_projected)
-        
-        return len(ref_projected.intersection(var_projected))
+        return len(ref_coords.intersection(var_coords))
 
     @staticmethod
     def compute_actual_overlap(
@@ -148,12 +131,8 @@ class OverlapCalculator:
         for idx in sorted_indices[1:]:
             var_set = var_coords_sets[idx]
             total_other_obs += len(var_set)
-            
-            ref_varying_dims = var_dims_indices[sorted_indices[0]]
-            var_varying_dims = var_dims_indices[idx]
-            
             overlap_count += OverlapCalculator.compute_pairwise_overlap_non_normalized(
-                reference_set, var_set, ref_varying_dims, var_varying_dims
+                reference_set, var_set, [], []
             )
             print(f"overlap count at idx={idx}: {overlap_count}")
         

@@ -8,7 +8,6 @@ from typing import Dict, List, Tuple, Union, Optional
 import numpy as np
 from data_sparsity.generators.record_generator import RecordGenerator
 from data_sparsity.generators.observation_generator import ObservationGenerator
-from data_sparsity.generators.overlap_index_mapper import OverlapIndexMapper
 from data_sparsity.generators.overlap_calculator import OverlapCalculator
 
 
@@ -92,6 +91,21 @@ class MultiVarRecordGenerator:
         for const_dim, const_val in var_constant_coords.items():
             full_coords[const_dim] = np.full(num_obs, const_val)
         return tuple(full_coords)
+
+    @staticmethod
+    def _reduced_indices_from_full_coords(
+        full_indices: Tuple,
+        var_constant_dims: List[int],
+        num_obs: int
+    ) -> Tuple:
+        """Convert full-space coordinates to reduced-space coordinates."""
+        reduced_coords = []
+        for dim_idx, dim_values in enumerate(full_indices):
+            if dim_idx in var_constant_dims:
+                reduced_coords.append(np.zeros(num_obs, dtype=int))
+            else:
+                reduced_coords.append(np.asarray(dim_values))
+        return tuple(reduced_coords)
 
     @staticmethod
     def generate_without_overlap(
@@ -308,32 +322,48 @@ class MultiVarRecordGenerator:
             var_shape = var_shapes[var_idx]
             var_total_points = int(np.prod(var_shape))
             var_obs_count = chunk_var_num_obs[var_idx]
-            
-            num_overlap = int(np.round(overlap_target * var_obs_count))
-            num_separate = var_obs_count - num_overlap
-            
-            # Map overlapping indices from reference variable
-            if num_overlap > 0:
 
-                # Map refvar indices to this variable's space
-                overlap_target_flat = OverlapIndexMapper.map_indices_for_overlap(
-                    refvar_flat_indices, refvar_shape, var_shape,
-                    num_overlap, shared_rng
-                )
-                overlap_multi = np.unravel_index(overlap_target_flat, var_shape)
-                overlap_full_multi = MultiVarRecordGenerator._expand_to_full_coords(
-                    overlap_multi, var_constant_coords[var_idx], len(overlap_target_flat)
-                )
-                overlap_obs = var_rngs[var_idx].uniform(0, 1, size=len(overlap_target_flat))
-                records[var_name][overlap_full_multi] = overlap_obs
-            
-            # Generate separate (non-overlapping) observations
+            num_overlap = int(np.round(overlap_target * var_obs_count))
+
+            overlap_full_multi = None
+            overlap_full_count = 0
+            overlap_target_flat = np.array([], dtype=np.int64)
+            if num_overlap > 0:
+                compatible_mask = np.ones(refvar_num_obs, dtype=bool)
+                for const_dim, const_val in var_constant_coords[var_idx].items():
+                    compatible_mask &= refvar_full_multi[const_dim] == const_val
+
+                compatible_ref_indices = np.flatnonzero(compatible_mask)
+                if len(compatible_ref_indices) > 0:
+                    overlap_count = min(num_overlap, len(compatible_ref_indices))
+                    selected_ref_indices = shared_rng.choice(
+                        compatible_ref_indices,
+                        size=overlap_count,
+                        replace=False
+                    )
+                    overlap_full_multi = tuple(
+                        dim_values[selected_ref_indices] for dim_values in refvar_full_multi
+                    )
+                    overlap_obs = var_rngs[var_idx].uniform(0, 1, size=overlap_count)
+                    records[var_name][overlap_full_multi] = overlap_obs
+                    overlap_full_count = overlap_count
+
+                    overlap_reduced_multi = MultiVarRecordGenerator._reduced_indices_from_full_coords(
+                        overlap_full_multi, var_constant_dims[var_idx], overlap_full_count
+                    )
+                    overlap_target_flat = np.ravel_multi_index(
+                        overlap_reduced_multi, var_shape
+                    )
+
+            num_separate = var_obs_count - overlap_full_count
+
+            # Generate separate (non-overlapping) observations in reduced space
             if num_separate > 0:
-                used_flat = set(overlap_target_flat) if num_overlap > 0 else set()
+                used_flat = set(overlap_target_flat) if overlap_full_count > 0 else set()
                 available_flat = np.array([
                     i for i in range(var_total_points) if i not in used_flat
                 ])
-                
+
                 if len(available_flat) >= num_separate:
                     separate_flat = var_rngs[var_idx].choice(
                         available_flat, size=num_separate, replace=False
