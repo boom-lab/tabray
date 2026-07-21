@@ -75,7 +75,8 @@ class NetCDFBuilder:
     def build_dataset(
         records: Dict[str, np.ndarray],
         coordinates: Dict[str, np.ndarray],
-        attrs: Optional[Dict] = None
+        attrs: Optional[Dict] = None,
+        var_constant_dims: Optional[List[List[int]]] = None,
     ) -> xr.Dataset:
         """Build xarray Dataset from multiple records.
         
@@ -83,18 +84,26 @@ class NetCDFBuilder:
             records: Dictionary mapping variable names to record arrays
             coordinates: Dictionary mapping dimension names to coordinate arrays
             attrs: Optional attributes dictionary
-            
+            var_constant_dims: Constant dimension indices per variable
+
         Returns:
             xarray Dataset
         """
         data_vars = {}
-        for var_name, record in records.items():
-            data_vars[var_name] = xr.DataArray(
+        for var_id, (var_name, record) in enumerate(records.items()):
+            data_var = xr.DataArray(
                 record,
                 coords=coordinates,
                 dims=list(coordinates.keys())
             )
-        
+            if var_constant_dims:
+                for dim_id in var_constant_dims[var_id]:
+                    dim_name = list(coordinates.keys())[dim_id]
+                    data_var = data_var.dropna(dim=dim_name, how="all")
+                    if data_var.sizes.get(dim_name, 0) == 1:
+                        data_var = data_var.squeeze(dim_name, drop=True)
+            data_vars[var_name] = data_var
+
         dataset = xr.Dataset(data_vars, attrs=attrs or {})
         return dataset
 

@@ -558,7 +558,8 @@ class GenerateData:
         self,
         records: dict = None,
         coordinates: dict = None,
-        attrs: dict = None
+        attrs: dict = None,
+        var_constant_dims: Optional[List[List[int]]] = None,
     ) -> xr.Dataset:
         """Create xarray Dataset from multiple variable records.
 
@@ -574,14 +575,16 @@ class GenerateData:
             coordinates = self._coordinates
         if records is None:
             records = self._records
-
+        if var_constant_dims is None:
+            var_constant_dims = self.var_constant_dims
+            
         if attrs is None:
             attrs = NetCDFBuilder.create_default_attrs(
                 self.num_obs, self.num_dims, self.ratio_dims,
                 float(self.var_densities[0]), self.seed
             )
 
-        dataset = NetCDFBuilder.build_dataset(records, coordinates, attrs)
+        dataset = NetCDFBuilder.build_dataset(records, coordinates, attrs, var_constant_dims)
 
         if self.NTASKS == 1:
             self._dataset = dataset
