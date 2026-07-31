@@ -40,6 +40,7 @@ def generate_chunk(
     parquet_tmp: str,
     ntasks: int,
     num_obs_global: Optional[int] = None,
+    fixed_overlap: Union[bool, List[bool]] = False,
 ) -> Tuple[int, int, str]:
     """Generate a single chunk of data in parallel.
     
@@ -63,6 +64,8 @@ def generate_chunk(
         var_constant_dims: List of constant dimensions per variable (multi-var only)
         var_constant_coord_indices: Dict of constant coordinates (multi-var only)
         overlap_target: Target overlap fraction or 'maximal' (multi-var only)
+        fixed_overlap: Whether overlapping sites should be shared across
+            variables that opt in
         dim_split: Dimension along which to split chunks
         max_dim_size: Maximum size of the split dimension
         div_points: Division points for chunks along split dimension
@@ -209,7 +212,8 @@ def generate_chunk(
             lhs_rng=lhs_rng,  # Pass pre-advanced LHS RNG
             lhs_shape=list(shape),  # Pass global shape for LHS
             num_obs_global=num_obs_global,  # Pass global observation count
-            div_points=div_points  # Pass division points for chunk filtering
+            div_points=div_points,  # Pass division points for chunk filtering
+            fixed_overlap=fixed_overlap
         )
         
         logging.debug("chunk id: %s", chunk_id)
@@ -233,7 +237,12 @@ def generate_chunk(
             "var_num_obs": var_num_obs.tolist() if var_num_obs is not None else [],
             "overlap_target": overlap_target if isinstance(
                 overlap_target, (str, list)
-            ) else float(overlap_target)
+            ) else float(overlap_target),
+            "fixed_overlap": (
+                [int(value) for value in fixed_overlap]
+                if isinstance(fixed_overlap, list)
+                else [int(bool(fixed_overlap))]
+            ),
         })
         
         dataset = NetCDFBuilder.build_dataset(

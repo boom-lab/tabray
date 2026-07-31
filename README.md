@@ -164,7 +164,8 @@ gen = GenerateData(
     seed=42,
     num_vars=3,           # Number of variables
     var_dims=3,           # Each variable uses all 3 dimensions
-    overlap=0.5           # 50% of measurements overlap across variables
+    overlap=0.5,          # 50% of measurements overlap across variables
+    fixed_overlap=False   # Share overlap draws only when enabled
 )
 
 dataarray, dataframe = gen.generate(
@@ -195,6 +196,10 @@ print(dataframe['variable'].value_counts())
   - `0.0`: No overlap (measurements at different points)
   - `1.0`: Complete overlap (all measurements at same points)
   - `0.5`: Half the measurements overlap
+- List of length `num_vars - 1`: One target per non-reference variable, in
+  `var1`, `var2`, ... order
+- `fixed_overlap` (bool or list of bools, default `False`): Share overlap draws
+  across variables when enabled
 
 ```python
 # Example: 3 variables with different dimensions and controlled overlap
@@ -232,9 +237,10 @@ dataset, df = gen.generate()
   - List of ints: Number of dimensions for each variable
   - List of lists/tuples: Explicit dimension indices for each variable
   - Default: All variables use all dimensions
-- **overlap** (float or str, optional): Control overlap between variables (default: 'random')
+- **overlap** (float, list, or str, optional): Control overlap between variables (default: 'random')
   - `'random'`: No constraint on overlap
-  - Float [0.0, 1.0]: Target overlap percentage along shared dimensions
+  - Float [0.0, 1.0]: Target overlap percentage for every non-reference variable
+  - List of length `num_vars - 1`: One overlap target per non-reference variable
 
 ## Testing
 

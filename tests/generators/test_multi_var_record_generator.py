@@ -3,6 +3,7 @@
 import pytest
 import numpy as np
 from data_sparsity.generators.multi_var_record_generator import MultiVarRecordGenerator
+from data_sparsity.generators.overlap_calculator import OverlapCalculator
 
 
 class TestComputeVarShapes:
@@ -431,6 +432,36 @@ class TestGenerate:
         for var_idx in range(3):
             count = np.count_nonzero(~np.isnan(records[f'var{var_idx}']))
             assert count == var_num_obs[var_idx]
+
+    def test_fixed_overlap_shares_prefix_across_true_flags(self):
+        """Should share the same overlap prefix for fixed-overlap variables."""
+        shape = [10, 10]
+        var_num_obs = np.array([12, 10, 10])
+        var_dims_indices = [[0, 1], [0, 1], [0, 1]]
+        var_constant_dims = [[], [], []]
+        var_constant_coord_indices = {0: {}, 1: {}, 2: {}}
+
+        records, _ = MultiVarRecordGenerator.generate(
+            shape=shape,
+            overlap=[0.8, 0.4],
+            fixed_overlap=[True, True],
+            num_vars=3,
+            var_num_obs=var_num_obs,
+            var_dims_indices=var_dims_indices,
+            var_constant_dims=var_constant_dims,
+            var_constant_coord_indices=var_constant_coord_indices,
+            num_dims=2,
+            seed=123
+        )
+
+        ref_coords = OverlapCalculator.extract_coordinate_set(records["var0"], 2)
+        var1_coords = OverlapCalculator.extract_coordinate_set(records["var1"], 2)
+        var2_coords = OverlapCalculator.extract_coordinate_set(records["var2"], 2)
+
+        overlap1 = ref_coords.intersection(var1_coords)
+        overlap2 = ref_coords.intersection(var2_coords)
+
+        assert overlap2.issubset(overlap1)
     
     def test_single_variable_edge_case(self):
         """Should handle single variable."""

@@ -59,6 +59,7 @@ class GenerateData:
         num_vars: Number of variables in the dataset
         var_dims: Dimensions for each variable
         overlap: Overlap between variables (0-1 or 'random')
+        fixed_overlap: Whether overlap draws are shared across variables
     """
 
     def __init__(
@@ -72,6 +73,7 @@ class GenerateData:
         num_vars: int = 1,
         var_dims: Union[int, List, Tuple] = None,
         overlap: Union[float, str] = 'random',
+        fixed_overlap: Union[bool, List[bool]] = False,
         density: Union[int, float, List, Tuple, None] = None,
     ) -> None:
         """Initialize the data generator with validation.
@@ -92,6 +94,8 @@ class GenerateData:
             num_vars: Number of variables in the dataset (default=1)
             var_dims: Number of dimensions for each variable (default=num_dims for all)
             overlap: Overlap between variables (0-1 or 'random', default='random')
+            fixed_overlap: Whether overlapping sites should be shared across
+                variables (bool or list of bools, default=False)
 
         Raises:
             TypeError: If arguments are not of expected types
@@ -107,6 +111,7 @@ class GenerateData:
         self.num_vars = num_vars
         self.var_dims = var_dims if var_dims is not None else num_dims
         self.overlap = overlap
+        self.fixed_overlap = fixed_overlap
         self._resolve_density_input()
 
         self._print_input_config()
@@ -183,6 +188,7 @@ class GenerateData:
         print(f"  Number of variables: {self.num_vars}")
         print(f"  Variable dimensions: {self.var_dims}")
         print(f"  Overlap: {self.overlap}")
+        print(f"  Fixed overlap: {self.fixed_overlap}")
 
     def _print_updated_config(self) -> None:
         """Print updated configuration after validation."""
@@ -200,6 +206,7 @@ class GenerateData:
         print(f"  Variable densities: {self.var_densities}")
         print(f"  Variable observations: {self.var_num_obs}")
         print(f"  Overlap: {self.overlap}")
+        print(f"  Fixed overlap: {self.fixed_overlap}")
 
     def _validate_parameters(self) -> None:
         """Validate initialization parameters.
@@ -320,8 +327,17 @@ class GenerateData:
         )
 
         # Setup overlap configuration and adjust observations if needed
-        self.overlap_target, adjusted_obs = MultiVarOverlapConfig.setup_from_parameter(
-            self.overlap, self.num_vars, self.shape, self.var_num_obs, self.var_dims_indices
+        (
+            self.overlap_target,
+            adjusted_obs,
+            self.fixed_overlap,
+        ) = MultiVarOverlapConfig.setup_from_parameter(
+            self.overlap,
+            self.fixed_overlap,
+            self.num_vars,
+            self.shape,
+            self.var_num_obs,
+            self.var_dims_indices
         )
         
         # Update observation counts if they were adjusted
@@ -508,7 +524,8 @@ class GenerateData:
         records, overlap_actual = MultiVarRecordGenerator.generate(
             shape, self.overlap_target, self.num_vars, self.var_num_obs,
             self.var_dims_indices, self.var_constant_dims,
-            self.var_constant_coord_indices, self.num_dims, self.seed
+            self.var_constant_coord_indices, self.num_dims, self.seed,
+            fixed_overlap=self.fixed_overlap
         )
 
         if self.NTASKS == 1:
@@ -546,6 +563,13 @@ class GenerateData:
                 self.num_obs, self.num_dims, self.ratio_dims,
                 float(self.var_densities[0]), self.seed
             )
+        attrs.update({
+            "overlap_target": self.overlap_target if self.num_vars > 1 else "random",
+            "fixed_overlap": (
+                [int(value) for value in self.fixed_overlap]
+                if self.num_vars > 1 else []
+            ),
+        })
 
         dataarray = NetCDFBuilder.build_dataarray(record, coordinates, "record", attrs)
 
@@ -583,6 +607,13 @@ class GenerateData:
                 self.num_obs, self.num_dims, self.ratio_dims,
                 float(self.var_densities[0]), self.seed
             )
+        attrs.update({
+            "overlap_target": self.overlap_target if self.num_vars > 1 else "random",
+            "fixed_overlap": (
+                [int(value) for value in self.fixed_overlap]
+                if self.num_vars > 1 else []
+            ),
+        })
 
         dataset = NetCDFBuilder.build_dataset(records, coordinates, attrs, var_constant_dims)
 
@@ -837,6 +868,7 @@ class GenerateData:
                     self.var_constant_coord_indices if self.num_vars > 1 else None
                 ),
                 'overlap_target': self.overlap_target if self.num_vars > 1 else 0.0,
+                'fixed_overlap': self.fixed_overlap if self.num_vars > 1 else False,
                 'dim_split': self.dim_split,
                 'max_dim_size': self.max_dim_size,
                 'div_points': self.div_points,

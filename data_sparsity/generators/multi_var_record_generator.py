@@ -227,7 +227,8 @@ class MultiVarRecordGenerator:
         lhs_rng: Optional[np.random.Generator] = None,
         lhs_shape: Optional[List[int]] = None,
         num_obs_global: Optional[int] = None,
-        div_points: Optional[List[int]] = None
+        div_points: Optional[List[int]] = None,
+        fixed_overlap: Union[bool, List[bool]] = False
     ) -> Dict[str, np.ndarray]:
         """Generate multi-variable records with controlled overlap.
         
@@ -241,6 +242,8 @@ class MultiVarRecordGenerator:
             records: Pre-initialized empty record arrays
             overlap_target: Target overlap fraction (0-1) or list of targets
                 for var1..varN-1
+            fixed_overlap: Whether each non-reference variable should share the
+                same overlap sequence as other fixed variables
             num_vars: Number of variables
             var_num_obs: Observation counts per variable
             var_constant_dims: Constant dimensions per variable
@@ -316,11 +319,23 @@ class MultiVarRecordGenerator:
         else:
             overlap_targets = [float(overlap_target)] * (num_vars - 1)
 
+        if isinstance(fixed_overlap, bool):
+            fixed_overlap_flags = [fixed_overlap] * (num_vars - 1)
+        else:
+            fixed_overlap_flags = list(fixed_overlap)
+            if len(fixed_overlap_flags) != num_vars - 1:
+                raise ValueError(
+                    f"fixed_overlap must contain {num_vars - 1} values"
+                )
+
+        shared_ref_order = shared_rng.permutation(refvar_num_obs)
+
         for var_idx in range(1, num_vars):
             var_name = f"var{var_idx}"
             var_shape = var_shapes[var_idx]
             var_total_points = int(np.prod(var_shape))
             var_obs_count = chunk_var_num_obs[var_idx]
+            var_fixed_overlap = fixed_overlap_flags[var_idx - 1]
 
             num_overlap = int(np.round(overlap_targets[var_idx - 1] * var_obs_count))
 
@@ -334,25 +349,37 @@ class MultiVarRecordGenerator:
 
                 compatible_ref_indices = np.flatnonzero(compatible_mask)
                 if len(compatible_ref_indices) > 0:
-                    overlap_count = min(num_overlap, len(compatible_ref_indices))
-                    selected_ref_indices = shared_rng.choice(
-                        compatible_ref_indices,
-                        size=overlap_count,
-                        replace=False
-                    )
-                    overlap_full_multi = tuple(
-                        dim_values[selected_ref_indices] for dim_values in refvar_full_multi
-                    )
-                    overlap_obs = var_rngs[var_idx].uniform(0, 1, size=overlap_count)
-                    records[var_name][overlap_full_multi] = overlap_obs
-                    overlap_full_count = overlap_count
+                    if var_fixed_overlap:
+                        compatible_ref_set = set(compatible_ref_indices)
+                        selected_ref_indices = np.array([
+                            ref_idx
+                            for ref_idx in shared_ref_order
+                            if ref_idx in compatible_ref_set
+                        ], dtype=np.int64)[:num_overlap]
+                    else:
+                        selected_ref_indices = var_rngs[var_idx].choice(
+                            compatible_ref_indices,
+                            size=min(num_overlap, len(compatible_ref_indices)),
+                            replace=False
+                        )
 
-                    overlap_reduced_multi = MultiVarRecordGenerator._reduced_indices_from_full_coords(
-                        overlap_full_multi, var_constant_dims[var_idx], overlap_full_count
-                    )
-                    overlap_target_flat = np.ravel_multi_index(
-                        overlap_reduced_multi, var_shape
-                    )
+                    if selected_ref_indices.size > 0:
+                        overlap_full_multi = tuple(
+                            dim_values[selected_ref_indices]
+                            for dim_values in refvar_full_multi
+                        )
+                        overlap_obs = var_rngs[var_idx].uniform(
+                            0, 1, size=selected_ref_indices.size
+                        )
+                        records[var_name][overlap_full_multi] = overlap_obs
+                        overlap_full_count = selected_ref_indices.size
+
+                        overlap_reduced_multi = MultiVarRecordGenerator._reduced_indices_from_full_coords(
+                            overlap_full_multi, var_constant_dims[var_idx], overlap_full_count
+                        )
+                        overlap_target_flat = np.ravel_multi_index(
+                            overlap_reduced_multi, var_shape
+                        )
 
             num_separate = var_obs_count - overlap_full_count
 
@@ -393,7 +420,8 @@ class MultiVarRecordGenerator:
         lhs_rng: Optional[np.random.Generator] = None,
         lhs_shape: Optional[List[int]] = None,
         num_obs_global: Optional[int] = None,
-        div_points: Optional[List[int]] = None
+        div_points: Optional[List[int]] = None,
+        fixed_overlap: Union[bool, List[bool]] = False
     ) -> tuple[Dict[str, np.ndarray], float]:
         """Generate multi-variable records with overlap control.
         
@@ -439,7 +467,7 @@ class MultiVarRecordGenerator:
                 shape, records, overlap, num_vars, var_num_obs,
                 var_constant_dims, var_constant_coord_indices, seed,
                 chunk_id, max_dim_size, dim_split, lhs_rng, lhs_shape, 
-                num_obs_global, div_points
+                num_obs_global, div_points, fixed_overlap
             )
             if isinstance(overlap, list):
                 overlap_actual = OverlapCalculator.compute_actual_overlaps_against_reference(

@@ -65,6 +65,52 @@ class MultiVarOverlapConfig:
             )
 
     @staticmethod
+    def validate_fixed_overlap_value(
+        fixed_overlap: Union[bool, List[bool]],
+        num_vars: int
+    ) -> List[bool]:
+        """Validate and normalize fixed-overlap control.
+
+        Args:
+            fixed_overlap: Boolean flag or list of flags for var1..varN-1
+            num_vars: Number of variables
+
+        Returns:
+            List of booleans with length num_vars - 1
+
+        Raises:
+            TypeError: If the value is not boolean or sequence of booleans
+            ValueError: If the list length is invalid
+        """
+        if num_vars <= 1:
+            return []
+
+        if isinstance(fixed_overlap, (bool, np.bool_)):
+            return [fixed_overlap] * (num_vars - 1)
+
+        if isinstance(fixed_overlap, (list, tuple, np.ndarray)):
+            fixed_list = []
+            for value in fixed_overlap:
+                if not isinstance(value, (bool, np.bool_)):
+                    raise TypeError(
+                        "fixed_overlap list values must be booleans, "
+                        f"got {type(value)}"
+                    )
+                fixed_list.append(value)
+
+            expected_len = num_vars - 1
+            if len(fixed_list) != expected_len:
+                raise ValueError(
+                    f"fixed_overlap list must contain {expected_len} values "
+                    f"for var1..var{num_vars - 1}, got {len(fixed_list)}"
+                )
+            return fixed_list
+
+        raise TypeError(
+            f"fixed_overlap must be a bool or list of bools, got {type(fixed_overlap)}"
+        )
+
+    @staticmethod
     def validate_reference_is_largest(var_num_obs: np.ndarray) -> None:
         """Ensure the reference variable has the largest observation count.
 
@@ -262,11 +308,12 @@ class MultiVarOverlapConfig:
     @staticmethod
     def setup_from_parameter(
         overlap: Union[float, str, List[float]],
+        fixed_overlap: Union[bool, List[bool]],
         num_vars: int,
         shape: List[int],
         var_num_obs: np.ndarray,
         var_dims_indices: List[List[int]]
-    ) -> tuple[Union[float, str, List[float]], np.ndarray]:
+    ) -> tuple[Union[float, str, List[float]], np.ndarray, List[bool]]:
         """Setup overlap configuration from parameter.
         
         Main entry point that validates overlap parameter and adjusts observation
@@ -274,19 +321,24 @@ class MultiVarOverlapConfig:
         
         Args:
             overlap: Overlap specification (0-1 or 'random')
+            fixed_overlap: Fixed overlap control (bool or list of bools)
             num_vars: Number of variables
             shape: Full grid shape (size per dimension)
             var_num_obs: Array of observation counts for each variable
             var_dims_indices: List of varying dimension indices per variable
             
         Returns:
-            Tuple of (validated overlap value, adjusted observation counts)
+            Tuple of (validated overlap value, adjusted observation counts,
+            normalized fixed-overlap flags)
             
         Raises:
             TypeError: If overlap is not a valid type
             ValueError: If overlap is infeasible
         """
         overlap = MultiVarOverlapConfig.validate_overlap_value(overlap)
+        fixed_overlap = MultiVarOverlapConfig.validate_fixed_overlap_value(
+            fixed_overlap, num_vars
+        )
 
         if isinstance(overlap, list) and num_vars > 1:
             expected_len = num_vars - 1
@@ -324,4 +376,4 @@ class MultiVarOverlapConfig:
                     overlap, min_overlap, num_vars
                 )
         
-        return overlap, adjusted_obs
+        return overlap, adjusted_obs, fixed_overlap
