@@ -144,3 +144,43 @@ class OverlapCalculator:
         print(f"Actual overlap achieved: {overlap_actual:.4f}")
         
         return overlap_actual
+
+    @staticmethod
+    def compute_actual_overlaps_against_reference(
+        records: Dict[str, np.ndarray],
+        num_vars: int,
+        num_dims: int,
+        ref_var: str = "var0"
+    ) -> np.ndarray:
+        """Compute per-variable overlap ratios against a reference variable.
+
+        Args:
+            records: Dictionary mapping variable names to record arrays
+            num_vars: Number of variables
+            num_dims: Total number of dimensions
+            ref_var: Reference variable name
+
+        Returns:
+            Array of overlap ratios for var1..varN-1
+        """
+        if num_vars <= 1:
+            return np.array([], dtype=float)
+
+        reference_set = OverlapCalculator.extract_coordinate_set(
+            records[ref_var], num_dims
+        )
+        actual_overlaps = []
+
+        for var_idx in range(1, num_vars):
+            var_name = f"var{var_idx}"
+            var_coords = OverlapCalculator.extract_coordinate_set(
+                records[var_name], num_dims
+            )
+            if len(var_coords) == 0:
+                actual_overlaps.append(0.0)
+                continue
+
+            overlap_count = len(reference_set.intersection(var_coords))
+            actual_overlaps.append(overlap_count / len(var_coords))
+
+        return np.asarray(actual_overlaps, dtype=float)

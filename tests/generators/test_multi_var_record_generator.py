@@ -403,6 +403,34 @@ class TestGenerate:
         assert isinstance(records, dict)
         assert 'var0' in records
         assert 'var1' in records
+
+    def test_per_variable_overlap_targets(self):
+        """Should support distinct overlap targets for each non-reference variable."""
+        shape = [10, 10]
+        var_num_obs = np.array([10, 10, 10])
+        var_dims_indices = [[0, 1], [0, 1], [0, 1]]
+        var_constant_dims = [[], [], []]
+        var_constant_coord_indices = {0: {}, 1: {}, 2: {}}
+
+        records, overlap_actual = MultiVarRecordGenerator.generate(
+            shape=shape,
+            overlap=[0.8, 0.5],
+            num_vars=3,
+            var_num_obs=var_num_obs,
+            var_dims_indices=var_dims_indices,
+            var_constant_dims=var_constant_dims,
+            var_constant_coord_indices=var_constant_coord_indices,
+            num_dims=2,
+            seed=42
+        )
+
+        assert isinstance(overlap_actual, np.ndarray)
+        assert overlap_actual.shape == (2,)
+        assert overlap_actual[0] == pytest.approx(0.8)
+        assert overlap_actual[1] == pytest.approx(0.5)
+        for var_idx in range(3):
+            count = np.count_nonzero(~np.isnan(records[f'var{var_idx}']))
+            assert count == var_num_obs[var_idx]
     
     def test_single_variable_edge_case(self):
         """Should handle single variable."""

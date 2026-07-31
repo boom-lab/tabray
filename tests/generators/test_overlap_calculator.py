@@ -406,3 +406,24 @@ class TestComputeActualOverlap:
         )
 
         assert overlap == 0.0
+
+
+class TestComputeActualOverlapsAgainstReference:
+    """Tests for per-variable overlap computation against a fixed reference."""
+
+    def test_returns_per_variable_ratios(self):
+        """Should compute one overlap ratio per non-reference variable."""
+        records = {
+            'var0': np.full((5, 5), np.nan),
+            'var1': np.full((5, 5), np.nan),
+            'var2': np.full((5, 5), np.nan)
+        }
+        records['var0'][0:2, 0:2] = 0.5
+        records['var1'][0:2, 0:2] = 0.7
+        records['var2'][2:4, 2:4] = 0.3
+
+        overlap = OverlapCalculator.compute_actual_overlaps_against_reference(
+            records, num_vars=3, num_dims=2, ref_var="var0"
+        )
+
+        np.testing.assert_array_equal(overlap, np.array([1.0, 0.0]))

@@ -44,7 +44,12 @@ class TestValidateOverlapValue:
     def test_invalid_type_raises_type_error(self):
         """Invalid type should raise TypeError."""
         with pytest.raises(TypeError, match="must be"):
-            MultiVarOverlapConfig.validate_overlap_value([0.5])
+            MultiVarOverlapConfig.validate_overlap_value({"value": 0.5})
+
+    def test_list_overlap_values_pass(self):
+        """A list of numeric overlap values should pass validation."""
+        result = MultiVarOverlapConfig.validate_overlap_value([0.25, 0.5])
+        assert result == [0.25, 0.5]
 
 
 class TestComputeMinOverlap:
@@ -177,6 +182,41 @@ class TestSetupFromParameter:
         )
         assert overlap == 'random'
         np.testing.assert_array_equal(adjusted_obs, var_num_obs)  # No adjustment needed
+
+    def test_per_variable_overlap(self):
+        """A per-variable overlap list should be preserved and applied."""
+        shape = [5, 5]
+        var_num_obs = np.array([12, 10, 8])
+        var_dims_indices = [[0, 1], [0, 1], [0, 1]]
+
+        overlap, adjusted_obs = MultiVarOverlapConfig.setup_from_parameter(
+            [0.5, 0.25], 3, shape, var_num_obs, var_dims_indices
+        )
+
+        assert overlap == [0.5, 0.25]
+        np.testing.assert_array_equal(adjusted_obs, var_num_obs)
+
+    def test_per_variable_overlap_length_mismatch(self):
+        """Overlap lists with the wrong length should fail validation."""
+        shape = [5, 5]
+        var_num_obs = np.array([12, 10, 8])
+        var_dims_indices = [[0, 1], [0, 1], [0, 1]]
+
+        with pytest.raises(ValueError, match="must contain 2 values"):
+            MultiVarOverlapConfig.setup_from_parameter(
+                [0.5], 3, shape, var_num_obs, var_dims_indices
+            )
+
+    def test_reference_must_be_largest(self):
+        """var0 smaller than another variable should fail validation."""
+        shape = [5, 5]
+        var_num_obs = np.array([8, 10, 6])
+        var_dims_indices = [[0, 1], [0, 1], [0, 1]]
+
+        with pytest.raises(ValueError, match="var0 must be the largest variable"):
+            MultiVarOverlapConfig.setup_from_parameter(
+                [0.5, 0.25], 3, shape, var_num_obs, var_dims_indices
+            )
     
     def test_observation_adjustment(self):
         """Should adjust observations when they exceed grid space."""

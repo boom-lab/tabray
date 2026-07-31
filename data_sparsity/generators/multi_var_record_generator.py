@@ -215,7 +215,7 @@ class MultiVarRecordGenerator:
     def generate_with_overlap(
         shape: List[int],
         records: Dict[str, np.ndarray],
-        overlap_target: float,
+        overlap_target: Union[float, List[float]],
         num_vars: int,
         var_num_obs: np.ndarray,
         var_constant_dims: List[List[int]],
@@ -239,7 +239,8 @@ class MultiVarRecordGenerator:
         Args:
             shape: Full grid shape
             records: Pre-initialized empty record arrays
-            overlap_target: Target overlap fraction (0-1)
+            overlap_target: Target overlap fraction (0-1) or list of targets
+                for var1..varN-1
             num_vars: Number of variables
             var_num_obs: Observation counts per variable
             var_constant_dims: Constant dimensions per variable
@@ -275,12 +276,6 @@ class MultiVarRecordGenerator:
 
         ### Phase 2: Reference Variable
         # Sort variables by observation count (largest is always the first, refvar)
-        sorted_var_indices = [0]
-        sorted_var_indices = np.concatenate((
-            np.asarray(sorted_var_indices),
-            np.argsort(var_num_obs[1:])[::-1]+1 # +1 to take into account first spot is refvar
-        ))
-        
         # Generate reference (largest) variable first using SHARED_RNG (for positions)
         refvar_idx = 0
         refvar_name = f"var{refvar_idx}"
@@ -316,14 +311,18 @@ class MultiVarRecordGenerator:
         records[refvar_name][refvar_full_multi] = refvar_observations
         
         ### Phase 3: Generate other variables with overlap
-        for var_idx in sorted_var_indices[1:]:
-            var_idx = int(var_idx)
+        if isinstance(overlap_target, (list, tuple, np.ndarray)):
+            overlap_targets = list(overlap_target)
+        else:
+            overlap_targets = [float(overlap_target)] * (num_vars - 1)
+
+        for var_idx in range(1, num_vars):
             var_name = f"var{var_idx}"
             var_shape = var_shapes[var_idx]
             var_total_points = int(np.prod(var_shape))
             var_obs_count = chunk_var_num_obs[var_idx]
 
-            num_overlap = int(np.round(overlap_target * var_obs_count))
+            num_overlap = int(np.round(overlap_targets[var_idx - 1] * var_obs_count))
 
             overlap_full_multi = None
             overlap_full_count = 0
@@ -380,7 +379,7 @@ class MultiVarRecordGenerator:
     @staticmethod
     def generate(
         shape: List[int],
-        overlap: Union[float, str],
+        overlap: Union[float, str, List[float]],
         num_vars: int,
         var_num_obs: np.ndarray,
         var_dims_indices: List[List[int]],
@@ -432,16 +431,23 @@ class MultiVarRecordGenerator:
                 var_constant_coord_indices, seed, chunk_id, max_dim_size,
                 dim_split, lhs_rng, lhs_shape, num_obs_global, div_points
             )
+            overlap_actual = OverlapCalculator.compute_actual_overlap(
+                records, num_vars, num_dims, var_num_obs, var_dims_indices
+            )
         else:
             records = MultiVarRecordGenerator.generate_with_overlap(
-                shape, records, float(overlap), num_vars, var_num_obs,
+                shape, records, overlap, num_vars, var_num_obs,
                 var_constant_dims, var_constant_coord_indices, seed,
                 chunk_id, max_dim_size, dim_split, lhs_rng, lhs_shape, 
                 num_obs_global, div_points
             )
-        
-        overlap_actual = OverlapCalculator.compute_actual_overlap(
-            records, num_vars, num_dims, var_num_obs, var_dims_indices
-        )
+            if isinstance(overlap, list):
+                overlap_actual = OverlapCalculator.compute_actual_overlaps_against_reference(
+                    records, num_vars, num_dims
+                )
+            else:
+                overlap_actual = OverlapCalculator.compute_actual_overlap(
+                    records, num_vars, num_dims, var_num_obs, var_dims_indices
+                )
         
         return records, overlap_actual

@@ -31,7 +31,7 @@ def generate_chunk(
     var_dims_indices: Optional[List[List[int]]],
     var_constant_dims: Optional[List[List[int]]],
     var_constant_coord_indices: Optional[Dict[int, Dict[int, int]]],
-    overlap_target: Union[float, str],
+    overlap_target: Union[float, str, List[float]],
     dim_split: int,
     max_dim_size: int,
     div_points: List[int],
@@ -232,7 +232,7 @@ def generate_chunk(
             "var_densities": var_densities.tolist() if var_densities is not None else [],
             "var_num_obs": var_num_obs.tolist() if var_num_obs is not None else [],
             "overlap_target": overlap_target if isinstance(
-                overlap_target, str
+                overlap_target, (str, list)
             ) else float(overlap_target)
         })
         
