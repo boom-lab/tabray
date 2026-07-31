@@ -200,7 +200,7 @@ def plot_grid_case(ds, df, var, var_id, title):
     outer = fig.add_gridspec(1, 2, width_ratios=[1.1, 1.0], wspace=0.15)
     ax = fig.add_subplot(outer[0, 0])
 
-    colors = ["green", "orange"]
+    colors = ["green", "orange", "blue"]
     values = ds[var].values
 
     if len(var_dims) == 2:
