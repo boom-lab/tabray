@@ -61,6 +61,56 @@ class ChunkUtils:
 
         return mp_obs, density_new, per_chunk_obs
 
+    @staticmethod
+    def get_multi_var_observations_per_chunk(
+            var_num_obs: np.ndarray,
+            max_dim_size: int,
+            section_sizes: list,
+    ) -> List[np.ndarray]:
+        """Split per-variable observation counts across chunks.
+
+        The total per variable is preserved by distributing the integer
+        remainder to the chunks with the largest fractional parts.
+
+        Args:
+            var_num_obs: Global observation counts per variable
+            max_dim_size: Size of the split dimension
+            section_sizes: Chunk sizes along the split dimension
+
+        Returns:
+            List with one integer array per chunk.
+        """
+        chunk_sizes = np.asarray(section_sizes, dtype=float)
+        per_var_counts = []
+
+        for total_obs in np.asarray(var_num_obs, dtype=float):
+            raw_counts = total_obs * chunk_sizes / max_dim_size
+            chunk_counts = np.floor(raw_counts).astype(int)
+            remainder = raw_counts - chunk_counts
+            deficit = int(round(total_obs)) - int(chunk_counts.sum())
+
+            if deficit > 0:
+                order = np.argsort(remainder)[::-1]
+                for chunk_idx in order[:deficit]:
+                    chunk_counts[chunk_idx] += 1
+            elif deficit < 0:
+                order = np.argsort(remainder)
+                for chunk_idx in order:
+                    if deficit == 0:
+                        break
+                    if chunk_counts[chunk_idx] > 0:
+                        chunk_counts[chunk_idx] -= 1
+                        deficit += 1
+
+            per_var_counts.append(chunk_counts.astype(int))
+
+        per_chunk_obs = [
+            np.asarray([per_var_counts[var_idx][chunk_idx] for var_idx in range(len(per_var_counts))], dtype=int)
+            for chunk_idx in range(len(section_sizes))
+        ]
+
+        return per_chunk_obs
+
 
     @staticmethod
     def generate_rngs(
@@ -131,7 +181,7 @@ class ChunkUtils:
     ) -> tuple:
         """Generate chunk shape by reducing its size along the split dimension"""
 
-        task_shape = shape.copy()
+        task_shape = list(shape)
         task_shape[dim_split] = task_size
 
         return task_shape

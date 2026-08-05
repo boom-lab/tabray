@@ -837,48 +837,93 @@ class GenerateData:
         if tmp_dir:
             os.makedirs(tmp_dir, exist_ok=True)
 
-        mp_obs, density_new, per_chunk_obs = ChunkUtils.get_observations_per_chunk(
-            self.num_obs,
-            self.shape,
-            self.max_dim_size,
-            self.section_sizes,
-            self.density
-        )
-        self.density = density_new
-        self.num_obs = mp_obs
+        if self.num_vars == 1:
+            density_for_parallel = (
+                max(self.density)
+                if isinstance(self.density, (list, tuple, np.ndarray))
+                else self.density
+            )
 
-        # Prepare arguments for all chunks
-        chunk_args = []
-        for chunk_id, chunk_obs in zip(range(self.NTASKS), per_chunk_obs):
-            args = {
-                'chunk_id': chunk_id,
-                'obs_in_chunk': chunk_obs,
-                'seed': self.seed,
-                'shape': self.shape,
-                'density': self.density,
-                'num_vars': self.num_vars,
-                'num_dims': self.num_dims,
-                'ratio_dims': self.ratio_dims,
-                'num_obs': self.num_obs,
-                'var_densities': self.var_densities if self.num_vars > 1 else None,
-                'var_num_obs': self.var_num_obs if self.num_vars > 1 else None,
-                'var_dims_indices': self.var_dims_indices if self.num_vars > 1 else None,
-                'var_constant_dims': self.var_constant_dims if self.num_vars > 1 else None,
-                'var_constant_coord_indices': (
-                    self.var_constant_coord_indices if self.num_vars > 1 else None
-                ),
-                'overlap_target': self.overlap_target if self.num_vars > 1 else 0.0,
-                'fixed_overlap': self.fixed_overlap if self.num_vars > 1 else False,
-                'dim_split': self.dim_split,
-                'max_dim_size': self.max_dim_size,
-                'div_points': self.div_points,
-                'section_sizes': self.section_sizes,
-                'netcdf_filepath': self.netcdf_filepath,
-                'parquet_tmp': self.parquet_tmp,
-                'ntasks': self.NTASKS,
-                'num_obs_global': self.num_obs,  # For LHS RNG advancement and filtering
-            }
-            chunk_args.append(args)
+            mp_obs, density_new, per_chunk_obs = ChunkUtils.get_observations_per_chunk(
+                self.num_obs,
+                self.shape,
+                self.max_dim_size,
+                self.section_sizes,
+                density_for_parallel
+            )
+            self.density = density_new
+            self.num_obs = mp_obs
+
+            # Prepare arguments for all chunks
+            chunk_args = []
+            for chunk_id, chunk_obs in zip(range(self.NTASKS), per_chunk_obs):
+                args = {
+                    'chunk_id': chunk_id,
+                    'obs_in_chunk': chunk_obs,
+                    'seed': self.seed,
+                    'shape': self.shape,
+                    'density': self.density,
+                    'num_vars': self.num_vars,
+                    'num_dims': self.num_dims,
+                    'ratio_dims': self.ratio_dims,
+                    'num_obs': self.num_obs,
+                    'var_densities': self.var_densities if self.num_vars > 1 else None,
+                    'var_num_obs': self.var_num_obs if self.num_vars > 1 else None,
+                    'var_dims_indices': self.var_dims_indices if self.num_vars > 1 else None,
+                    'var_constant_dims': self.var_constant_dims if self.num_vars > 1 else None,
+                    'var_constant_coord_indices': (
+                        self.var_constant_coord_indices if self.num_vars > 1 else None
+                    ),
+                    'overlap_target': self.overlap_target if self.num_vars > 1 else 0.0,
+                    'fixed_overlap': self.fixed_overlap if self.num_vars > 1 else False,
+                    'dim_split': self.dim_split,
+                    'max_dim_size': self.max_dim_size,
+                    'div_points': self.div_points,
+                    'section_sizes': self.section_sizes,
+                    'netcdf_filepath': self.netcdf_filepath,
+                    'parquet_tmp': self.parquet_tmp,
+                    'ntasks': self.NTASKS,
+                    'num_obs_global': self.num_obs,
+                }
+                chunk_args.append(args)
+        else:
+            chunk_var_num_obs = ChunkUtils.get_multi_var_observations_per_chunk(
+                self.var_num_obs,
+                self.max_dim_size,
+                self.section_sizes,
+            )
+
+            chunk_args = []
+            for chunk_id, (_chunk_size, var_obs_chunk) in enumerate(
+                zip(self.section_sizes, chunk_var_num_obs)
+            ):
+                args = {
+                    'chunk_id': chunk_id,
+                    'obs_in_chunk': int(np.sum(var_obs_chunk)),
+                    'seed': self.seed,
+                    'shape': self.shape,
+                    'density': self.density,
+                    'num_vars': self.num_vars,
+                    'num_dims': self.num_dims,
+                    'ratio_dims': self.ratio_dims,
+                    'num_obs': int(np.sum(var_obs_chunk)),
+                    'var_densities': self.var_densities,
+                    'var_num_obs': var_obs_chunk,
+                    'var_dims_indices': self.var_dims_indices,
+                    'var_constant_dims': self.var_constant_dims,
+                    'var_constant_coord_indices': self.var_constant_coord_indices,
+                    'overlap_target': self.overlap_target,
+                    'fixed_overlap': self.fixed_overlap,
+                    'dim_split': self.dim_split,
+                    'max_dim_size': self.max_dim_size,
+                    'div_points': self.div_points,
+                    'section_sizes': self.section_sizes,
+                    'netcdf_filepath': self.netcdf_filepath,
+                    'parquet_tmp': self.parquet_tmp,
+                    'ntasks': self.NTASKS,
+                    'num_obs_global': self.num_obs,
+                }
+                chunk_args.append(args)
 
         # Execute in parallel with limited workers to avoid memory issues
         max_workers = min(self.NTASKS, 4)

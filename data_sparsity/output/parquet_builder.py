@@ -117,7 +117,7 @@ class ParquetBuilder:
             
             for var_idx in range(num_vars):
                 var_name = f"var{var_idx}"
-                row[var_name] = var_obs.get(var_name, pd.NA)
+                row[var_name] = var_obs.get(var_name, np.nan)
             
             rows.append(row)
         
