@@ -77,6 +77,7 @@ class NetCDFBuilder:
         coordinates: Dict[str, np.ndarray],
         attrs: Optional[Dict] = None,
         var_constant_dims: Optional[List[List[int]]] = None,
+        squeeze_constant_dims: bool = True,
     ) -> xr.Dataset:
         """Build xarray Dataset from multiple records.
         
@@ -85,6 +86,9 @@ class NetCDFBuilder:
             coordinates: Dictionary mapping dimension names to coordinate arrays
             attrs: Optional attributes dictionary
             var_constant_dims: Constant dimension indices per variable
+            squeeze_constant_dims: Remove constant dimensions when possible.
+                Disable this for chunk files that must be concatenated with
+                ``xarray.open_mfdataset``.
 
         Returns:
             xarray Dataset
@@ -96,7 +100,7 @@ class NetCDFBuilder:
                 coords=coordinates,
                 dims=list(coordinates.keys())
             )
-            if var_constant_dims:
+            if squeeze_constant_dims and var_constant_dims:
                 for dim_id in var_constant_dims[var_id]:
                     dim_name = list(coordinates.keys())[dim_id]
                     data_var = data_var.dropna(dim=dim_name, how="all")

@@ -66,8 +66,13 @@ class MultiVarRecordGenerator:
         for var_idx in range(num_vars):
             const_coords = {}
             for const_dim in var_constant_dims[var_idx]:
-                const_rng = var_constant_coord_indices[var_idx][const_dim]
-                const_coords[const_dim] = int(const_rng.integers(0, shape[const_dim]))
+                const_source = var_constant_coord_indices[var_idx][const_dim]
+                if isinstance(const_source, (int, np.integer)):
+                    const_coords[const_dim] = int(const_source)
+                else:
+                    const_coords[const_dim] = int(
+                        const_source.integers(0, shape[const_dim])
+                    )
             var_constant_coords[var_idx] = const_coords
         return var_constant_coords
 

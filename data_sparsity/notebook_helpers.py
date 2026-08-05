@@ -48,6 +48,7 @@ def run_case(
         num_vars = None,
         var_dims = None,
         overlap = None,
+        fixed_overlap = False,
 ):
     """Generate a tutorial case, print size statistics, and plot the result."""
 
@@ -70,7 +71,8 @@ def run_case(
             seed=seed,
             num_vars=num_vars,
             var_dims=var_dims,
-            overlap=overlap
+            overlap=overlap,
+            fixed_overlap=fixed_overlap,
         )
     
     gen.generate(

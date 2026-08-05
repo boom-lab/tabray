@@ -11,7 +11,7 @@ from typing import Dict, List, Tuple, Union, Optional
 import numpy as np
 from numpy.typing import ArrayLike
 
-from data_sparsity.generators import CoordinateGenerator, MultiVarRecordGenerator
+from data_sparsity.generators import MultiVarRecordGenerator
 from data_sparsity.output import NetCDFBuilder, ParquetBuilder
 from data_sparsity.utils import ChunkUtils
 
@@ -116,27 +116,26 @@ def generate_chunk(
     )
     logging.debug("LHS RNG generated for chunk %s", chunk_id)
     
-    # For split dimension: generate chunk only part. This prevents parallel
-    # chunks to have same coordinate values as serial at same positions, but
-    # allows to generate smaller dimension coordinates
-    split_dim_range = [task_range[0]/max_dim_size, task_range[1]/max_dim_size]
-    chunk_split_coords = coord_dim_rngs[dim_split].uniform(
-        split_dim_range[0], split_dim_range[1], task_size
-    )
-            
-    chunk_split_coords = np.sort(np.asarray(chunk_split_coords))
-    # For non-split dimensions: generate normally (same as serial)
+    # Generate one complete coordinate axis for every non-split dimension.
+    # This keeps those axes identical in every file so xarray can concatenate
+    # chunks without a custom reconstruction helper.
     coordinates = {}
     for dim_idx in range(num_dims):
         dim_name = f"x{dim_idx}"
         if dim_idx == dim_split:
-            # Use sliced coordinates from full array
-            coordinates[dim_name] = chunk_split_coords
+            split_dim_range = [
+                task_range[0] / max_dim_size,
+                task_range[1] / max_dim_size,
+            ]
+            coordinates[dim_name] = np.sort(np.asarray(
+                coord_dim_rngs[dim_idx].uniform(
+                    split_dim_range[0], split_dim_range[1], task_size
+                )
+            ))
         else:
-            # Generate full coordinates (same across all chunks)
-            coordinates[dim_name] = np.sort(
+            coordinates[dim_name] = np.sort(np.asarray(
                 coord_dim_rngs[dim_idx].uniform(0, 1, shape[dim_idx])
-            )
+            ))
     
     logging.debug("obs in chunk: %s", obs_in_chunk)
     logging.debug("total chunk points: %s", total_chunk_points)
@@ -204,37 +203,38 @@ def generate_chunk(
         
     else:
         # Multi-variable mode
+        # Generate the chunk directly so the workflow can scale past RAM.
+        chunk_var_num_obs = np.asarray(var_num_obs, dtype=int)
         records, overlap_actual = MultiVarRecordGenerator.generate(
-            task_shape, overlap_target, num_vars, var_num_obs,
+            task_shape, overlap_target, num_vars, chunk_var_num_obs,
             var_dims_indices, var_constant_dims,
             var_constant_coord_indices, num_dims, seed,
-            chunk_id, max_dim_size, dim_split,
-            lhs_rng=lhs_rng,  # Pass pre-advanced LHS RNG
-            lhs_shape=list(shape),  # Pass global shape for LHS
-            num_obs_global=num_obs_global,  # Pass global observation count
-            div_points=div_points,  # Pass division points for chunk filtering
+            chunk_id=chunk_id,
+            max_dim_size=max_dim_size,
+            dim_split=dim_split,
             fixed_overlap=fixed_overlap
         )
-        
+
         logging.debug("chunk id: %s", chunk_id)
         total_obs = 0
         for var_idx in range(num_vars):
-            var_name = f"var_{var_idx}"
+            var_name = f"var{var_idx}"
             var_obs = np.sum(~np.isnan(records[var_name]))
             total_obs += var_obs
             logging.debug("%s obs in chunk: %s", var_name, var_obs)
         
         # Create Dataset with chunk-specific attributes
+        chunk_obs_total = int(np.sum(chunk_var_num_obs))
         chunk_attrs = NetCDFBuilder.create_default_attrs(
-            num_obs, num_dims, ratio_dims,
-            float(var_densities[0]), seed
+            chunk_obs_total, num_dims, ratio_dims,
+            float(chunk_obs_total / np.prod(task_shape)), seed
         )
         chunk_attrs.update({
             "chunk_id": chunk_id,
             "description": "Multi-variable sparse observation data (chunk)",
             "num_vars": num_vars,
             "var_densities": var_densities.tolist() if var_densities is not None else [],
-            "var_num_obs": var_num_obs.tolist() if var_num_obs is not None else [],
+            "var_num_obs": chunk_var_num_obs.tolist() if var_num_obs is not None else [],
             "overlap_target": overlap_target if isinstance(
                 overlap_target, (str, list)
             ) else float(overlap_target),
@@ -246,7 +246,11 @@ def generate_chunk(
         })
         
         dataset = NetCDFBuilder.build_dataset(
-            records, coordinates, attrs=chunk_attrs
+            records,
+            coordinates,
+            attrs=chunk_attrs,
+            var_constant_dims=var_constant_dims,
+            squeeze_constant_dims=False,
         )
         
         # Save to NetCDF
