@@ -56,6 +56,7 @@ class GenerateData:
         density: Density of observation (between minimum allowed density and 1.)
         seed: Random seed for reproducibility
         max_obs: Maximum observations per chunk for parallel generation
+        max_workers: Maximum worker processes for parallel generation
         num_vars: Number of variables in the dataset
         var_dims: Dimensions for each variable
         overlap: Overlap between variables (0-1 or 'random')
@@ -70,6 +71,7 @@ class GenerateData:
         sparsity: Union[int, float, List, Tuple, None] = None,
         seed: int = None,
         max_obs: int = None,
+        max_workers: int = None,
         num_vars: int = 1,
         var_dims: Union[int, List, Tuple] = None,
         overlap: Union[float, str] = 'random',
@@ -91,6 +93,8 @@ class GenerateData:
                 either density or sparsity, not both.
             seed: Random seed for reproducibility
             max_obs: Maximum observations per chunk for parallel generation
+            max_workers: Maximum worker processes for parallel generation. If
+                omitted, use the available CPU count.
             num_vars: Number of variables in the dataset (default=1)
             var_dims: Number of dimensions for each variable (default=num_dims for all)
             overlap: Overlap between variables (0-1 or 'random', default='random')
@@ -108,6 +112,13 @@ class GenerateData:
         self._input_sparsity = sparsity
         self._input_density = density
         self.seed = seed
+        if max_workers is not None and (
+            isinstance(max_workers, bool)
+            or not isinstance(max_workers, int)
+            or max_workers <= 0
+        ):
+            raise ValueError("max_workers must be a positive integer or None")
+        self.max_workers = max_workers
         self.num_vars = num_vars
         self.var_dims = var_dims if var_dims is not None else num_dims
         self.overlap = overlap
@@ -925,8 +936,12 @@ class GenerateData:
                 }
                 chunk_args.append(args)
 
-        # Execute in parallel with limited workers to avoid memory issues
-        max_workers = min(self.NTASKS, 4)
+        # Default to available CPUs while allowing callers to cap memory use.
+        available_cpus = os.cpu_count() or 1
+        max_workers = min(
+            self.NTASKS,
+            self.max_workers if self.max_workers is not None else available_cpus,
+        )
         print(f"Starting parallel generation with {max_workers} workers for {self.NTASKS} chunks")
 
         ctx = multiprocessing.get_context("spawn")
