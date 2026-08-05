@@ -52,6 +52,31 @@ class TestInitialization:
         assert gen.num_dims == 2
         assert gen.seed == 42
         assert gen.num_vars == 1
+
+    def test_max_workers_is_configurable(self):
+        """Should preserve the requested parallel worker limit."""
+        gen = GenerateData(
+            num_obs=100,
+            num_dims=2,
+            ratio_dims=1,
+            density=1.0,
+            seed=42,
+            max_workers=2,
+        )
+        assert gen.max_workers == 2
+
+    @pytest.mark.parametrize("value", [0, -1, 1.5, True])
+    def test_invalid_max_workers_raises_error(self, value):
+        """Should reject non-positive and non-integer worker limits."""
+        with pytest.raises(ValueError, match="max_workers"):
+            GenerateData(
+                num_obs=100,
+                num_dims=2,
+                ratio_dims=1,
+                density=1.0,
+                seed=42,
+                max_workers=value,
+            )
     
     def test_full_parameters_specified(self):
         """Should initialize with all parameters."""
