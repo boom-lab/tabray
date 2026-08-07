@@ -1,4 +1,4 @@
-name: data_sparsity
+name: tabray
 channels:
   - conda-forge
   - defaults
