@@ -11,7 +11,7 @@ from typing import Dict, List, Tuple, Union, Optional
 import numpy as np
 from numpy.typing import ArrayLike
 
-from data_sparsity.generators import MultiVarRecordGenerator
+from data_sparsity.generators import CoordinateGenerator, MultiVarRecordGenerator
 from data_sparsity.output import NetCDFBuilder, ParquetBuilder
 from data_sparsity.utils import ChunkUtils
 
@@ -116,26 +116,26 @@ def generate_chunk(
     )
     logging.debug("LHS RNG generated for chunk %s", chunk_id)
     
-    # Generate one complete coordinate axis for every non-split dimension.
-    # This keeps those axes identical in every file so xarray can concatenate
-    # chunks without a custom reconstruction helper.
-    coordinates = {}
-    for dim_idx in range(num_dims):
-        dim_name = f"x{dim_idx}"
-        if dim_idx == dim_split:
-            split_dim_range = [
-                task_range[0] / max_dim_size,
-                task_range[1] / max_dim_size,
-            ]
-            coordinates[dim_name] = np.sort(np.asarray(
-                coord_dim_rngs[dim_idx].uniform(
-                    split_dim_range[0], split_dim_range[1], task_size
-                )
-            ))
-        else:
-            coordinates[dim_name] = np.sort(np.asarray(
-                coord_dim_rngs[dim_idx].uniform(0, 1, shape[dim_idx])
-            ))
+    # Draw every coordinate axis exactly as the serial path does, over the GLOBAL
+    # shape, then keep this chunk's slice of the split axis. The axis is sorted,
+    # so elements [task_range[0]:task_range[1]] are precisely the coordinates
+    # whose global index falls in this chunk -- the same index partition that the
+    # site filtering uses. Concatenating the chunks in order therefore reproduces
+    # the serial axis exactly, and every non-split axis is identical in every file.
+    #
+    # Drawing only this chunk's values within its own value sub-range would
+    # instead stratify the axis: each chunk would hold exactly section_sizes[k]
+    # coordinates in its interval, where the serial draw gives a Binomial count.
+    coordinates = CoordinateGenerator.generate_all_coords(
+        list(shape),
+        rng=None,  # unused when dim_rngs is supplied
+        dim_ranges=None,
+        dim_rngs=coord_dim_rngs,
+    )
+    split_dim_name = f"x{dim_split}"
+    coordinates[split_dim_name] = coordinates[split_dim_name][
+        task_range[0]:task_range[1]
+    ]
     
     logging.debug("obs in chunk: %s", obs_in_chunk)
     logging.debug("total chunk points: %s", total_chunk_points)

@@ -18,46 +18,59 @@ class ChunkUtils:
             max_dim_size: int,
             section_sizes: list,
             density: float,
-    ) -> tuple[int, float, int]:
+    ) -> tuple[int, float, np.ndarray]:
+        """Split the global observation count across chunks.
 
-        total_points = np.prod(shape)
+        The total is preserved exactly: observations are apportioned in
+        proportion to each chunk's share of the grid, and the integer remainder
+        goes to the chunks with the largest fractional parts (largest-remainder
+        apportionment, as used by get_multi_var_observations_per_chunk).
+
+        Rounding each chunk independently would move ``num_obs``, and with it
+        ``density``, away from the serial value. That matters more than the one
+        or two observations involved: ``num_obs`` seeds the global index draw,
+        so a difference of one changes roughly half the occupied sites.
+
+        Args:
+            total_obs: Global number of observations to distribute
+            shape: Full grid shape
+            max_dim_size: Size of the split dimension
+            section_sizes: Chunk sizes along the split dimension
+            density: Global density, used only to report the outcome
+
+        Returns:
+            Tuple of (total observations, density, per-chunk counts)
+        """
+        total_points = int(np.prod(shape))
         total_points_slice = total_points / max_dim_size
         chunk_points = np.array(
             [total_points_slice * chunk_size for chunk_size in section_sizes]
         ).astype(int)
-        print("type chunk_points", type(chunk_points))
-        print("chunk_points", chunk_points)
-        
-        # As randomness is uniform
-        per_chunk_obs = np.rint(density * chunk_points).astype(int)
-        for idx, c in enumerate(per_chunk_obs):
-            if c > chunk_points[idx]:
-                per_chunk_obs[idx] = chunk_points[idx]
 
-        mp_obs = per_chunk_obs.sum()
-        if not mp_obs.is_integer():
-            raise ValueError(f"Got non integer value of observations {mp_obs}.")
-        mp_obs = int(mp_obs)
-        print(
-            f"Multiprocessing approximations lead to {mp_obs} "
-            f"total observation (goal: {total_obs})."
-        )
-        if mp_obs > total_obs:
-            extra_obs = mp_obs - total_obs
-            if per_chunk_obs[idx] > extra_obs:
-                per_chunk_obs[idx] = per_chunk_obs[idx] - extra_obs
-                per_chunk_obs[idx] = per_chunk_obs[idx].astype(int)
-                mp_obs = per_chunk_obs.sum()
-                mp_obs = int(mp_obs)
-            else:
-                print(
-                    f"Multiprocessing approximations lead to {mp_obs} "
-                    f"total observation (goal: {total_obs})."
-                )
+        # Apportion proportionally, then hand the leftover observations to the
+        # chunks with the largest fractional parts so the total is preserved.
+        raw = total_obs * chunk_points / chunk_points.sum()
+        per_chunk_obs = np.floor(raw).astype(int)
+        deficit = int(total_obs) - int(per_chunk_obs.sum())
+        if deficit > 0:
+            remainder = raw - per_chunk_obs
+            for chunk_idx in np.argsort(remainder)[::-1][:deficit]:
+                per_chunk_obs[chunk_idx] += 1
+
+        # A chunk cannot hold more observations than it has grid points. This
+        # only bites when num_obs exceeds the grid, which validation rejects.
+        per_chunk_obs = np.minimum(per_chunk_obs, chunk_points)
+        mp_obs = int(per_chunk_obs.sum())
+        if mp_obs != int(total_obs):
+            print(
+                f"Chunk capacity limits observations to {mp_obs} "
+                f"(requested {total_obs})."
+            )
 
         density_new = mp_obs / total_points
-        print(f"Multiprocessing approximations lead to {mp_obs} total observation (goal: {total_obs}).")
-        print(f"Updated density is {density_new} (was: {density}).")
+        print(f"Observations per chunk: {per_chunk_obs.tolist()} (total {mp_obs}).")
+        if not np.isclose(density_new, density):
+            print(f"Updated density is {density_new} (was: {density}).")
 
         return mp_obs, density_new, per_chunk_obs
 
