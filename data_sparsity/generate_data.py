@@ -282,6 +282,13 @@ class GenerateData:
             self.nb_coords_per_dim
         )
 
+        # The grid is stratified along its largest dimension, one stratum per
+        # index. This partition defines the generation order and so must be the
+        # same whether or not the run is chunked -- it is a property of the
+        # grid, not of max_obs. _multiprocessing_setup groups these strata into
+        # chunks; it does not choose them.
+        self.dim_split = int(np.argmax(self.nb_coords_per_dim))
+
         # Check that density is larger than minimum allowed for this set of parameters
         self.density_zero = SparsityValidator.compute_min_density(self.nb_coords_per_dim)
         density_for_grid = SparsityValidator.validate_density_bounds(
@@ -381,9 +388,9 @@ class GenerateData:
             self.NTASKS = int(np.ceil(self.num_obs / max_obs))
             self.max_obs = max_obs
             
-            # Set up dimension splitting for parallel processing
-            # Split along the largest dimension
-            max_dim = np.argmax(self.nb_coords_per_dim)
+            # Group the grid's strata into chunks. The split dimension was
+            # already fixed during validation (see self.dim_split).
+            max_dim = self.dim_split
             max_dim_size = self.nb_coords_per_dim[max_dim]
             
             if max_dim_size < self.NTASKS:
@@ -399,7 +406,6 @@ class GenerateData:
                            (self.NTASKS - extras) * [Neach_section])
             div_points = np.array(section_sizes, dtype=int).cumsum()
             
-            self.dim_split = max_dim
             self.max_dim_size = max_dim_size
             self.section_sizes = section_sizes[1:]
             self.div_points = div_points
@@ -498,7 +504,8 @@ class GenerateData:
             var_constant_dims=[[]],  # No constant dims
             var_constant_coord_indices={},  # No constant coords
             num_dims=len(shape),
-            seed=self.seed
+            seed=self.seed,
+            dim_split=int(np.argmax(shape))
         )
 
         # Extract the single record from the dictionary
@@ -536,6 +543,7 @@ class GenerateData:
             shape, self.overlap_target, self.num_vars, self.var_num_obs,
             self.var_dims_indices, self.var_constant_dims,
             self.var_constant_coord_indices, self.num_dims, self.seed,
+            dim_split=self.dim_split,
             fixed_overlap=self.fixed_overlap
         )
 

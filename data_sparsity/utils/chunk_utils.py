@@ -6,10 +6,64 @@ multiple smaller datasets.
 
 from typing import List, Union
 import numpy as np
+from numpy.typing import ArrayLike
 import logging
 
 class ChunkUtils:
     """Utilities manager for chunked dataset generation"""
+
+    @staticmethod
+    def apportion(
+            total: int,
+            weights: ArrayLike,
+            capacity: ArrayLike = None,
+    ) -> np.ndarray:
+        """Split an integer total across bins in proportion to weights.
+
+        Uses largest-remainder apportionment: every bin gets the floor of its
+        exact share, then the leftover units go to the bins with the largest
+        fractional parts. The result sums to ``total`` exactly, which matters
+        here because rounding each bin independently would change ``num_obs``,
+        and ``num_obs`` seeds the index draw.
+
+        Args:
+            total: Integer amount to distribute
+            weights: Relative weight of each bin
+            capacity: Optional per-bin upper bound. Units that do not fit are
+                redistributed to bins with room; if nothing has room the
+                returned total is short of ``total``.
+
+        Returns:
+            Integer array summing to ``total`` (or to the total capacity, if
+            that is smaller)
+        """
+        weights = np.asarray(weights, dtype=float)
+        total = int(total)
+        if total <= 0 or weights.size == 0 or weights.sum() <= 0:
+            return np.zeros(weights.size, dtype=np.int64)
+
+        raw = total * weights / weights.sum()
+        counts = np.floor(raw).astype(np.int64)
+        deficit = total - int(counts.sum())
+        if deficit > 0:
+            for idx in np.argsort(raw - counts)[::-1][:deficit]:
+                counts[idx] += 1
+
+        if capacity is None:
+            return counts
+
+        cap = np.asarray(capacity, dtype=np.int64)
+        while True:
+            overflow = int(np.maximum(counts - cap, 0).sum())
+            counts = np.minimum(counts, cap)
+            if overflow <= 0:
+                return counts
+            room = cap - counts
+            if room.sum() <= 0:
+                return counts
+            counts = counts + ChunkUtils.apportion(
+                min(overflow, int(room.sum())), room, room
+            )
 
     @staticmethod
     def get_observations_per_chunk(

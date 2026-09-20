@@ -4,8 +4,10 @@ This module provides the base class for generating sparse record arrays
 with common utilities for index generation and assignment.
 """
 
-from typing import List, Tuple
+from typing import Iterable, List, Optional, Tuple
 import numpy as np
+
+from data_sparsity.utils.chunk_utils import ChunkUtils
 
 
 class RecordGenerator:
@@ -327,3 +329,138 @@ class RecordGenerator:
         chunk_local_indices[dim_split] = filtered_indices[dim_split] - chunk_start
         
         return tuple(chunk_local_indices)
+
+    # Stream tags for the stratified design. Passing a list to default_rng
+    # derives independent streams from (seed, tag, ...) via SeedSequence, so
+    # these cannot collide with each other the way additive offsets can.
+    LHS_STREAM = 1
+    STRATUM_STREAM = 2
+
+    @staticmethod
+    def _ranks_to_local(ranks: np.ndarray, excluded_sorted: np.ndarray) -> np.ndarray:
+        """Map ranks within the free sites of a stratum to local site indices.
+
+        ``ranks`` index the sites of a hyperplane once the ``excluded`` ones are
+        removed. Walking the excluded indices in ascending order and shifting
+        anything at or above each of them recovers the true local index, without
+        ever materialising the complement.
+        """
+        local = np.asarray(ranks, dtype=np.int64)
+        for excluded in excluded_sorted:
+            local = local + (local >= excluded)
+        return local
+
+    @staticmethod
+    def generate_stratified_indices(
+        global_shape: List[int],
+        num_obs: int,
+        seed: int,
+        split_dim: int,
+        strata: Optional[Iterable[int]] = None,
+    ) -> Tuple[Tuple[np.ndarray, ...], np.ndarray]:
+        """Place observations one hyperplane at a time, with values.
+
+        The grid is partitioned into ``global_shape[split_dim]`` strata, one per
+        index along the split dimension. Two stages, mirroring
+        ``generate_hybrid_indices`` but decomposed:
+
+        * The LHS stage stays **global**. It is ``min(num_obs, min(shape))``
+          points and its guarantee (each coordinate of the shortest axis used)
+          spans strata, so no stratum can enforce it alone. Every caller
+          recomputes it identically for a few hundred bytes.
+        * The fill stage is **per stratum**. Counts are apportioned globally,
+          then each stratum draws its own sites and values from
+          ``(seed, STRATUM_STREAM, j)`` and nothing else.
+
+        Because a stratum depends only on that triple, any caller producing a
+        subset of strata produces exactly the slices a caller producing all of
+        them would. That is what makes serial and parallel agree by
+        construction rather than by arranging for streams to line up, and it
+        keeps peak memory at one hyperplane instead of the whole grid.
+
+        Args:
+            global_shape: Full grid shape
+            num_obs: Total observations across the whole grid
+            seed: Base random seed
+            split_dim: Dimension indexing the strata
+            strata: Which strata to generate (default: all of them)
+
+        Returns:
+            Tuple of (multi-indices in GLOBAL space, observation values). The
+            caller maps the split dimension to chunk-local coordinates if it
+            needs to.
+        """
+        shape = [int(size) for size in global_shape]
+        num_dims = len(shape)
+        num_strata = shape[split_dim]
+        hyper_shape = [size for dim, size in enumerate(shape) if dim != split_dim]
+        stratum_sites = int(np.prod(hyper_shape)) if hyper_shape else 1
+        num_obs = int(num_obs)
+
+        # --- LHS stage: global, O(min(shape)) -----------------------------
+        n_s = min(num_obs, min(shape))
+        lhs_rng = np.random.default_rng([seed, RecordGenerator.LHS_STREAM])
+        lhs = RecordGenerator.generate_lhs_indices(shape, n_s, lhs_rng)
+        lhs_split = np.asarray(lhs[split_dim], dtype=np.int64)
+        if hyper_shape:
+            lhs_local = np.ravel_multi_index(
+                tuple(np.asarray(lhs[dim], dtype=np.int64)
+                      for dim in range(num_dims) if dim != split_dim),
+                hyper_shape,
+            )
+        else:
+            lhs_local = np.zeros(n_s, dtype=np.int64)
+
+        # --- apportion the fill across strata: global, O(num_strata) ------
+        taken = np.bincount(lhs_split, minlength=num_strata)
+        available = stratum_sites - taken
+        fill_counts = ChunkUtils.apportion(num_obs - n_s, available, available)
+
+        # --- per-stratum draw ---------------------------------------------
+        if strata is None:
+            strata = range(num_strata)
+        per_dim = [[] for _ in range(num_dims)]
+        values = []
+
+        for stratum in strata:
+            stratum = int(stratum)
+            here = lhs_split == stratum
+            lhs_here = lhs_local[here]
+            n_fill = int(fill_counts[stratum])
+            rng = np.random.default_rng(
+                [seed, RecordGenerator.STRATUM_STREAM, stratum]
+            )
+
+            if n_fill > 0:
+                ranks = rng.choice(
+                    stratum_sites - lhs_here.size, size=n_fill, replace=False
+                )
+                fill_local = RecordGenerator._ranks_to_local(
+                    ranks, np.sort(lhs_here)
+                )
+            else:
+                fill_local = np.empty(0, dtype=np.int64)
+
+            local = np.concatenate([lhs_here, fill_local]).astype(np.int64)
+            if local.size == 0:
+                continue
+
+            # values share the stratum stream, drawn after the sites so that
+            # site i and value i stay paired however the strata are grouped
+            values.append(rng.uniform(0, 1, size=local.size))
+
+            hyper_idx = np.unravel_index(local, hyper_shape) if hyper_shape else ()
+            axis = 0
+            for dim in range(num_dims):
+                if dim == split_dim:
+                    per_dim[dim].append(np.full(local.size, stratum, dtype=np.int64))
+                else:
+                    per_dim[dim].append(hyper_idx[axis])
+                    axis += 1
+
+        if not values:
+            empty = tuple(np.empty(0, dtype=np.int64) for _ in range(num_dims))
+            return empty, np.empty(0, dtype=float)
+
+        indices = tuple(np.concatenate(parts) for parts in per_dim)
+        return indices, np.concatenate(values)
