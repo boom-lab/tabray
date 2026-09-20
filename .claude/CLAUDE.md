@@ -117,6 +117,16 @@ values are visible, rather than picking an offset and hoping it misses.
 
 `max_obs` set below `num_obs` switches `NTASKS > 1`. The grid is split along its largest dimension, chunks run in a `ProcessPoolExecutor` (spawn context, at most 4 workers) via the module-level `generate_chunk`, which takes every parameter explicitly so nothing needs to pickle `GenerateData`. Each chunk writes its own netCDF file (`<base>_<zero-padded chunk_id>.nc`) and a temporary parquet chunk into the scratch directory named by `parquet_tmp`; worker logs are off unless `TABRAY_WORKER_LOG=debug` is set, and then land beside the netCDF output; `_consolidate_parquet_files` then merges the parquet chunks with dask into one 300MB-partitioned dataset and deletes the temporaries. In this mode `generate()` returns `(None, None)` — results exist only on disk. Chunking rounds observation counts per chunk, so it also rewrites `self.num_obs` and `self.density`.
 
+`generate(merge_nc=True)` concatenates the chunk netCDF files into one and deletes them; the
+default `False` leaves the per-chunk files, which is the only option for output too large to
+merge. The merge writes one data variable at a time, under a synchronous dask scheduler. Both
+matter: writing all variables in one `to_netcdf` call runs one dask store per variable
+concurrently, and HDF5 then allocates their space in completion order, so identical data produces
+a different file on every run (S7); and with the default thread pool a thread reading a chunk and
+a thread writing the output can deadlock on xarray's netCDF4 lock, hanging the run (S8). Neither
+is a memory trade -- the write still streams chunk by chunk, and one variable at a time needs less
+memory than all of them at once.
+
 `generate()` always calls `PathManager.setup_output_paths(overwrite=True)`, so existing `.nc`/`.parquet`/`_metadata` files in the target directories are deleted.
 
 ## Conventions (from `.github/copilot-instructions.md`)

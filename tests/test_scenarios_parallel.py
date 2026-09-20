@@ -576,3 +576,59 @@ class TestScenariosParallel:
         
         assert len(dataframe['record']) == len(dataframe['record'].unique())
         assert not dataframe.isnull().any().any()
+
+
+class TestMergedNetCDFIsByteReproducible:
+    """The merged netCDF must be identical on disk between identical runs.
+
+    _merge_netcdf_files writes one data variable at a time. Handing the whole
+    dataset to to_netcdf instead issues one dask store per variable and runs
+    them concurrently, and HDF5 allocates each variable's space on first write
+    -- so the variables land at the same addresses in a different order on
+    every run, and identical data produces a different file. That is
+    multi-variable only, which is why this test uses three variables: with one
+    variable there is one store and nothing to race. See S7 in the diagnostics.
+    """
+
+    @staticmethod
+    def generate(tmp_path, run):
+        """Run one multi-variable parallel generation with the merge on."""
+        out = tmp_path / f"run{run}"
+        (out / "nc").mkdir(parents=True)
+        (out / "pq").mkdir(parents=True)
+        gen = GenerateData(
+            num_obs=900, num_dims=3, ratio_dims=(1, 1, 1),
+            density=[0.4, 0.3, 0.2], seed=8, num_vars=3,
+            overlap=[0.5, 0.3], max_obs=400,
+        )
+        gen.generate(
+            netcdf_filepath=str(out / "nc" / "d.nc"),
+            parquet_filepath=str(out / "pq" / "d.parquet"),
+            merge_nc=True,
+        )
+        return out / "nc" / "d.nc"
+
+    def test_two_identical_runs_produce_identical_bytes(self, tmp_path):
+        first = self.generate(tmp_path, 0).read_bytes()
+        second = self.generate(tmp_path, 1).read_bytes()
+        assert first == second, (
+            "merged netCDF differs between identical runs; the merge is "
+            "probably writing all variables in one to_netcdf call again"
+        )
+
+    def test_merged_file_holds_every_variable(self, tmp_path):
+        """Guards the mode='w' then mode='a' sequence, which could drop one."""
+        merged = self.generate(tmp_path, 2)
+        with xr.open_dataset(merged) as ds:
+            assert sorted(ds.data_vars) == ["var0", "var1", "var2"]
+            assert sorted(ds.coords) == ["x0", "x1", "x2"]
+            for name in ds.data_vars:
+                assert np.isfinite(ds[name].values).any(), f"{name} is all NaN"
+
+    def test_merged_file_keeps_dataset_attributes(self, tmp_path):
+        """mode='a' must not drop the attributes written by the first call."""
+        merged = self.generate(tmp_path, 3)
+        with xr.open_dataset(merged) as ds:
+            assert "num_obs" in ds.attrs
+            assert "density" in ds.attrs
+            assert "chunk_id" not in ds.attrs

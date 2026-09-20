@@ -31,7 +31,7 @@ plus the coverage fix (A5).
 parquet rows and attributes -- verified across single- and multi-variable, 2D to 6D, minimum
 density, reduced-dimension variables, `overlap='random'` and `fixed_overlap`.
 
-Still open: **S6-S7**, and **A4, A7**. Sections describing a closed item record the behaviour *before* the change.
+Still open: **S6**, and **A4, A7**. Sections describing a closed item record the behaviour *before* the change.
 
 ## Question
 
@@ -338,7 +338,7 @@ documents `max_obs` as "set based on available memory" without the density facto
 Location: `generate_data.py:_multiprocessing_setup` (`max_dim_size < NTASKS` check).
 
 
-### S7 — the merged netCDF is reproducible in content but not in bytes
+### [done] S7 — the merged netCDF is reproducible in content but not in bytes
 
 `merge_nc` concatenates through `xr.open_mfdataset`, so the merge is dask-backed. Dask's
 completion order varies between runs and netCDF4/HDF5 allocates object headers in write order,
@@ -370,6 +370,86 @@ Also note this refines the D6 claim: serial and parallel agree on *content*, not
 Besides the HDF5 layout, some attributes still differ -- single-variable serial writes its
 attributes on the variable (it saves a DataArray) while the merged file has them at dataset
 level, the merge does not carry achieved overlap, and `description` differs.
+
+**Root cause.** Not dask's completion order, as first recorded. `to_netcdf` on a dask-backed
+dataset issues one store per *data variable* and runs them concurrently; HDF5 allocates each
+variable's space on first write, so the variables land at the same addresses in a permuted order:
+
+```
+run0  var0:49212  var1:31636  var2:14060
+run1  var0:31636  var1:14060  var2:49212
+run4  var0:14060  var1:49212  var2:31636
+```
+
+This is why it is **multi-variable only**. Over 8 identical runs: every single-variable case
+(`sv2d`, `sv3d`, `sv6d`) gave 1 hash, `mv2` gave 2, `mv3` gave 5. Parquet was always stable, and
+coordinates always landed at the same addresses.
+
+Forcing a synchronous dask scheduler does **not** fix it (5 distinct hashes of 6 became 3 of 6) --
+the store order comes out of graph construction, not execution. `merged.load()` fixes it
+completely but materialises the whole dataset.
+
+**Fixed, for the memory rather than the bytes.** `_merge_netcdf_files` now writes one variable at
+a time: `merged[[name]].to_netcdf(path, mode="w")` then `mode="a"` for the rest. Each call has a
+single store, so allocation order is fixed. Every case above is now 1 hash over 8 runs.
+
+The reason to take it is memory. Measured by lowering `RLIMIT_AS` after opening and merging a
+382 MB, 3-variable dataset through the real method:
+
+```
+single to_netcdf call     fails at 900 MB   writes at 1200 MB
+one variable at a time    fails at 600 MB   writes at  900 MB
+```
+
+Each write is still lazy and still streams; only the concurrency across variables is given up,
+and the writes share one HDF5 file lock anyway. `RLIMIT_AS` caps virtual address space, which
+numpy and HDF5 reserve generously, so only the comparison between the two is meaningful.
+
+**A measurement note worth keeping.** Peak RSS (`ru_maxrss`) is useless here. It counts memory
+freed back to the allocator but not returned to the OS, so sequential allocate-and-free looks the
+same as holding everything: it reported peak rising with dataset size and *not* falling when the
+dask chunk size was cut 8x, which would have suggested no streaming at all. The address-space cap
+is the instrument that distinguishes them.
+
+**Still true after the fix:** the merge is not free of the dataset size -- ~900 MB of address
+space for 382 MB of data. `merge_nc` defaults to `False`, and for output too large for that the
+per-chunk files remain the answer. The docstring previously claimed the merge "streams rather than
+being materialised"; it now states the measured cost.
+
+
+
+### [done] S8 — `merge_nc` could deadlock and hang the run
+
+Found while verifying S7: the verification harness stopped dead twice in four runs, in the first
+parallel case, with every worker finished and the parent using no CPU. A `faulthandler` dump gave
+the reason -- two dask worker threads, each waiting on xarray's netCDF4 lock, one reading and one
+writing:
+
+```
+Thread A  netCDF4_.py:114 _getitem    -> locks.py:64 __enter__   (reading a chunk file)
+Thread B  netCDF4_.py:80  __setitem__ -> locks.py:64 __enter__   (writing the merged output)
+```
+
+`to_netcdf` on a dask-backed dataset opened from netCDF files takes that one lock on both sides.
+With the default thread pool the read side and the write side can block each other permanently.
+
+Not reproducible on demand: 0 hangs in 25 runs of the same case in a fresh process, and 0 in 12
+rounds of serial-then-parallel inside one process. Both observed hangs happened while the machine
+was busy with other work, which fits a timing-dependent race rather than a deterministic ordering
+bug.
+
+**Fixed structurally rather than by testing it away.** The merge write now runs under
+`dask.config.set(scheduler="synchronous")`, so dask executes the graph in the calling thread.
+With one thread there is no second thread to contend for the lock, and the deadlock cannot occur.
+Nothing is materialised -- the graph is still walked chunk by chunk -- and the merge timing was
+unchanged in measurement (1.67 s against 1.76 s).
+
+Because the race could not be reproduced on demand, the argument for the fix is structural, not
+statistical: absence of hangs in N runs would not have proved anything either way. Supporting
+evidence: the harness completed cleanly on every run afterwards.
+
+Scope: `merge_nc=True` only, which is not the default. The unmerged per-chunk output and the
+parquet consolidation are not involved -- the whole stack is netCDF read/write.
 
 
 ---
