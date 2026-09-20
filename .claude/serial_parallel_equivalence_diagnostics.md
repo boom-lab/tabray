@@ -31,7 +31,7 @@ plus the coverage fix (A5).
 parquet rows and attributes -- verified across single- and multi-variable, 2D to 6D, minimum
 density, reduced-dimension variables, `overlap='random'` and `fixed_overlap`.
 
-535 tests pass. Still open: **S3-S6**, and **A1-A2, A4, A6-A7**. Sections describing a closed item record the behaviour *before* the change.
+Still open: **S3-S7**, and **A1-A2, A4, A6-A7**. Sections describing a closed item record the behaviour *before* the change.
 
 ## Question
 
@@ -318,6 +318,41 @@ Related: chunk memory is `8 * prod(shape)/NTASKS * num_vars` bytes, and since
 documents `max_obs` as "set based on available memory" without the density factor.
 
 Location: `generate_data.py:_multiprocessing_setup` (`max_dim_size < NTASKS` check).
+
+
+### S7 — the merged netCDF is reproducible in content but not in bytes
+
+`merge_nc` concatenates through `xr.open_mfdataset`, so the merge is dask-backed. Dask's
+completion order varies between runs and netCDF4/HDF5 allocates object headers in write order,
+so identical content lands at different file addresses.
+
+Ten identical runs of one configuration produced two distinct file hashes, 8/2. Diffing them:
+
+```
+nc/d.nc          35740 vs 35740 bytes, identical=False
+                 first differing byte at 4605, inside an OCHK marker
+                 V0 ...\x03\x01\x9c'\x00...   V1 ...\x03\x01\x9cY\x00...
+pq/d_0.parquet   19605 bytes, identical=True
+pq/_metadata     identical=True
+```
+
+`OCHK` is an HDF5 object header continuation block and the differing bytes are file addresses
+(`0x279c` against `0x599c`). Coordinates, occupancy masks, values and parquet rows were
+bit-identical between the two variants.
+
+Serial and the unmerged chunk files write from plain numpy and are unaffected; only the merged
+file goes through dask.
+
+Consequence for verification: **byte hashing is the wrong tool for merged output.** Equivalence
+checks must compare coordinates, values and parquet rows, not file digests -- otherwise HDF5
+layout noise reads as a behaviour change. This caused a false alarm during the dead-code
+removal.
+
+Also note this refines the D6 claim: serial and parallel agree on *content*, not on bytes.
+Besides the HDF5 layout, some attributes still differ -- single-variable serial writes its
+attributes on the variable (it saves a DataArray) while the merged file has them at dataset
+level, the merge does not carry achieved overlap, and `description` differs.
+
 
 ---
 

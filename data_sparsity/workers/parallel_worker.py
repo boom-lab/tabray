@@ -106,16 +106,6 @@ def generate_chunk(
         num_dims=num_dims
     )
     
-    # Generate LHS RNG with state advancement for parallel mode
-    # This ensures LHS indices are consistent with serial generation
-    lhs_rng = ChunkUtils.generate_lhs_rng(
-        seed=seed,
-        shape=list(shape),  # GLOBAL shape, not task_shape
-        chunk_id=chunk_id,
-        num_obs_global=num_obs_global
-    )
-    logging.debug("LHS RNG generated for chunk %s", chunk_id)
-    
     # Draw every coordinate axis exactly as the serial path does, over the GLOBAL
     # shape, then keep this chunk's slice of the split axis. The axis is sorted,
     # so elements [task_range[0]:task_range[1]] are precisely the coordinates
@@ -156,7 +146,6 @@ def generate_chunk(
             chunk_id=chunk_id,
             max_dim_size=max_dim_size,
             dim_split=dim_split,
-            lhs_rng=lhs_rng,  # Pass pre-advanced LHS RNG
             lhs_shape=list(shape),  # Pass global shape for LHS
             num_obs_global=num_obs_global,  # Pass global observation count
             div_points=div_points  # Pass division points for chunk filtering
