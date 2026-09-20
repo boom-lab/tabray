@@ -7,6 +7,7 @@ passed explicitly rather than through object references.
 
 import gc
 import logging
+import os
 from typing import Dict, List, Tuple, Union, Optional
 import numpy as np
 from numpy.typing import ArrayLike
@@ -14,6 +15,47 @@ from numpy.typing import ArrayLike
 from data_sparsity.generators import CoordinateGenerator, MultiVarRecordGenerator
 from data_sparsity.output import NetCDFBuilder, ParquetBuilder
 from data_sparsity.utils import ChunkUtils
+
+
+def _configure_worker_logging(chunk_id: int, netcdf_filepath: str) -> logging.Logger:
+    """Set up this worker's logger.
+
+    Off unless asked for. This used to call ``logging.basicConfig`` at DEBUG,
+    which configures the ROOT logger -- so every library in the process logged
+    too -- and wrote ``worker_<id>.log`` into the current working directory,
+    whatever that happened to be. With 216 chunks that is 216 files dropped
+    wherever the job was launched from.
+
+    Set ``TABRAY_WORKER_LOG=debug`` (or ``info``) to turn it on; the files then
+    land beside the netCDF output rather than in the working directory.
+
+    Args:
+        chunk_id: Identifier for this chunk
+        netcdf_filepath: Output path, used to place the log beside it
+
+    Returns:
+        A logger for this worker, silent unless enabled
+    """
+    logger = logging.getLogger(f"data_sparsity.worker.{chunk_id}")
+    logger.propagate = False
+    if logger.handlers:
+        return logger
+
+    level = os.environ.get("TABRAY_WORKER_LOG", "").strip().upper()
+    if level not in ("DEBUG", "INFO"):
+        logger.addHandler(logging.NullHandler())
+        logger.setLevel(logging.WARNING)
+        return logger
+
+    log_dir = os.path.dirname(netcdf_filepath) or "."
+    os.makedirs(log_dir, exist_ok=True)
+    handler = logging.FileHandler(os.path.join(log_dir, f"worker_{chunk_id}.log"))
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s %(process)d %(levelname)s %(message)s")
+    )
+    logger.addHandler(handler)
+    logger.setLevel(getattr(logging, level))
+    return logger
 
 
 def generate_chunk(
@@ -78,26 +120,20 @@ def generate_chunk(
     Returns:
         Tuple of (chunk_id, total_observations, parquet_chunk_path)
     """
-    # Set up logging for this worker
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format='%(asctime)s %(process)d %(levelname)s %(message)s',
-        filename=f'worker_{chunk_id}.log',
-    )
-    logging.debug("")
-    logging.debug("######------ NEW CHUNK ------######")
+    log = _configure_worker_logging(chunk_id, netcdf_filepath)
+    log.debug("######------ NEW CHUNK ------######")
     
     # Determine chunk dimensions and range along split dimension FIRST
     task_range = (div_points[chunk_id], div_points[chunk_id + 1])
     task_size = section_sizes[chunk_id]
     task_shape = ChunkUtils.update_chunk_shape(shape, dim_split, task_size)
     
-    logging.debug("task_range: %s", task_range)
-    logging.debug("task_size: %s", task_size)
-    logging.debug("task_shape: %s", task_shape)
+    log.debug("task_range: %s", task_range)
+    log.debug("task_size: %s", task_size)
+    log.debug("task_shape: %s", task_shape)
     
     total_chunk_points = ChunkUtils.validate_chunk_points(task_shape)
-    logging.debug("total_chunk_points: %s", total_chunk_points)
+    log.debug("total_chunk_points: %s", total_chunk_points)
     
     # Generate dimension-specific RNGs for coordinates (no chunk-specific parameters)
     # All chunks use the same base RNGs to ensure coordinate alignment
@@ -127,8 +163,8 @@ def generate_chunk(
         task_range[0]:task_range[1]
     ]
     
-    logging.debug("obs in chunk: %s", obs_in_chunk)
-    logging.debug("total chunk points: %s", total_chunk_points)
+    log.debug("obs in chunk: %s", obs_in_chunk)
+    log.debug("total chunk points: %s", total_chunk_points)
     
     # Generate records for single or multiple variables
     if num_vars == 1:
@@ -154,12 +190,13 @@ def generate_chunk(
         # Extract the single record from the dictionary
         record = records['var0']
         
-        logging.debug("chunk id: %s", chunk_id)
-        logging.debug("record.shape: %s", record.shape)
-        logging.debug("num obs in chunk: %s", obs_in_chunk)
-        logging.debug("non-nans in chunk: %s", np.sum(~np.isnan(record)))
-        logging.debug("dims: %s", list(coordinates.keys()))
-        logging.debug("coords: %s", coordinates)
+        log.debug("chunk id: %s", chunk_id)
+        log.debug("record.shape: %s", record.shape)
+        log.debug("num obs in chunk: %s", obs_in_chunk)
+        log.debug("non-nans in chunk: %s", np.sum(~np.isnan(record)))
+        log.debug("dims: %s", list(coordinates.keys()))
+        log.debug("coord sizes: %s",
+                  {name: len(values) for name, values in coordinates.items()})
         
         # Create DataArray with chunk-specific attributes
         chunk_attrs = NetCDFBuilder.create_default_attrs(
@@ -211,7 +248,7 @@ def generate_chunk(
             fixed_overlap=fixed_overlap
         )
 
-        logging.debug("chunk id: %s", chunk_id)
+        log.debug("chunk id: %s", chunk_id)
         # Count what was actually placed. var_num_obs is the GLOBAL per-variable
         # count -- the strata apportion it internally -- so the chunk's own
         # figures have to be measured, not inherited from the arguments.
@@ -222,7 +259,7 @@ def generate_chunk(
             var_obs = int(np.sum(~np.isnan(records[var_name])))
             chunk_var_counts.append(var_obs)
             total_obs += var_obs
-            logging.debug("%s obs in chunk: %s", var_name, var_obs)
+            log.debug("%s obs in chunk: %s", var_name, var_obs)
 
         # Create Dataset with chunk-specific attributes. The density recorded is
         # the reference variable's within this chunk, which is a meaningful

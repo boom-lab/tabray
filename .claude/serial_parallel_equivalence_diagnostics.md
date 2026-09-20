@@ -31,7 +31,7 @@ plus the coverage fix (A5).
 parquet rows and attributes -- verified across single- and multi-variable, 2D to 6D, minimum
 density, reduced-dimension variables, `overlap='random'` and `fixed_overlap`.
 
-Still open: **S5-S7**, and **A1-A2, A4, A6-A7**. Sections describing a closed item record the behaviour *before* the change.
+Still open: **S6-S7**, and **A1-A2, A4, A6-A7**. Sections describing a closed item record the behaviour *before* the change.
 
 ## Question
 
@@ -300,10 +300,17 @@ comment three lines above.
 `chunk_id`, and the workers pass `False`. The output directory ends up with exactly one
 `_metadata`/`_common_metadata` pair, written by the consolidation.
 
-### S5 — worker logging
+### [done] S5 — worker logging
 
 DEBUG level, dumps full coordinate arrays, and writes `worker_<id>.log` into the current working
-directory rather than the output directory (`workers/parallel_worker.py:82`).
+directory rather than the output directory (`workers/parallel_worker.py:82`). It also used
+`logging.basicConfig`, which configures the ROOT logger, so every library in the worker process
+logged at DEBUG too. With 216 chunks that is 216 files dropped wherever the job was launched
+from.
+
+**Fixed.** A named per-worker logger, silent unless `TABRAY_WORKER_LOG=debug` (or `info`) is
+set, writing beside the netCDF output rather than into the working directory. The coordinate
+dump logs axis sizes instead of the arrays.
 
 ### S6 — chunk count is capped by the longest axis, and `max_obs` is not a memory knob
 
