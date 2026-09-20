@@ -121,8 +121,8 @@ class ParameterValidator:
                 )
 
         elif isinstance(var_dims, (list, tuple)):
-            # Copy: this used to assign the caller's list and then write to
-            # element 0, changing the object the caller still holds.
+            # Copy: element 0 is written below, and the caller still holds
+            # the argument.
             var_dims_update = list(var_dims)
             if not var_dims_update:
                 raise ValueError(
@@ -226,11 +226,9 @@ class ParameterValidator:
         because var0 is the overlap reference and must have the largest number
         of observations.
 
-        This used to overwrite ``density[0]`` with the maximum. For a
-        two-element list -- which is a ``[max, min]`` range, not per-variable
-        densities -- that collapsed the range to a point and gave every
-        variable the same density, silently. Raising instead leaves the user's
-        numbers alone and says what is wrong.
+        Raises rather than reordering: a two-element list is a ``[max, min]``
+        range, so moving the maximum into position 0 would collapse it to a
+        point and give every variable the same density.
 
         Args:
             density: Density input, scalar or sequence. Scalars pass through.
@@ -245,9 +243,7 @@ class ParameterValidator:
         if not isinstance(density, (tuple, list)):
             return density
 
-        # Copy unconditionally. This used to convert tuples only, so a list
-        # argument was written through at index 0 and the caller's object
-        # changed underneath them.
+        # Copy unconditionally -- a list argument must not be written through.
         density = list(density)
 
         max_density = max(density)

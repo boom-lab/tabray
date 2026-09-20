@@ -92,11 +92,9 @@ class RecordGenerator:
         """
         max_dim_size = max(shape)
         if n_s < max_dim_size:
-            # Each point uses exactly one coordinate per axis, so n_s points
-            # touch at most n_s coordinates on any axis. With n_s below the
-            # longest axis, some coordinate of that axis would go unused -- a
-            # grid site carrying no information, which docs/explainer.md
-            # excludes by definition. Refuse rather than emit such a grid.
+            # One coordinate per axis per point, so n_s below the longest axis
+            # leaves some coordinate of it unused, which docs/explainer.md
+            # excludes by definition.
             raise ValueError(
                 f"n_s {n_s} < max(shape) {max_dim_size}: cannot cover every "
                 f"coordinate of every axis. n_s must be max(shape) so that "
@@ -111,11 +109,9 @@ class RecordGenerator:
                 perm = rng.permutation(dim_size)
                 indices.append(perm)
             else:
-                # dim_size < n_s: tile independent permutations and truncate.
-                # The first block is a full permutation, so every coordinate of
-                # this axis is used at least once; the remainder spreads the
-                # surplus as evenly as possible. Shuffling afterwards keeps the
-                # positional pairing with the other axes random.
+                # Tile permutations and truncate: the first block uses every
+                # coordinate once, the rest spreads the surplus evenly. The
+                # shuffle keeps the pairing with other axes random.
                 blocks = [rng.permutation(dim_size)
                           for _ in range(-(-n_s // dim_size))]
                 tiled = np.concatenate(blocks)[:n_s]
@@ -172,10 +168,8 @@ class RecordGenerator:
             >>> len(set(indices_high[0]))
             5
         """
-        # Covering an axis of length L needs at least L points, because each
-        # point uses exactly one coordinate per axis. So the LHS must be sized
-        # by the LONGEST axis for every coordinate of every axis to be used at
-        # least once -- the property docs/explainer.md requires of a grid.
+        # One coordinate per axis per point, so the LHS is sized by the
+        # LONGEST axis -- see docs/explainer.md on minimum density.
         max_dim_size = max(shape)
         if num_obs < max_dim_size:
             raise ValueError(

@@ -20,14 +20,10 @@ from data_sparsity.utils import ChunkUtils
 def _configure_worker_logging(chunk_id: int, netcdf_filepath: str) -> logging.Logger:
     """Set up this worker's logger.
 
-    Off unless asked for. This used to call ``logging.basicConfig`` at DEBUG,
-    which configures the ROOT logger -- so every library in the process logged
-    too -- and wrote ``worker_<id>.log`` into the current working directory,
-    whatever that happened to be. With 216 chunks that is 216 files dropped
-    wherever the job was launched from.
-
-    Set ``TABRAY_WORKER_LOG=debug`` (or ``info``) to turn it on; the files then
-    land beside the netCDF output rather than in the working directory.
+    Off unless ``TABRAY_WORKER_LOG=debug`` (or ``info``) is set. It configures
+    this logger rather than the root one, and writes beside the netCDF output
+    rather than into the working directory -- one file per chunk, and a run can
+    have hundreds.
 
     Args:
         chunk_id: Identifier for this chunk
@@ -142,16 +138,10 @@ def generate_chunk(
         num_dims=num_dims
     )
     
-    # Draw every coordinate axis exactly as the serial path does, over the GLOBAL
-    # shape, then keep this chunk's slice of the split axis. The axis is sorted,
-    # so elements [task_range[0]:task_range[1]] are precisely the coordinates
-    # whose global index falls in this chunk -- the same index partition that the
-    # site filtering uses. Concatenating the chunks in order therefore reproduces
-    # the serial axis exactly, and every non-split axis is identical in every file.
-    #
-    # Drawing only this chunk's values within its own value sub-range would
-    # instead stratify the axis: each chunk would hold exactly section_sizes[k]
-    # coordinates in its interval, where the serial draw gives a Binomial count.
+    # Draw every axis over the GLOBAL shape, exactly as serial does, then keep
+    # this chunk's slice of the split axis. The axis is sorted, so that slice
+    # holds precisely the coordinates whose global index falls in this chunk,
+    # and concatenating the chunks in order reproduces the serial axis.
     coordinates = CoordinateGenerator.generate_all_coords(
         list(shape),
         rng=None,  # unused when dim_rngs is supplied
@@ -261,11 +251,8 @@ def generate_chunk(
             total_obs += var_obs
             log.debug("%s obs in chunk: %s", var_name, var_obs)
 
-        # Create Dataset with chunk-specific attributes. The density recorded is
-        # the reference variable's within this chunk, which is a meaningful
-        # quantity; summing every variable's observations over one grid was not.
-        # Same quantities as serial: num_obs and density describe the reference
-        # variable within this chunk, per-variable counts are measured.
+        # Same quantities as serial: num_obs and density describe the
+        # reference variable within this chunk, per-variable counts measured.
         chunk_attrs = NetCDFBuilder.create_default_attrs(
             chunk_var_counts[0], num_dims, ratio_dims,
             float(chunk_var_counts[0] / np.prod(task_shape)), seed

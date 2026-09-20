@@ -64,10 +64,9 @@ class NetCDFBuilder:
     ) -> Dict:
         """Build the multi-variable attributes, identically for both paths.
 
-        A multi-variable dataset has no single density or observation count, so
-        the per-variable arrays are what actually describe it. They were
-        previously written by the parallel chunks only, leaving serial files
-        unable to say what any variable other than var0 was.
+        A multi-variable dataset has no single density or observation count,
+        so the per-variable arrays are what actually describe it. Both paths
+        must write them, or the two disagree on what the file says.
 
         Args:
             num_vars: Number of variables

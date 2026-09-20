@@ -186,16 +186,9 @@ class ChunkUtils:
 
         Serial and every worker derive the same stream per dimension, which is
         what makes the non-split coordinate axes identical in every chunk file.
-        The offsets this used to add to the seed collided with other purposes
-        (see data_sparsity.utils.streams).
-
-        This used to accept ``chunk_id``, ``dim_split`` and ``obs_in_chunk``
-        and fast-forward the split dimension's stream by ``chunk_id *
-        obs_in_chunk`` draws, so that a chunk would resume where the previous
-        one left off. No caller ever passed them, and the idea cannot work:
-        serial coordinates are the ORDER STATISTICS of the whole sample, so
-        chunk k's coordinates are not draws k*n through (k+1)*n of the stream.
-        Chunks slice the sorted global axis by index instead.
+        A chunk takes its coordinates by slicing the sorted global axis, never
+        by advancing the stream: serial coordinates are the order statistics of
+        the whole sample, so chunk k's are not draws k*n to (k+1)*n of it.
 
         Args:
             seed: Base random seed

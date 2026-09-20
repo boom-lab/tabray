@@ -927,11 +927,9 @@ class GenerateData:
         """Concatenate the chunk netCDF files into one, then delete them.
 
         Opened lazily with dask and written one variable at a time, so the
-        merge holds one variable's chunks rather than the whole dataset. It is
-        not free of the dataset size: merging 382 MB of data needed roughly
-        900 MB of address space, against ~1200 MB when the whole dataset is
-        handed to to_netcdf in one call. For output large enough that even that
-        does not fit, leave merge_nc False and keep the per-chunk files.
+        merge holds one variable's chunks rather than the whole dataset. It
+        still needs roughly 900 MB of address space per 382 MB of data; for
+        output larger than that, leave merge_nc False and keep the chunk files.
 
         Chunk files keep every dimension because they have to concatenate; the
         constant dimensions are squeezed out here, so the merged file matches
@@ -967,21 +965,6 @@ class GenerateData:
         if self.num_vars > 1:
             merged.attrs["var_num_obs"] = [int(n) for n in self.var_num_obs]
 
-        # Write one variable at a time rather than handing xarray the whole
-        # dataset. to_netcdf on a dask-backed dataset issues one store per
-        # data variable and runs them concurrently, so every variable's chunks
-        # are in flight at once. Writing them in sequence keeps one variable's
-        # chunks in memory instead of all of them: merging a 382 MB,
-        # 3-variable dataset under a hard address-space cap needed ~1200 MB as
-        # a single call and ~900 MB this way. Each write is still lazy and streams
-        # chunk by chunk -- only the concurrency across variables is given up,
-        # and that bought little, since the writes share one HDF5 file lock.
-        #
-        # It also makes the output byte-reproducible. With concurrent stores,
-        # HDF5 allocates each variable's space on first write, so the variables
-        # land at the same addresses in a different order on every run and
-        # identical data produces a different file. One store per call fixes
-        # the order. See S7 in the diagnostics.
         var_names = list(merged.data_vars)
         if not var_names:
             raise RuntimeError(
@@ -989,16 +972,10 @@ class GenerateData:
                 "data variables"
             )
 
-        # Run the write in the calling thread. xarray guards the netCDF4
-        # library with one lock, and this write takes it on both sides: it
-        # reads the chunk files and writes the output through the same lock.
-        # With dask's default thread pool, a thread reading a chunk and a
-        # thread writing the output can block each other and the merge hangs
-        # for good. It is rare and load-dependent -- twice in four runs of the
-        # verification harness, never in 25 runs of the same case alone -- but
-        # a hang is unrecoverable, so the write runs single-threaded, where two
-        # threads cannot contend. Nothing is materialised: dask still walks the
-        # graph chunk by chunk, just in this thread.
+        # One variable per call, in this thread: concurrent stores let HDF5
+        # allocate the variables in completion order, and the read and write
+        # sides of this one lock can deadlock. Neither is a memory trade -- the
+        # write still streams. docs/parallel_architecture_change.md explains.
         with dask.config.set(scheduler="synchronous"):
             merged[[var_names[0]]].to_netcdf(self.netcdf_filepath, mode="w")
             for var_name in var_names[1:]:

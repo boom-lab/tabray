@@ -236,9 +236,8 @@ class MultiVarDimensionsConfig:
             if const_dims:
                 const_rng_dict = {}
                 for const_dim in const_dims:
-                    # Indexed by the dimension too: every constant dimension
-                    # of a variable used to share one stream, so a variable
-                    # constant on two dimensions picked the same index on both.
+                    # Indexed by the dimension too, or a variable constant on
+                    # two dimensions picks the same index on both.
                     const_rng_dict[const_dim] = stream(
                         seed, Stream.CONST_COORD, var_idx, const_dim
                     )

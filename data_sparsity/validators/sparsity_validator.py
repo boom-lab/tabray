@@ -17,32 +17,14 @@ class SparsityValidator:
     def compute_min_density(nb_coords_per_dim: np.ndarray) -> float:
         """Compute minimum allowable density for given dimensions.
 
-        The minimum density is max(shape) / prod(shape): the smallest density
-        at which every coordinate on every axis can still be used at least
-        once.
+        The minimum density is max(shape) / prod(shape): the sparsest grid in
+        which every coordinate on every axis is still used at least once, an
+        unused coordinate being stored without describing any data point.
 
-        Why max(shape) observations, and not fewer: each observation supplies
-        exactly one coordinate per axis, so covering an axis of length L needs
-        at least L observations. The longest axis therefore sets the floor, and
-        that floor is reachable -- max(shape) points can cover every axis at
-        once, by walking the longest axis in order and tiling the shorter axes'
-        permutations against it. This is what the Latin hypercube stage in
-        RecordGenerator does, which is why it takes n_s = max(shape) points.
-
-        Why every coordinate must be used: an unused coordinate is stored
-        without describing any data point. A 3x1 grid holding 1 record is more
-        efficiently stored as a 1x1 grid, so the comparison the package exists
-        to make -- array storage against tabular storage -- would be run on a
-        dataset carrying coordinates it does not need. See docs/explainer.md,
-        "Sparse vs dense".
-
-        This bound used to be 1 / nmin**(d-1), with nmin the SHORTEST axis.
-        That is the same number on a cubic grid, where n**d / n**(d-1) = n, and
-        it was derived by hand for that case. On a non-cubic grid it is
-        strictly larger than necessary, and it refused densities that are in
-        fact achievable -- by 5.6x on a GLORYS12-shaped grid, which cut the
-        sparse end off the range the package is meant to sweep. The two agree
-        exactly when all dimensions are equal.
+        The LONGEST axis sets it, not the shortest: each observation supplies
+        one coordinate per axis, so covering an axis of length L needs L
+        observations. docs/explainer.md, "Minimum density, on any grid",
+        derives it and shows the floor is reachable.
 
         Args:
             nb_coords_per_dim: Number of coordinates per dimension

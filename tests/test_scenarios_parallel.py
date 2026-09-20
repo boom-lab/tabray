@@ -581,13 +581,9 @@ class TestScenariosParallel:
 class TestMergedNetCDFIsByteReproducible:
     """The merged netCDF must be identical on disk between identical runs.
 
-    _merge_netcdf_files writes one data variable at a time. Handing the whole
-    dataset to to_netcdf instead issues one dask store per variable and runs
-    them concurrently, and HDF5 allocates each variable's space on first write
-    -- so the variables land at the same addresses in a different order on
-    every run, and identical data produces a different file. That is
-    multi-variable only, which is why this test uses three variables: with one
-    variable there is one store and nothing to race. See S7 in the diagnostics.
+    Three variables, because the failure is multi-variable only: writing them
+    in one to_netcdf call lets HDF5 allocate them in completion order.
+    docs/parallel_architecture_change.md, "Writing the merged file".
     """
 
     @staticmethod
@@ -617,7 +613,7 @@ class TestMergedNetCDFIsByteReproducible:
         )
 
     def test_merged_file_holds_every_variable(self, tmp_path):
-        """Guards the mode='w' then mode='a' sequence, which could drop one."""
+        """The mode='w' then mode='a' sequence must not drop a variable."""
         merged = self.generate(tmp_path, 2)
         with xr.open_dataset(merged) as ds:
             assert sorted(ds.data_vars) == ["var0", "var1", "var2"]

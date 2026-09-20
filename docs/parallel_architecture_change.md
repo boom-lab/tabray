@@ -137,3 +137,36 @@ materialises the complement.
   per stratum -- 0.00013% for GLORYS12.
 * The split dimension must be one every variable varies along, so a grid whose longest axis is
   dropped by some variable is split on a shorter one, lowering the maximum chunk count.
+
+## Writing the merged file
+
+`generate(merge_nc=True)` concatenates the chunk netCDF files into one. The write is shaped by
+two constraints that are not visible from the code.
+
+**One variable per `to_netcdf` call.** Handing the whole dataset to `to_netcdf` issues one dask
+store per data variable and runs them concurrently. HDF5 allocates each variable's space on first
+write, so the variables land at the same addresses in whatever order the stores finish, and
+identical data produces a different file on every run. Over 8 identical runs, single-variable
+cases gave 1 hash, a 2-variable case gave 2 and a 3-variable case gave 5. A synchronous scheduler
+does not fix this — the order comes out of graph construction, not execution — but one store per
+call does.
+
+Writing them in sequence also costs less memory, which is the better reason to do it. Merging a
+382 MB, 3-variable dataset under a lowered `RLIMIT_AS`:
+
+```
+    single to_netcdf call     fails at 900 MB   writes at 1200 MB
+    one variable at a time    fails at 600 MB   writes at  900 MB
+```
+
+**Single-threaded.** xarray guards the netCDF4 library with one lock, and this write takes it on
+both sides: it reads the chunk files and writes the output through the same lock. With dask's
+default thread pool, a thread reading a chunk and a thread writing the output can block each other
+permanently. It is rare and load-dependent — twice in four runs of the verification harness, and
+never in 25 runs of the same case on its own — but a hang cannot be recovered from, so the write
+runs in the calling thread, where two threads cannot contend. Nothing is materialised: dask still
+walks the graph chunk by chunk.
+
+**What this does not buy.** The merge is still not free of the dataset size — roughly 900 MB of
+address space for 382 MB of data. For output larger than that, leave `merge_nc` at its default
+`False` and keep the per-chunk files.

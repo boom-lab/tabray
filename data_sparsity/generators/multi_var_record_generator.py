@@ -289,11 +289,6 @@ class MultiVarRecordGenerator:
         )
 
         # Store selected constant coordinate values
-        # NOTE (D5): this is still passed the chunk's task shape, which is the
-        # bug. Fixing it requires the stratum model -- a variable constant on
-        # the split dimension lives in ONE stratum, so other chunks must place
-        # nothing for it and the global coordinate must be mapped to a local
-        # index. Handled in the D4 restructure, not as a standalone patch.
         var_constant_coords = MultiVarRecordGenerator._select_constant_coords(
             shape, var_constant_dims, var_constant_coord_indices, num_vars
         )
@@ -746,11 +741,9 @@ class MultiVarRecordGenerator:
                     np.empty(0, dtype=float),
                 )
 
-        # An overlap target that could not be met is worth saying out loud: it
-        # means the (density, overlap) pair was over-determined for that
-        # variable. A variable varying along a single dimension always lands
-        # here, because the LHS guarantees the reference covers that whole axis,
-        # so its density alone fixes the overlap (see docs/explainer_multivar).
+        # An unreachable target means the (density, overlap) pair was
+        # over-determined for that variable -- always so for a variable varying
+        # along one dimension (docs/explainer_multivar.md).
         for var_idx, events in sorted(clipped.items()):
             _, first_ideal, first_got, proj_size, free = events[0]
             print(

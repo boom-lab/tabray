@@ -6,20 +6,10 @@ so distinct tuples give independent generators and two purposes cannot end up
 sharing a stream. See ``stream`` for the shift that makes that true even when a
 tag or an index is zero.
 
-Streams used to be derived by adding offsets to the seed -- ``seed +
-dim_idx * 1000`` for coordinate axes, ``seed`` for the density range, ``seed +
-5000 + var_idx`` for dimension selection, ``seed + 6000 + var_idx`` for
-constant coordinates. Those arithmetics collided:
-
-* ``seed + 0*1000`` is ``seed``, so the x0 axis and the density range were the
-  same stream. A variable's density came out as ``min + (max-min)*u`` for the
-  same ``u`` that became an x0 coordinate.
-* ``seed + 5000`` is ``seed + 5*1000``, so on a 6-dimensional grid the x5 axis
-  and var0's dimension selection were the same stream.
-* ``seed + 6000`` likewise for the x6 axis and var0's constant coordinate.
-
-Adding a purpose means adding a tag here, which is checked against the others,
-rather than picking an offset and hoping it misses.
+Add a purpose by adding a tag here, where the existing values are visible.
+Deriving streams by arithmetic on the seed instead is what this replaced, and
+it collided silently: ``seed + 0*1000`` is ``seed``, and ``seed + 5000`` is
+``seed + 5*1000``.
 """
 
 from typing import Union
@@ -47,12 +37,10 @@ class Stream:
 def stream(seed: int, tag: int, *index: Union[int, np.integer]) -> np.random.Generator:
     """Return the generator for one purpose.
 
-    Every component is shifted up by one before being handed to NumPy. That is
-    not cosmetic: ``SeedSequence`` IGNORES TRAILING ZEROS, so without the shift
-    ``default_rng([seed, 0, 0])`` -- the x0 coordinate axis -- would be the same
-    stream as ``default_rng(seed)``, and ``stream(seed, tag, 0)`` the same as
-    ``stream(seed, tag)``. Shifting guarantees no component is ever zero, so no
-    tuple is a zero-extension of another and distinct purposes stay distinct.
+    Every component is shifted up by one before reaching NumPy, because
+    ``SeedSequence`` IGNORES TRAILING ZEROS: without the shift the x0
+    coordinate axis, ``[seed, 0, 0]``, would be ``default_rng(seed)``. Shifting
+    keeps every component non-zero, so no tuple is a zero-extension of another.
 
     Args:
         seed: The run's base seed

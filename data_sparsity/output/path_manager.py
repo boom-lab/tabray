@@ -148,10 +148,9 @@ class PathManager:
             parquet_filepath, overwrite
         )
 
-        # parquet_tmp names the scratch DIRECTORY itself. It used to be read
-        # with os.path.dirname, which resolved to the parquet output directory
-        # -- so scratch chunks were written next to the real output and the
-        # cleanup deleted the user's output directory.
+        # parquet_tmp names the scratch DIRECTORY itself, not a file inside
+        # one -- taking its dirname lands on the real output directory, which
+        # the scratch cleanup then deletes.
         print(f"Setting up temporary parquet directory {parquet_tmp}")
         os.makedirs(parquet_tmp, exist_ok=True)
 

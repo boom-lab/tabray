@@ -64,13 +64,8 @@ class MultiVarSparsityConfig:
             )
 
         # var0 takes the maximum and some other variable takes the minimum, so
-        # both prescribed values appear; with two variables they are exactly the
-        # two densities. Any further variables are drawn from the range, and the
-        # non-reference densities are shuffled among themselves.
-        #
-        # var0 used to be decided by a coin flip between min and max, so half of
-        # all seeds produced a reference that validate_reference_is_largest then
-        # rejected, and the result was not reproducible from the arguments.
+        # both prescribed values appear; with two variables they are exactly
+        # the two densities. Any further variables are drawn from the range.
         others = np.concatenate([
             [min_density],
             rng.uniform(min_density, reference_density, size=max(0, num_vars - 2)),
