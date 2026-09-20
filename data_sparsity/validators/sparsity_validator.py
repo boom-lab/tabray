@@ -17,36 +17,42 @@ class SparsityValidator:
     def compute_min_density(nb_coords_per_dim: np.ndarray) -> float:
         """Compute minimum allowable density for given dimensions.
 
-        The minimum density is 1.0 / (np.power( nmin, (d-1) )), which ensures
-        that all coordinates tuples are used. d is number of dimensions, nmin is
-        the size of the smallest dimension (number of coordinates along it).
+        The minimum density is max(shape) / prod(shape): the smallest density
+        at which every coordinate on every axis can still be used at least
+        once.
 
-        Note that this is a sufficient but not tight bound for non-cubic grids:
-        covering an axis of length L needs at least L observations, so the
-        smallest density at which every coordinate CAN be used is
-        max(shape)/prod(shape). The two agree exactly when all dimensions are
-        equal. The stricter bound is kept deliberately.
-        
-        While density is generally defined as
-        num_observations/total_grid_points ,
-        if minimum were density_min = 1 / total_grid_points, there would be
-        inefficient data storage, e.g. in xarray we would store to disk unused
-        coordinates values
+        Why max(shape) observations, and not fewer: each observation supplies
+        exactly one coordinate per axis, so covering an axis of length L needs
+        at least L observations. The longest axis therefore sets the floor, and
+        that floor is reachable -- max(shape) points can cover every axis at
+        once, by walking the longest axis in order and tiling the shorter axes'
+        permutations against it. This is what the Latin hypercube stage in
+        RecordGenerator does, which is why it takes n_s = max(shape) points.
 
-        E.g. a 3x1 grid with 1 record, is more efficiently stored to disk as a
-        1x1 grid (a point) with 1 record; the assumption is to compare dataset
-        that already have all the data necessary
-        
+        Why every coordinate must be used: an unused coordinate is stored
+        without describing any data point. A 3x1 grid holding 1 record is more
+        efficiently stored as a 1x1 grid, so the comparison the package exists
+        to make -- array storage against tabular storage -- would be run on a
+        dataset carrying coordinates it does not need. See docs/explainer.md,
+        "Sparse vs dense".
+
+        This bound used to be 1 / nmin**(d-1), with nmin the SHORTEST axis.
+        That is the same number on a cubic grid, where n**d / n**(d-1) = n, and
+        it was derived by hand for that case. On a non-cubic grid it is
+        strictly larger than necessary, and it refused densities that are in
+        fact achievable -- by 5.6x on a GLORYS12-shaped grid, which cut the
+        sparse end off the range the package is meant to sweep. The two agree
+        exactly when all dimensions are equal.
+
         Args:
             nb_coords_per_dim: Number of coordinates per dimension
-            
+
         Returns:
             Minimum density value
 
         """
-        d = len(nb_coords_per_dim)
-        nmin = min(nb_coords_per_dim)
-        return 1.0 / (np.power( nmin, (d-1) ))
+        shape = np.asarray(nb_coords_per_dim, dtype=np.int64)
+        return float(shape.max()) / float(np.prod(shape, dtype=np.float64))
     def validate_density_bounds(
         density: float,
         density_min: float

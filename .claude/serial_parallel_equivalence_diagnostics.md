@@ -31,7 +31,7 @@ plus the coverage fix (A5).
 parquet rows and attributes -- verified across single- and multi-variable, 2D to 6D, minimum
 density, reduced-dimension variables, `overlap='random'` and `fixed_overlap`.
 
-Still open: **S6-S7**, and **A4, A6-A7**. Sections describing a closed item record the behaviour *before* the change.
+Still open: **S6-S7**, and **A4, A7**. Sections describing a closed item record the behaviour *before* the change.
 
 ## Question
 
@@ -500,7 +500,7 @@ shorter than `n_s`, so every coordinate of every axis is used at least once.
 This is affordable precisely because `compute_min_density` already guarantees at
 least `max(shape)` observations.
 
-### A6 — `compute_min_density` is sufficient but not tight for non-cubic grids
+### [done] A6 — `compute_min_density` is sufficient but not tight for non-cubic grids
 
 `1/nmin**(d-1)` is exactly the coverage bound on hyper-cubic grids, where
 `n**d / n**(d-1) = n = max(shape) = min(shape)` -- the same formula written two
@@ -525,14 +525,48 @@ narrows the sparse end of the density sweep, by 5.59x for a GLORYS12-shaped
 grid: the sparsest dataset the package can currently generate there has 24,157
 observations where 4,320 would satisfy the definition.
 
-**Suggested improvement, not applied.** Relaxing to `max(shape)/prod(shape)`
-would extend the sweep toward the maximally-sparse end the package exists to
-characterise. It is never stricter than the current bound, so every
-configuration valid today stays valid. One thing to settle first:
-`explainer.md` defines minimum density as coordinates used "once and only
-once", which is achievable only on cubic grids -- on a non-cubic grid dim 0 of
-`[4,7,10]` would need exactly 4 points and dim 2 exactly 10. Some
-generalisation has to be chosen, and that is a definitional call.
+**Applied.** `compute_min_density` now returns `max(shape)/prod(shape)`.
+
+*The definitional call.* `explainer.md` stated the rule two ways: the worked
+3x3 example says coordinates are used "once and only once", while footnote 3
+says "all coordinates are occupied at least once". On a cubic grid these
+describe the same point set, which is why the difference went unnoticed. Off
+cubic they come apart, and "once and only once" has no solution at all: on
+`[4,7,10]`, a set using each of the 10 coordinates of axis 2 exactly once has
+10 points, and 10 points cannot use each of the 4 coordinates of axis 0 exactly
+once. **At least once** is therefore the condition, which is what the footnote
+already said and what the rest of the package assumes. No new convention was
+invented; the general statement in the explainer was corrected to match the
+footnote, and the bound follows from it.
+
+*Verified reachable, not just permitted.* Generating at exactly the new minimum
+and checking that every coordinate on every axis carries at least one
+observation, serial and parallel:
+
+```
+grid              obs   max(axis)   serial     parallel
+[10, 10, 10]       10          10   covered    covered
+[4, 7, 10]         10          10   covered    covered
+[5, 20, 10]        20          20   covered    covered
+[50, 10, 1, 1]     50          50   covered    covered
+[2, 3, 5, 7]        7           7   covered    covered
+```
+
+Three of these were rejected before: `[4,7,10]` demanded 17.5 observations,
+`[2,3,5,7]` demanded 26.25, `[5,20,10]` demanded 40.
+
+*The sharpest case was not in the original table.* Any grid with an axis of
+length 1 has `nmin = 1`, so the old bound was `1/1**(d-1) = 1.0` -- the only
+admissible density was 1.0. Such grids could be generated purely gridded and no
+other way, which for a package built to sweep occupancy removed the entire
+sweep. `[50,10,1,1]` now runs at 50 observations of 500.
+
+*No data change.* The bound only gates validation, so all ten golden digests
+are unchanged and serial still equals parallel in all ten. 461 tests pass.
+
+Documented in `docs/explainer.md` ("Minimum density, on any grid", which also
+fills the `[TD ADD FORMULA]` placeholder that stood there), in the README under
+the `density` parameter, and in CLAUDE.md.
 
 
 
