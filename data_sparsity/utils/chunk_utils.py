@@ -4,10 +4,9 @@ This module handles chunk-level settings for splitting large datasets into
 multiple smaller datasets.
 """
 
-from typing import List, Union
+from typing import List
 import numpy as np
 from numpy.typing import ArrayLike
-import logging
 
 class ChunkUtils:
     """Utilities manager for chunked dataset generation"""
@@ -266,44 +265,7 @@ class ChunkUtils:
         return int(total_chunk_points)
 
     @staticmethod
-    def generate_split_dimension_range(
-            dim_split: int,
-            task_range: tuple,
-            dim_size: int,
-    ) -> dict:
-        """Split dimension uses normalized chunk range with task_rng"""
-
-        dim_ranges = {
-            dim_split: (
-                task_range[0] / dim_size,
-                task_range[1] / dim_size
-            )
-        }
-
-        return dim_ranges
-
     @staticmethod
-    def assign_rngs_to_dimensions(
-            dim_split: int,
-            task_shape: tuple,
-            dim_rngs_dict: dict
-    ) -> dict:
-        """
-        Return dimension RNGs (already prepared by generate_rngs).
-        
-        This is now a simple pass-through since generate_rngs() already
-        returns the properly advanced dimension RNGs.
-        
-        Args:
-            dim_split: Index of split dimension (unused, for API compatibility)
-            task_shape: Shape of current chunk (unused, for API compatibility)
-            dim_rngs_dict: Dict from generate_rngs() with per-dimension RNGs
-            
-        Returns:
-            Dict mapping dimension index to RNG
-        """
-        return dim_rngs_dict
-
     @staticmethod
     def calculate_lhs_draws_per_generation(
         shape: List[int],

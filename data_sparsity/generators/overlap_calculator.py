@@ -62,25 +62,6 @@ class OverlapCalculator:
         return projected
 
     @staticmethod
-    def compute_pairwise_overlap_non_normalized(
-        ref_coords: Set[Tuple[int, ...]],
-        var_coords: Set[Tuple[int, ...]],
-        ref_varying_dims: List[int],
-        var_varying_dims: List[int]
-    ) -> int:
-        """Compute overlap count between two variables.
-        
-        Args:
-            ref_coords: Coordinate set for reference variable
-            var_coords: Coordinate set for comparison variable
-            ref_varying_dims: Varying dimensions for reference variable
-            var_varying_dims: Varying dimensions for comparison variable
-            
-        Returns:
-            Number of overlapping observations
-        """
-        return len(ref_coords.intersection(var_coords))
-
     @staticmethod
     def compute_overlap_report(
         records: Dict[str, np.ndarray],

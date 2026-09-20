@@ -7,11 +7,9 @@ This is a refactored version that uses modular validators, configurators,
 generators, and output builders for improved testability and maintainability.
 """
 
-import gc
-import logging
 import os
 import warnings
-from typing import Dict, List, Tuple, Union, Optional
+from typing import List, Tuple, Union, Optional
 import dask.dataframe as dd
 import numpy as np
 from numpy.typing import ArrayLike
@@ -452,108 +450,6 @@ class GenerateData:
             print(f"Parallel generation: {self.NTASKS} tasks, {max_obs} obs per task")
             print(f"  Dataset split along dimension {self.dim_split}")
             print(f"  Block sizes along it: {self.section_sizes}")
-
-    def _format_var_name(self, var_idx: int) -> str:
-        """Format variable name.
-
-        Args:
-            var_idx: Variable index
-
-        Returns:
-            Formatted variable name
-        """
-        return f"var{var_idx}"
-
-    def _generate_coordinates(
-        self,
-        shape: List[int],
-        rng: np.random.Generator,
-        dim_ranges: Optional[Dict[int, Tuple[float, float]]] = None,
-        dim_rngs: Optional[Dict[int, np.random.Generator]] = None
-    ) -> dict:
-        """Generate coordinates for all dimensions.
-
-        Creates coordinate arrays for each dimension with values sorted
-        in ascending order within specified ranges.
-
-        Args:
-            shape: shape tuple/list
-            rng: random number generator
-            dim_ranges: Optional dict mapping dimension indices to (low, high) tuples
-                       for custom coordinate ranges. If None, uses [0, 1) for all dims.
-            dim_rngs: Optional dict mapping dimension indices to specific RNGs to use.
-                     If provided, these override the default rng for those dimensions.
-
-        Returns:
-            Dictionary mapping dimension names to coordinate arrays
-        """
-
-        coordinates = CoordinateGenerator.generate_all_coords(
-            shape,
-            rng,
-            dim_ranges,
-            dim_rngs
-        )
-        return coordinates
-
-    def _generate_observations(self) -> None:
-        """Generate observation values."""
-        from data_sparsity.generators import ObservationGenerator
-        self._observations = ObservationGenerator.generate_observations(
-            self.num_obs, self._rng
-        )
-
-    def _generate_record(
-        self,
-        shape: list = None,
-        num_obs: int = None,
-        observations: np.ndarray = None,
-        rng: np.random.Generator = None
-    ) -> np.ndarray:
-        """Generate sparse record array with observations.
-        
-        This method now uses MultiVarRecordGenerator with num_vars=1 to
-        maintain consistency with multi-variable generation and eliminate
-        code duplication.
-
-        Args:
-            shape: Shape of the record array. If None, uses self.shape
-            num_obs: Number of observations to place. If None, uses self.num_obs
-            observations: Pre-generated observation values. If None, generates them
-            rng: Random number generator. If None, uses self._rng
-
-        Returns:
-            Multi-dimensional array with sparse observations
-        """
-        if shape is None:
-            shape = self.shape
-        if num_obs is None:
-            num_obs = self.num_obs
-        if rng is None:
-            rng = self._rng
-
-        # Use MultiVarRecordGenerator with num_vars=1 for consistency
-        # For single-var, all dimensions vary (no constant dims)
-        records, overlap_actual = MultiVarRecordGenerator.generate(
-            shape=shape,
-            overlap='random',  # Irrelevant for single variable
-            num_vars=1,
-            var_num_obs=np.array([num_obs]),
-            var_dims_indices=[list(range(len(shape)))],  # All dims vary
-            var_constant_dims=[[]],  # No constant dims
-            var_constant_coord_indices={},  # No constant coords
-            num_dims=len(shape),
-            seed=self.seed,
-            dim_split=int(np.argmax(shape))
-        )
-
-        # Extract the single record from the dictionary
-        record = records['var0']
-
-        if self.NTASKS == 1:
-            self._record = record
-
-        return record
 
     def _generate_multi_var_records(
         self,

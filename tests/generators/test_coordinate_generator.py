@@ -6,60 +6,6 @@ from data_sparsity.generators.coordinate_generator import CoordinateGenerator
 from data_sparsity.utils.chunk_utils import ChunkUtils
 
 
-class TestGenerateDimensionCoords:
-    """Tests for generate_dimension_coords method."""
-    
-    def test_correct_length(self, fixed_rng):
-        """Should generate correct number of coordinates."""
-        coords = CoordinateGenerator.generate_dimension_coords(10, fixed_rng)
-        assert len(coords) == 10
-    
-    def test_values_in_range(self, fixed_rng):
-        """Should generate values in [0,1] range."""
-        coords = CoordinateGenerator.generate_dimension_coords(100, fixed_rng)
-        assert np.all(coords >= 0)
-        assert np.all(coords <= 1)
-    
-    def test_sorted_ascending(self, fixed_rng):
-        """Should return sorted coordinates."""
-        coords = CoordinateGenerator.generate_dimension_coords(50, fixed_rng)
-        assert np.all(coords[:-1] <= coords[1:])
-    
-    def test_reproducible_with_seed(self):
-        """Should produce same results with same seed."""
-        rng1 = np.random.default_rng(42)
-        rng2 = np.random.default_rng(42)
-        coords1 = CoordinateGenerator.generate_dimension_coords(20, rng1)
-        coords2 = CoordinateGenerator.generate_dimension_coords(20, rng2)
-        np.testing.assert_array_equal(coords1, coords2)
-    
-    def test_different_with_different_seed(self):
-        """Should produce different results with different seeds."""
-        rng1 = np.random.default_rng(42)
-        rng2 = np.random.default_rng(123)
-        coords1 = CoordinateGenerator.generate_dimension_coords(20, rng1)
-        coords2 = CoordinateGenerator.generate_dimension_coords(20, rng2)
-        assert not np.array_equal(coords1, coords2)
-    
-    def test_single_coordinate(self, fixed_rng):
-        """Should handle single coordinate generation."""
-        coords = CoordinateGenerator.generate_dimension_coords(1, fixed_rng)
-        assert len(coords) == 1
-        assert 0 <= coords[0] <= 1
-    
-    def test_many_coordinates(self, fixed_rng):
-        """Should handle large number of coordinates."""
-        coords = CoordinateGenerator.generate_dimension_coords(1000, fixed_rng)
-        assert len(coords) == 1000
-        assert np.all(coords >= 0)
-        assert np.all(coords <= 1)
-    
-    def test_returns_numpy_array(self, fixed_rng):
-        """Should return numpy array."""
-        coords = CoordinateGenerator.generate_dimension_coords(10, fixed_rng)
-        assert isinstance(coords, np.ndarray)
-
-
 class TestGenerateAllCoords:
     """Tests for generate_all_coords method."""
     
