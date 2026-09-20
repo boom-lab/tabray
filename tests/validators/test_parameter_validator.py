@@ -126,6 +126,47 @@ class TestValidateNumDims:
             ParameterValidator.validate_num_dims(None)
 
 
+class TestValidateDensityRefvarDoesNotMutate:
+    """The density argument must not be written through."""
+
+    def test_list_argument_is_not_mutated(self):
+        """A list used to be assigned, not copied, then written at index 0."""
+        density = [0.5, 0.3]
+
+        result = ParameterValidator.validate_density_refvar(density)
+
+        assert result == [0.5, 0.3]
+        assert density == [0.5, 0.3], "the caller's list must be left alone"
+
+    def test_tuple_argument_returns_a_list(self):
+        density = (0.6, 0.2)
+
+        result = ParameterValidator.validate_density_refvar(density)
+
+        assert result == [0.6, 0.2]
+        assert density == (0.6, 0.2)
+
+    def test_reference_not_largest_raises(self):
+        """It used to overwrite density[0] with the maximum.
+
+        For a two-element list, read downstream as a [max, min] range, that
+        collapsed the range and gave every variable the same density, silently.
+        """
+        with pytest.raises(ValueError, match="must have the largest density"):
+            ParameterValidator.validate_density_refvar([0.3, 0.5])
+
+    def test_reference_already_largest_is_untouched(self):
+        density = [0.5, 0.3, 0.2]
+
+        result = ParameterValidator.validate_density_refvar(density)
+
+        assert result == [0.5, 0.3, 0.2]
+        assert density == [0.5, 0.3, 0.2]
+
+    def test_scalar_passes_through(self):
+        assert ParameterValidator.validate_density_refvar(0.4) == 0.4
+
+
 class TestValidateVarDimsExplicitIndices:
     """var_dims given as explicit dimension indices, one list per variable."""
 

@@ -41,8 +41,10 @@ class MultiVarSparsityConfig:
     ) -> np.ndarray:
         """Create density array from 2-element list.
         
-        If num_vars == 2: randomly assign which gets min and which gets max
-        If num_vars > 2: assign min and max, fill rest with random values
+        density_list is [max, min]. var0 takes the maximum and one other
+        variable takes the minimum, so both prescribed values are used: with
+        two variables the range is exactly the two densities. Any further
+        variables are drawn uniformly from [min, max].
         
         Args:
             density_list: List with exactly 2 elements [min, max]
@@ -52,19 +54,29 @@ class MultiVarSparsityConfig:
         Returns:
             Array of density values, one per variable
         """
+        reference_density = density_list[0]
         min_density = min(density_list)
-        max_density = max(density_list)
-        
-        if num_vars == 2:
-            if rng.random() < 0.5:
-                return np.array([min_density, max_density])
-            else:
-                return np.array([max_density, min_density])
-        else:
-            random_densities = rng.uniform(min_density, max_density, size=num_vars - 2)
-            all_densities = np.concatenate([[min_density, max_density], random_densities])
-            rng.shuffle(all_densities)
-            return all_densities
+        if reference_density != max(density_list):
+            raise ValueError(
+                f"density[0]={reference_density} is not the largest of "
+                f"{list(density_list)}. var0 is the overlap reference and must "
+                "have the largest density, so list the largest value first."
+            )
+
+        # var0 takes the maximum and some other variable takes the minimum, so
+        # both prescribed values appear; with two variables they are exactly the
+        # two densities. Any further variables are drawn from the range, and the
+        # non-reference densities are shuffled among themselves.
+        #
+        # var0 used to be decided by a coin flip between min and max, so half of
+        # all seeds produced a reference that validate_reference_is_largest then
+        # rejected, and the result was not reproducible from the arguments.
+        others = np.concatenate([
+            [min_density],
+            rng.uniform(min_density, reference_density, size=max(0, num_vars - 2)),
+        ])
+        rng.shuffle(others)
+        return np.concatenate([[reference_density], others])
 
     @staticmethod
     def from_full_list(density_list: List[float], num_vars: int) -> np.ndarray:
