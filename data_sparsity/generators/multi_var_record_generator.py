@@ -179,35 +179,52 @@ class MultiVarRecordGenerator:
             obs_rng = np.random.default_rng(obs_seed)
             
             # Determine index generation approach
-            if lhs_rng is not None and num_vars == 1 and chunk_id is not None and div_points is not None:
-                # Parallel mode with single var: use global LHS with chunk filtering
-                # This maintains strict LHS property across all chunks
-                multi_indices = RecordGenerator.generate_global_lhs_indices_for_chunk(
-                    global_shape=lhs_shape,
-                    num_obs_global=num_obs_global,
-                    rng=lhs_rng,
-                    chunk_id=chunk_id,
-                    div_points=div_points,
-                    dim_split=dim_split
+            if num_vars == 1 and dim_split is not None:
+                # Stratified placement. Serial asks for every stratum, a worker
+                # asks for the ones in its chunk, and both get byte-identical
+                # slices because a stratum depends only on (seed, stratum).
+                # Peak memory is one hyperplane, not the whole grid.
+                global_shape = list(lhs_shape) if lhs_shape is not None else list(shape)
+                total_obs = num_obs_global if num_obs_global is not None else num_obs
+                if chunk_id is not None and div_points is not None:
+                    stratum_start = int(div_points[chunk_id])
+                    wanted = range(stratum_start, int(div_points[chunk_id + 1]))
+                else:
+                    stratum_start = 0
+                    wanted = None
+
+                multi_indices, observations = (
+                    RecordGenerator.generate_stratified_indices(
+                        global_shape=global_shape,
+                        num_obs=total_obs,
+                        seed=seed,
+                        split_dim=dim_split,
+                        strata=wanted,
+                    )
                 )
-                # Use actual number of filtered observations
+                # The record array is chunk-shaped, so rebase the split axis.
+                if stratum_start:
+                    multi_indices = tuple(
+                        values - stratum_start if dim == dim_split else values
+                        for dim, values in enumerate(multi_indices)
+                    )
                 num_obs_actual = len(multi_indices[0])
             else:
-                # Serial mode or multi-var: use chunk-local LHS
-                # Note: Multi-var LHS coordination not yet implemented
+                # Multi-variable: chunk-local hybrid LHS (see D4; stage C).
                 multi_indices = RecordGenerator.generate_hybrid_indices(
                     shape=var_shape,
                     num_obs=num_obs,
                     rng=obs_rng
                 )
                 num_obs_actual = num_obs
+                observations = ObservationGenerator.generate_observations(
+                    num_obs_actual, obs_rng
+                )
 
             # Expand to FULL space by filling constant dims with a single coordinate value
             full_multi_indices = MultiVarRecordGenerator._expand_to_full_coords(
                 multi_indices, var_constant_coords[var_idx], num_obs_actual
             )
-            # Generate random observation values
-            observations = ObservationGenerator.generate_observations(num_obs_actual, obs_rng)
 
             # Assign observations to the full-space coordinates
             RecordGenerator.assign_observations(
