@@ -440,35 +440,67 @@ class TestGenerate:
             assert count == var_num_obs[var_idx]
 
     def test_fixed_overlap_shares_prefix_across_true_flags(self):
-        """Should share the same overlap prefix for fixed-overlap variables."""
-        shape = [10, 10]
-        var_num_obs = np.array([12, 10, 10])
-        var_dims_indices = [[0, 1], [0, 1], [0, 1]]
-        var_constant_dims = [[], [], []]
-        var_constant_coord_indices = {0: {}, 1: {}, 2: {}}
+        """Variables opting into fixed_overlap draw from one shared ordering.
 
+        var2 asks for half of var1's overlap, so with a shared ordering its
+        sites are a prefix of var1's and therefore a subset.
+
+        Exercises the stratified path (dim_split given), which is what
+        GenerateData uses. The previous version called the pre-stratified path,
+        where the non-overlapping fill can land on var0 by accident (A3) and
+        inflate both sets -- the subset property held there for one lucky seed
+        and fails for 30 others.
+        """
+        shape = [20, 20]
         records, _ = MultiVarRecordGenerator.generate(
             shape=shape,
-            overlap=[0.8, 0.4],
+            overlap=[0.5, 0.25],
             fixed_overlap=[True, True],
             num_vars=3,
-            var_num_obs=var_num_obs,
-            var_dims_indices=var_dims_indices,
-            var_constant_dims=var_constant_dims,
-            var_constant_coord_indices=var_constant_coord_indices,
+            var_num_obs=np.array([80, 40, 40]),
+            var_dims_indices=[[0, 1]] * 3,
+            var_constant_dims=[[], [], []],
+            var_constant_coord_indices={0: {}, 1: {}, 2: {}},
             num_dims=2,
-            seed=123
+            seed=123,
+            dim_split=1,
         )
 
         ref_coords = OverlapCalculator.extract_coordinate_set(records["var0"], 2)
-        var1_coords = OverlapCalculator.extract_coordinate_set(records["var1"], 2)
-        var2_coords = OverlapCalculator.extract_coordinate_set(records["var2"], 2)
+        overlap1 = ref_coords & OverlapCalculator.extract_coordinate_set(records["var1"], 2)
+        overlap2 = ref_coords & OverlapCalculator.extract_coordinate_set(records["var2"], 2)
 
-        overlap1 = ref_coords.intersection(var1_coords)
-        overlap2 = ref_coords.intersection(var2_coords)
-
+        assert len(overlap2) < len(overlap1), "var2 asks for less, so this is not trivial"
         assert overlap2.issubset(overlap1)
-    
+
+    def test_independent_overlap_when_flags_are_false(self):
+        """Without fixed_overlap the variables draw independently.
+
+        The counterpart to the test above: the same configuration with the
+        flags off gives var2 sites that are not a subset of var1's.
+        """
+        shape = [20, 20]
+        records, _ = MultiVarRecordGenerator.generate(
+            shape=shape,
+            overlap=[0.5, 0.25],
+            fixed_overlap=[False, False],
+            num_vars=3,
+            var_num_obs=np.array([80, 40, 40]),
+            var_dims_indices=[[0, 1]] * 3,
+            var_constant_dims=[[], [], []],
+            var_constant_coord_indices={0: {}, 1: {}, 2: {}},
+            num_dims=2,
+            seed=123,
+            dim_split=1,
+        )
+
+        ref_coords = OverlapCalculator.extract_coordinate_set(records["var0"], 2)
+        overlap1 = ref_coords & OverlapCalculator.extract_coordinate_set(records["var1"], 2)
+        overlap2 = ref_coords & OverlapCalculator.extract_coordinate_set(records["var2"], 2)
+
+        assert not overlap2.issubset(overlap1)
+
+
     def test_single_variable_edge_case(self):
         """Should handle single variable."""
         shape = [10, 10]

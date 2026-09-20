@@ -38,6 +38,7 @@ from data_sparsity.output import (
 from data_sparsity.utils import (
     ChunkUtils,
 )
+from data_sparsity.utils.streams import Stream, stream
 
 
 class GenerateData:
@@ -126,7 +127,7 @@ class GenerateData:
         self._print_input_config()
 
         self.ratio_dims_prod = np.prod(self.ratio_dims)
-        self._rng = np.random.default_rng(seed)
+        self._rng = stream(seed, Stream.DENSITY)
 
         # Initialize attributes set during validation
         self.var_densities = None

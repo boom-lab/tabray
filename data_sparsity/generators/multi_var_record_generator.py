@@ -8,6 +8,7 @@ from typing import Dict, Iterable, List, Tuple, Union, Optional
 import numpy as np
 from data_sparsity.generators.record_generator import RecordGenerator
 from data_sparsity.utils.chunk_utils import ChunkUtils
+from data_sparsity.utils.streams import Stream, stream
 from data_sparsity.generators.observation_generator import ObservationGenerator
 from data_sparsity.generators.overlap_calculator import OverlapCalculator
 
@@ -178,12 +179,6 @@ class MultiVarRecordGenerator:
                     f"observations (requested {var_num_obs[var_idx]})"
                 )
             
-            # Create observation RNG (separate from index RNG)
-            obs_seed = seed + var_idx + 1000
-            if chunk_id is not None:
-                obs_seed += chunk_id*100
-            obs_rng = np.random.default_rng(obs_seed)
-            
             # Determine index generation approach
             if num_vars == 1 and dim_split is not None:
                 # Stratified placement. Serial asks for every stratum, a worker
@@ -217,6 +212,11 @@ class MultiVarRecordGenerator:
                 num_obs_actual = len(multi_indices[0])
             else:
                 # Multi-variable: chunk-local hybrid LHS (see D4; stage C).
+                obs_rng = (
+                    stream(seed, Stream.VAR, var_idx)
+                    if chunk_id is None
+                    else stream(seed, Stream.VAR, var_idx, chunk_id)
+                )
                 multi_indices = RecordGenerator.generate_hybrid_indices(
                     shape=var_shape,
                     num_obs=num_obs,
@@ -300,15 +300,12 @@ class MultiVarRecordGenerator:
         
         # Create shared RNG for selecting coordinates of overlapping sites/points
         # This ensures overlapping observations are at the same spatial locations
-        shared_seed = seed + 9999
-        if chunk_id is not None:
-            shared_seed += chunk_id*10000
-        shared_rng = np.random.default_rng(shared_seed)
-
-        var_seeds = [seed + var_idx + 2000 for var_idx in range(num_vars)]
-        if chunk_id is not None:
-            var_seeds = [s + chunk_id*100 for s in var_seeds]
-        var_rngs = [np.random.default_rng(s) for s in var_seeds]
+        chunk_index = () if chunk_id is None else (chunk_id,)
+        shared_rng = stream(seed, Stream.SHARED_OVERLAP, *chunk_index)
+        var_rngs = [
+            stream(seed, Stream.VAR, var_idx, *chunk_index)
+            for var_idx in range(num_vars)
+        ]
 
         ### Phase 2: Reference Variable
         # Sort variables by observation count (largest is always the first, refvar)
@@ -566,10 +563,6 @@ class MultiVarRecordGenerator:
         
         return records, overlap_actual
 
-    # Stream tags, kept distinct from RecordGenerator's by starting at 10.
-    VAR_STREAM = 10
-    SHARED_OVERLAP_STREAM = 11
-
     @staticmethod
     def generate_multivar_stratified(
         global_shape: List[int],
@@ -664,9 +657,7 @@ class MultiVarRecordGenerator:
             if not here.any() and all(counts[v][stratum] == 0 for v in range(1, num_vars)):
                 continue
             ref_here = tuple(axis[here] for axis in ref_indices)
-            shared_rng = np.random.default_rng(
-                [seed, MultiVarRecordGenerator.SHARED_OVERLAP_STREAM, stratum]
-            )
+            shared_rng = stream(seed, Stream.SHARED_OVERLAP, stratum)
             shared_order_cache = {}
 
             for var_idx in range(1, num_vars):
@@ -675,9 +666,7 @@ class MultiVarRecordGenerator:
                     continue
                 dims = shared[var_idx]
                 sizes = [shape[d] for d in dims]
-                rng = np.random.default_rng(
-                    [seed, MultiVarRecordGenerator.VAR_STREAM, var_idx, stratum]
-                )
+                rng = stream(seed, Stream.VAR, var_idx, stratum)
 
                 # proj_j(S_0): reference cells seen through this variable's dims
                 if dims and ref_here[0].size:
