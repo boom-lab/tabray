@@ -282,11 +282,8 @@ class GenerateData:
             self.nb_coords_per_dim
         )
 
-        # The grid is stratified along its largest dimension, one stratum per
-        # index. This partition defines the generation order and so must be the
-        # same whether or not the run is chunked -- it is a property of the
-        # grid, not of max_obs. _multiprocessing_setup groups these strata into
-        # chunks; it does not choose them.
+        # Provisional stratum dimension; narrowed below once the per-variable
+        # dimensions are known (see _choose_split_dim).
         self.dim_split = int(np.argmax(self.nb_coords_per_dim))
 
         # Check that density is larger than minimum allowed for this set of parameters
@@ -309,6 +306,46 @@ class GenerateData:
             self._configure_multi_var(density_for_grid)
         else:
             self._configure_single_var(density_for_grid)
+
+        self.dim_split = self._choose_split_dim()
+
+    def _choose_split_dim(self) -> int:
+        """Pick the dimension the grid is stratified along.
+
+        The largest dimension, restricted to those **every** variable varies
+        along. Overlap is measured on the dimensions two variables share, so if
+        a variable were constant along the split dimension its projection would
+        collapse across strata: the reference footprint seen from one stratum
+        would differ from the global one, and a per-stratum overlap target
+        would not add up to the requested global overlap.
+
+        Excluding such dimensions can mean splitting a shorter axis, which
+        lowers the maximum number of chunks (see S6).
+
+        Returns:
+            Index of the dimension to stratify along
+        """
+        shared = set(range(self.num_dims))
+        for varying in self.var_dims_indices:
+            shared &= set(varying)
+        if not shared:
+            raise ValueError(
+                "No dimension is shared by every variable, so the grid cannot "
+                "be stratified consistently. Give at least one dimension to all "
+                "variables via var_dims."
+            )
+        candidates = sorted(shared)
+        sizes = [self.nb_coords_per_dim[d] for d in candidates]
+        chosen = candidates[int(np.argmax(sizes))]
+        largest = int(np.argmax(self.nb_coords_per_dim))
+        if chosen != largest:
+            print(
+                f"  Stratifying along dimension {chosen} (size "
+                f"{self.nb_coords_per_dim[chosen]}) rather than the largest "
+                f"dimension {largest} (size {self.nb_coords_per_dim[largest]}), "
+                f"which is not shared by every variable."
+            )
+        return int(chosen)
 
     def _configure_single_var(self, density: float) -> None:
         """Configure for single variable case.
@@ -927,7 +964,7 @@ class GenerateData:
                     'ratio_dims': self.ratio_dims,
                     'num_obs': int(np.sum(var_obs_chunk)),
                     'var_densities': self.var_densities,
-                    'var_num_obs': var_obs_chunk,
+                    'var_num_obs': self.var_num_obs,   # GLOBAL: strata apportion
                     'var_dims_indices': self.var_dims_indices,
                     'var_constant_dims': self.var_constant_dims,
                     'var_constant_coord_indices': self.var_constant_coord_indices,
