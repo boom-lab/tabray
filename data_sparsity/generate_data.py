@@ -715,7 +715,9 @@ class GenerateData:
             else:
                 record = self._record
 
-        dataframe = ParquetBuilder.build_single_var_dataframe(record, coordinates)
+        dataframe = ParquetBuilder.build_single_var_dataframe(
+            record, coordinates, order_dim=self.dim_split
+        )
 
         if self.NTASKS == 1:
             self._dataframe = dataframe
@@ -742,7 +744,8 @@ class GenerateData:
             records = self._records
 
         dataframe = ParquetBuilder.build_multi_var_dataframe(
-            records, coordinates, self.num_vars, self.num_dims
+            records, coordinates, self.num_vars, self.num_dims,
+            order_dim=self.dim_split
         )
 
         if self.NTASKS == 1:
