@@ -155,22 +155,54 @@ class NetCDFBuilder:
             xarray Dataset
         """
         data_vars = {}
-        for var_id, (var_name, record) in enumerate(records.items()):
-            data_var = xr.DataArray(
+        for var_name, record in records.items():
+            data_vars[var_name] = xr.DataArray(
                 record,
                 coords=coordinates,
                 dims=list(coordinates.keys())
             )
-            if squeeze_constant_dims and var_constant_dims:
-                for dim_id in var_constant_dims[var_id]:
-                    dim_name = list(coordinates.keys())[dim_id]
-                    data_var = data_var.dropna(dim=dim_name, how="all")
-                    if data_var.sizes.get(dim_name, 0) == 1:
-                        data_var = data_var.squeeze(dim_name, drop=True)
-            data_vars[var_name] = data_var
 
         dataset = xr.Dataset(data_vars, attrs=attrs or {})
+        if squeeze_constant_dims and var_constant_dims:
+            dataset = NetCDFBuilder.squeeze_constant_dims(
+                dataset, var_constant_dims
+            )
         return dataset
+
+    @staticmethod
+    def squeeze_constant_dims(
+        dataset: xr.Dataset,
+        var_constant_dims: List[List[int]],
+    ) -> xr.Dataset:
+        """Drop the dimensions a variable is constant along.
+
+        A variable pinned to one coordinate of a dimension carries no
+        information along it, so storing it as a mostly-NaN slab inflates the
+        array representation -- which is the thing being measured. Chunk files
+        cannot do this (they must concatenate), so the merge step applies it
+        instead.
+
+        Args:
+            dataset: Dataset whose variables may carry constant dimensions
+            var_constant_dims: Constant dimension indices per variable, in the
+                same order as the dataset's variables
+
+        Returns:
+            Dataset with those dimensions squeezed out where possible
+        """
+        dim_names = list(dataset.sizes)
+        data_vars = {}
+        for var_id, var_name in enumerate(dataset.data_vars):
+            data_var = dataset[var_name]
+            for dim_id in var_constant_dims[var_id]:
+                dim_name = dim_names[dim_id]
+                if dim_name not in data_var.dims:
+                    continue
+                data_var = data_var.dropna(dim=dim_name, how="all")
+                if data_var.sizes.get(dim_name, 0) == 1:
+                    data_var = data_var.squeeze(dim_name, drop=True)
+            data_vars[var_name] = data_var
+        return xr.Dataset(data_vars, attrs=dataset.attrs)
 
     @staticmethod
     def save_to_file(
