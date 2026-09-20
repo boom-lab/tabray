@@ -138,6 +138,7 @@ class GenerateData:
         self.var_constant_coord_indices = None
         self.overlap_target = None
         self.overlap_actual = None
+        self.overlap_actual_f2 = None
 
         # Validate and configure
         self._validate_parameters()
@@ -360,6 +361,7 @@ class GenerateData:
         self.var_constant_coord_indices = {0: {}}
         self.overlap_target = None
         self.overlap_actual = None
+        self.overlap_actual_f2 = None
 
     def _configure_multi_var(self, density_for_grid: float) -> None:
         """Configure for multiple variables case.
@@ -587,6 +589,13 @@ class GenerateData:
         if self.NTASKS == 1:
             self._records = records
             self.overlap_actual = overlap_actual
+            if self.num_vars > 1:
+                from data_sparsity.generators import OverlapCalculator
+                report = OverlapCalculator.compute_overlap_report(
+                    records, self.num_vars, self.num_dims, self.var_dims_indices
+                )
+                self.overlap_actual = report["f1"]
+                self.overlap_actual_f2 = report["f2"]
 
         return records
 
@@ -659,17 +668,23 @@ class GenerateData:
             var_constant_dims = self.var_constant_dims
             
         if attrs is None:
+            # num_obs and density describe the reference variable, the same
+            # quantities the chunk files record; the per-variable arrays below
+            # carry everything else.
             attrs = NetCDFBuilder.create_default_attrs(
-                self.num_obs, self.num_dims, self.ratio_dims,
-                float(self.var_densities[0]), self.seed
+                int(self.var_num_obs[0]), self.num_dims, self.ratio_dims,
+                float(self.var_num_obs[0]) / float(self.total_grid_points),
+                self.seed
             )
-        attrs.update({
-            "overlap_target": self.overlap_target if self.num_vars > 1 else "random",
-            "fixed_overlap": (
-                [int(value) for value in self.fixed_overlap]
-                if self.num_vars > 1 else []
-            ),
-        })
+        attrs.update(NetCDFBuilder.create_multivar_attrs(
+            num_vars=self.num_vars,
+            var_densities=self.var_densities,
+            var_num_obs=self.var_num_obs,
+            overlap_target=self.overlap_target,
+            fixed_overlap=self.fixed_overlap,
+            overlap_actual_f1=self.overlap_actual,
+            overlap_actual_f2=getattr(self, "overlap_actual_f2", None),
+        ))
 
         dataset = NetCDFBuilder.build_dataset(records, coordinates, attrs, var_constant_dims)
 

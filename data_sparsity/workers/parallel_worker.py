@@ -234,26 +234,26 @@ def generate_chunk(
         # Create Dataset with chunk-specific attributes. The density recorded is
         # the reference variable's within this chunk, which is a meaningful
         # quantity; summing every variable's observations over one grid was not.
-        chunk_obs_total = int(total_obs)
+        # Same quantities as serial: num_obs and density describe the reference
+        # variable within this chunk, per-variable counts are measured.
         chunk_attrs = NetCDFBuilder.create_default_attrs(
-            chunk_obs_total, num_dims, ratio_dims,
+            chunk_var_counts[0], num_dims, ratio_dims,
             float(chunk_var_counts[0] / np.prod(task_shape)), seed
         )
+        chunk_attrs.update(NetCDFBuilder.create_multivar_attrs(
+            num_vars=num_vars,
+            var_densities=var_densities,
+            var_num_obs=chunk_var_counts,
+            overlap_target=overlap_target,
+            fixed_overlap=fixed_overlap,
+        ))
         chunk_attrs.update({
             "chunk_id": chunk_id,
             "description": "Multi-variable sparse observation data (chunk)",
-            "num_vars": num_vars,
-            "var_densities": var_densities.tolist() if var_densities is not None else [],
-            "var_num_obs": chunk_var_counts,
-            "overlap_target": overlap_target if isinstance(
-                overlap_target, (str, list)
-            ) else float(overlap_target),
-            "fixed_overlap": (
-                [int(value) for value in fixed_overlap]
-                if isinstance(fixed_overlap, list)
-                else [int(bool(fixed_overlap))]
-            ),
         })
+        # Achieved overlap is deliberately not recorded here: a chunk only sees
+        # its own strata, so any figure it computed would be chunk-local and
+        # would not aggregate to the dataset's overlap. It belongs to the merge.
         
         dataset = NetCDFBuilder.build_dataset(
             records,
