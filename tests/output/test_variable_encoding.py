@@ -27,11 +27,18 @@ class TestDtypeAndPackAreSeparate:
             VariableEncoding("float16")
 
     @pytest.mark.parametrize("dtype", ["int8", "int16", "int32"])
-    def test_integer_dtype_points_at_pack(self, dtype):
-        """The trap the split exists to remove: dtype="int16" once meant
-        packing, which gave no way to ask for a plain integer variable."""
-        with pytest.raises(ValueError, match="pass pack="):
-            VariableEncoding(dtype)
+    def test_integer_dtype_holds_integers(self, dtype):
+        """An integer dtype is a variable of counts or flags, not a packing
+        instruction. Argo's CYCLE_NUMBER is a plain int32."""
+        enc = VariableEncoding(dtype)
+        assert enc.integer is True
+        assert enc.packed is False
+        assert enc.storage_dtype == dtype
+
+    def test_packing_an_integer_is_refused(self):
+        """There is nothing to compact: the values are already integers."""
+        with pytest.raises(ValueError, match="already holds integers"):
+            VariableEncoding("int16", "int8")
 
     @pytest.mark.parametrize("pack", ["int8", "int16", "int32"])
     def test_pack_types(self, pack):
@@ -95,30 +102,30 @@ class TestQuantize:
 
     def test_float64_is_unchanged(self):
         v = self.values()
-        assert np.array_equal(VariableEncoding("float64").quantize(v), v,
+        assert np.array_equal(VariableEncoding("float64").to_stored(v), v,
                               equal_nan=True)
 
     def test_nan_is_preserved(self):
         for pack in (None, "int16", "int8"):
-            q = VariableEncoding("float64", pack).quantize(self.values())
+            q = VariableEncoding("float64", pack).to_stored(self.values())
             assert np.array_equal(np.isnan(q), np.isnan(self.values()))
 
     def test_packed_values_land_within_half_a_step(self):
         enc = VariableEncoding("float64", "int16")
         v = self.values()
-        err = np.nanmax(np.abs(enc.quantize(v) - v))
+        err = np.nanmax(np.abs(enc.to_stored(v) - v))
         assert err <= enc.scale_factor / 2 + 1e-12
 
     def test_quantize_is_idempotent(self):
         """The second pass must not move anything, or the formats disagree."""
         enc = VariableEncoding("float64", "int16")
-        once = enc.quantize(self.values())
-        assert np.array_equal(enc.quantize(once), once, equal_nan=True)
+        once = enc.to_stored(self.values())
+        assert np.array_equal(enc.to_stored(once), once, equal_nan=True)
 
     def test_does_not_mutate_its_argument(self):
         v = self.values()
         before = v.copy()
-        VariableEncoding("float64", "int16").quantize(v)
+        VariableEncoding("float64", "int16").to_stored(v)
         assert np.array_equal(v, before, equal_nan=True)
 
 
@@ -203,7 +210,7 @@ class TestRoundTripThroughNetCDF:
     ])
     def test_round_trip(self, tmp_path, dtype, pack, fill, on_disk, in_memory):
         enc = VariableEncoding(dtype, pack, fill)
-        values = enc.quantize(self.values())
+        values = enc.to_stored(self.values())
         da = xr.DataArray(values, dims=("y", "x"), name="v")
         da.encoding = enc.netcdf_encoding()
         path = tmp_path / f"{dtype}_{pack}_{fill}.nc"
@@ -219,3 +226,104 @@ class TestRoundTripThroughNetCDF:
         assert not lost.any(), f"{lost.sum()} values read back as missing"
         assert np.array_equal(np.isnan(read), np.isnan(values))
         assert np.nanmax(np.abs(read - values)) == pytest.approx(0, abs=1e-6)
+
+
+class TestIntegerValues:
+    """Integer variables: what they hold, and how the values are made."""
+
+    @staticmethod
+    def draws(n=200_000):
+        """Raw uniform(0, 1), which is all ObservationGenerator ever makes."""
+        u = np.full(n + 1, np.nan)
+        u[:n] = np.random.default_rng(0).uniform(0, 1, n)
+        return u
+
+    def test_default_range(self):
+        assert VariableEncoding("int16").value_range == (0, 100)
+
+    def test_values_stay_inside_the_range(self):
+        enc = VariableEncoding("int16", value_range=(0, 8))
+        out = enc.to_stored(self.draws())
+        assert np.nanmin(out) == 0 and np.nanmax(out) == 8
+
+    def test_values_are_whole_numbers(self):
+        out = VariableEncoding("int16", value_range=(3, 11)).to_stored(self.draws())
+        assert np.array_equal(out[~np.isnan(out)] % 1, np.zeros(200_000))
+
+    def test_every_value_in_the_range_is_equally_likely(self):
+        """floor over (hi - lo + 1) bins, not round over (hi - lo).
+
+        Rounding gives the two end bins half the width of the others, so the
+        extremes come out at half the frequency -- a quiet bias in any
+        histogram of the result.
+        """
+        enc = VariableEncoding("int16", value_range=(0, 8))
+        out = enc.to_stored(self.draws())
+        counts = np.bincount(out[~np.isnan(out)].astype(int), minlength=9)
+        share = counts / counts.sum()
+        assert share.min() > 0.9 / 9 and share.max() < 1.1 / 9
+
+    def test_range_width_sets_cardinality(self):
+        """The knob that matters for storage: a narrow range is flag-like
+        data, which both formats encode very differently from noise."""
+        narrow = VariableEncoding("int16", value_range=(0, 4)).to_stored(self.draws())
+        wide = VariableEncoding("int32", value_range=(0, 50_000)).to_stored(self.draws())
+        assert len(np.unique(narrow[~np.isnan(narrow)])) == 5
+        assert len(np.unique(wide[~np.isnan(wide)])) > 10_000
+
+    def test_nan_is_preserved(self):
+        out = VariableEncoding("int16").to_stored(self.draws())
+        assert np.isnan(out[-1])
+
+    def test_placement_does_not_depend_on_dtype(self):
+        """The reason integers transform the uniform draw rather than calling
+        rng.integers: a different RNG method consumes the stream differently,
+        which would move the occupied sites and compare different datasets."""
+        u = self.draws(1000)
+        for enc in (VariableEncoding("float64"), VariableEncoding("int16"),
+                    VariableEncoding("float64", "int16")):
+            assert np.array_equal(np.isnan(enc.to_stored(u)), np.isnan(u))
+
+    def test_fill_defaults_outside_the_range(self):
+        assert VariableEncoding("int16").fill_value == -32767
+
+    def test_fill_inside_the_range_raises(self):
+        with pytest.raises(ValueError, match="lies inside value_range"):
+            VariableEncoding("int16", fill_value=5)
+
+    def test_range_must_fit_the_dtype(self):
+        with pytest.raises(ValueError, match="does not fit int8"):
+            VariableEncoding("int8", value_range=(0, 1000))
+
+    def test_inverted_range_raises(self):
+        with pytest.raises(ValueError, match="max above min"):
+            VariableEncoding("int16", value_range=(10, 2))
+
+    def test_parquet_column_is_nullable(self):
+        """A vacant site must be a real null; NaN would force it to float."""
+        assert VariableEncoding("int16").pandas_dtype() == "Int16"
+
+    def test_netcdf_encoding(self):
+        enc = VariableEncoding("int32", fill_value=99999).netcdf_encoding()
+        assert enc == {"dtype": "int32", "_FillValue": np.int32(99999)}
+
+
+class TestFloatValueRange:
+    """value_range spreads a float variable too, and drives its packing."""
+
+    def test_default_leaves_the_draws_alone(self):
+        u = np.random.default_rng(0).uniform(0, 1, 100)
+        assert np.array_equal(VariableEncoding("float64").to_stored(u), u)
+
+    def test_custom_range_spreads_the_values(self):
+        u = np.array([0.0, 0.5, 1.0])
+        out = VariableEncoding("float64", value_range=(-3.0, 45.0)).to_stored(u)
+        assert np.allclose(out, [-3.0, 21.0, 45.0])
+
+    def test_packing_uses_the_same_range(self):
+        """Derived from one range, so a value cannot fall outside the grid
+        that packs it."""
+        enc = VariableEncoding("float64", "int16", value_range=(-3.0, 45.0))
+        u = np.array([0.0, 0.5, 1.0])
+        out = enc.to_stored(u)
+        assert np.abs(out - np.array([-3.0, 21.0, 45.0])).max() < enc.scale_factor

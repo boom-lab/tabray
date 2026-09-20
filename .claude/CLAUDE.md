@@ -49,10 +49,28 @@ GenerateData.generate  ->  generators/   CoordinateGenerator, MultiVarRecordGene
 which emits **no** xarray encoding entry at all, so the default output is byte-identical to what
 the code wrote before the parameter existed.
 
-`dtype` says what a variable holds (`float64`, `float32`); `pack` says how a float is compacted
-on disk (`int8`, `int16`, `int32`, or None). They are separate axes because a file holds both
-kinds: Argo stores `TEMP` as a plain `float32` and `CYCLE_NUMBER` as a plain `int32`. Passing an
-integer as `dtype` raises and points at `pack`.
+`dtype` says what a variable holds (`float64`, `float32`, or `int8`/`int16`/`int32` for counts
+and flags); `pack` says how a *float* is compacted on disk (`int8`, `int16`, `int32`, or None).
+They are separate axes because a file holds both kinds: Argo stores `TEMP` as a plain `float32`
+and `CYCLE_NUMBER` as a plain `int32`. Packing an integer dtype raises.
+
+`value_range` spans the values, inclusive: `(0, 1)` for floats, `(0, 100)` for integers. For a
+packed float it also sets the packing scale, so a value cannot land outside its own grid. For an
+integer variable the width is the column's cardinality, which is the knob that matters for
+storage — `(0, 8)` gives flag-like data that dictionary- and run-length-encodes, while a wide
+range behaves like noise.
+
+`VariableEncoding.to_stored` maps `ObservationGenerator`'s raw `uniform(0, 1)` draws onto what a
+variable holds, once, before either format is written. Integers come from transforming that draw
+(`lo + floor(u * (hi - lo + 1))`), never from `rng.integers`: a different RNG method consumes the
+stream differently, so changing a variable's dtype would shift every later draw and move the
+occupied sites. Under the transform, dtype changes values and leaves placement identical, which
+is what a storage comparison needs. The `floor` over `hi - lo + 1` bins matters too — rounding
+over `hi - lo` gives the end bins half width and the extremes half the frequency.
+
+A plain integer variable becomes a **nullable** parquet column (`Int16`), so a vacant site is a
+real null rather than forcing the column to float. Its fill value must sit outside `value_range`,
+checked in the constructor: the same collision the packing scale avoids by reserving a code.
 
 Scientific netCDF has no single convention, which is why this is per variable rather than a mode.
 Two real files sit in the repo and disagree on nearly everything:

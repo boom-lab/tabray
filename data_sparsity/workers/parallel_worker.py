@@ -89,6 +89,7 @@ def generate_chunk(
     var_dtypes: Union[str, List, None] = None,
     var_packs: Union[str, List, None] = None,
     var_fill_values: Union[float, List, None] = None,
+    var_value_ranges: Union[List, None] = None,
 ) -> Tuple[int, int, str]:
     """Generate a single chunk of data in parallel.
     
@@ -129,6 +130,7 @@ def generate_chunk(
         var_dtypes: What each variable holds, or one for all
         var_packs: Integer type to pack each variable into, or one for all
         var_fill_values: Fill value per variable, or one for all
+        var_value_ranges: (min, max) per variable, or one for all
         
     Returns:
         Tuple of (chunk_id, total_observations, parquet_chunk_path)
@@ -136,7 +138,7 @@ def generate_chunk(
     log = _configure_worker_logging(chunk_id, netcdf_filepath)
     compression = CompressionSettings(compression_codec, compression_level)
     var_encodings = VariableEncoding.per_variable(
-        var_dtypes, var_packs, var_fill_values, num_vars
+        var_dtypes, var_packs, var_fill_values, num_vars, var_value_ranges
     )
     log.debug("######------ NEW CHUNK ------######")
     
@@ -200,7 +202,7 @@ def generate_chunk(
         
         # Round to what the encoding can store, before either format is
         # written, so the two hold the same numbers.
-        records['var0'] = var_encodings[0].quantize(records['var0'])
+        records['var0'] = var_encodings[0].to_stored(records['var0'])
 
         # Extract the single record from the dictionary
         record = records['var0']
@@ -271,7 +273,7 @@ def generate_chunk(
         for var_idx, encoding in enumerate(var_encodings):
             name = f"var{var_idx}"
             if name in records:
-                records[name] = encoding.quantize(records[name])
+                records[name] = encoding.to_stored(records[name])
 
         log.debug("chunk id: %s", chunk_id)
         # Count what was actually placed. var_num_obs is the GLOBAL per-variable

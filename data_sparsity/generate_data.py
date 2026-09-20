@@ -84,6 +84,7 @@ class GenerateData:
         dtype: Union[str, List, Tuple, None] = None,
         pack: Union[str, List, Tuple, None] = None,
         fill_value: Union[float, List, Tuple, None] = None,
+        value_range: Union[List, Tuple, None] = None,
     ) -> None:
         """Initialize the data generator with validation.
 
@@ -138,7 +139,7 @@ class GenerateData:
         # convention -- GLORYS packs everything to int16, Argo writes plain
         # float32 -- so this is per variable, defaulting to float64.
         self.var_encodings = VariableEncoding.per_variable(
-            dtype, pack, fill_value, self.num_vars
+            dtype, pack, fill_value, self.num_vars, value_range
         )
         self._resolve_density_input()
 
@@ -514,13 +515,14 @@ class GenerateData:
                 self.overlap_actual = report["f1"]
                 self.overlap_actual_f2 = report["f2"]
 
-        return self._quantize(records)
+        return self._to_stored(records)
 
-    def _quantize(self, records: dict) -> dict:
-        """Round values to what their encoding can store.
+    def _to_stored(self, records: dict) -> dict:
+        """Turn the raw draws into the values each variable holds.
 
-        Done before either format is written so the two hold the same numbers.
-        With the default float64 encoding this returns the values unchanged.
+        Done once, before either format is written, so the two hold the same
+        numbers. With the default float64 encoding the values pass through
+        unchanged.
 
         Args:
             records: Mapping of variable name to value array
@@ -531,7 +533,7 @@ class GenerateData:
         for index, encoding in enumerate(self.var_encodings):
             name = f"var{index}"
             if name in records:
-                records[name] = encoding.quantize(records[name])
+                records[name] = encoding.to_stored(records[name])
         return records
 
     def _create_dataarray(
@@ -902,6 +904,7 @@ class GenerateData:
                     'var_dtypes': [e.dtype for e in self.var_encodings],
                     'var_packs': [e.pack for e in self.var_encodings],
                     'var_fill_values': [e.fill_value for e in self.var_encodings],
+                    'var_value_ranges': [e.value_range for e in self.var_encodings],
                 }
                 chunk_args.append(args)
         else:
@@ -945,6 +948,7 @@ class GenerateData:
                     'var_dtypes': [e.dtype for e in self.var_encodings],
                     'var_packs': [e.pack for e in self.var_encodings],
                     'var_fill_values': [e.fill_value for e in self.var_encodings],
+                    'var_value_ranges': [e.value_range for e in self.var_encodings],
                 }
                 chunk_args.append(args)
 
