@@ -151,15 +151,31 @@ class TestValidateVarDimsExplicitIndices:
         assert result == [[0, 1], [1]]
 
     def test_caller_list_is_not_mutated(self):
-        """The argument must not be written through.
+        """Completing the reference must not write through to the argument.
 
         var_dims_update was bound to the caller's list and then assigned at
-        index 0, so the caller's object changed underneath them.
+        index 0, so the caller's object changed underneath them: passing
+        [2, 2] left the caller holding [3, 2].
+
+        Uses the integer form deliberately. The list-of-lists form raised
+        TypeError before reaching that assignment, so it cannot distinguish
+        the mutation from the crash.
         """
+        var_dims = [2, 2]
+
+        result = ParameterValidator.validate_var_dims(var_dims, num_vars=2, num_dims=3)
+
+        assert result == [3, 2], "reference variable should be given every dimension"
+        assert var_dims == [2, 2], "the caller's list must be left alone"
+
+    def test_caller_list_of_lists_is_not_mutated(self):
+        """Same guarantee for the explicit-indices form."""
         var_dims = [[0, 1, 2], [1, 2]]
-        original = [list(entry) for entry in var_dims]
-        ParameterValidator.validate_var_dims(var_dims, num_vars=2, num_dims=4)
-        assert var_dims == original
+
+        result = ParameterValidator.validate_var_dims(var_dims, num_vars=2, num_dims=4)
+
+        assert result[0] == [0, 1, 2, 3]
+        assert var_dims == [[0, 1, 2], [1, 2]]
 
     def test_empty_sequence_raises(self):
         with pytest.raises(ValueError, match="one entry per variable"):
