@@ -42,6 +42,20 @@ GenerateData.generate  ->  generators/   CoordinateGenerator, MultiVarRecordGene
                        ->  workers/      generate_chunk  (parallel path only)
 ```
 
+### Minimum density
+
+`SparsityValidator.compute_min_density` returns `max(shape) / prod(shape)`: the sparsest grid in
+which every coordinate on every axis is still used at least once. Each observation supplies one
+coordinate per axis, so the LONGEST axis sets the floor, and `max(shape)` observations can reach
+it (the LHS stage takes `n_s = max(shape)` for exactly this reason). `density=0.0` requests this
+minimum. `docs/explainer.md`, "Minimum density, on any grid", derives it; the README documents it
+under the `density` parameter.
+
+This was `1 / nmin**(d-1)`, keyed to the SHORTEST axis. The two agree on cubic grids
+(`n**d / n**(d-1) = n`), where the old formula was hand-derived and exact. Off cubic they diverge,
+and the old one refused achievable densities: 5.6x too strict on a GLORYS12-shaped grid, and on any
+grid with an axis of length 1 it returned 1.0, so such grids could only be generated fully gridded.
+
 Validation is deliberately part-hard, part-soft: unusable inputs raise, rounding-level inconsistencies are silently corrected and the corrected configuration is printed (`_print_input_config` / `_print_updated_config`). Code that reads back `num_obs`, `density`, or `shape` must read the post-validation instance attributes, not the constructor arguments.
 
 ### Naming conventions baked into the data

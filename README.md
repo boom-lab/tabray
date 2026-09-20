@@ -228,6 +228,20 @@ dataset, df = gen.generate()
   - Float: Fraction of grid points that contain observations, range [0.0, 1.0]
   - 2-element list/tuple: Min and max density values; one variable gets min, one gets max, rest are random
   - num_vars-element list/tuple: Specific density for each variable
+
+  There is a **lower bound**, because a dataset is only generated if every coordinate on every
+  axis is used at least once — an unused coordinate would be stored without describing any data
+  point. Each observation supplies one coordinate per axis, so covering the longest axis takes at
+  least that many observations:
+
+  ```
+  minimum observations = max(shape)        minimum density = max(shape) / prod(shape)
+  ```
+
+  A density below this raises. Passing `density=0.0` asks for exactly this minimum. On a grid of
+  `d` equal axes of size `n` it works out to the familiar `1/n^(d-1)`. Note that it is the
+  **longest** axis that sets the bound, not the shortest, and that axes of length 1 cost nothing:
+  a `50x10x1x1` grid needs the same 50 observations as `50x10`. `docs/explainer.md` derives this.
 - **sparsity** (float, list, or tuple, optional): Fraction of grid points that are vacant, `sparsity = 1 - density`. Accepts the same float/list/tuple forms as `density` and is converted to `density` internally. Provide either `density` or `sparsity` (not both).
 - **seed** (int): Random seed for reproducibility (non-negative integer)
 - **max_obs** (int, optional): Maximum number of observations per chunk when using parallel generation (default: 10,000,000). When `num_obs` exceeds this value, the dataset is automatically split into chunks and generated in parallel.
