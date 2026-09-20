@@ -242,6 +242,50 @@ class RecordGenerator:
         return local + np.searchsorted(offset, local, side="right")
 
     @staticmethod
+    def stratum_counts(
+            global_shape: List[int],
+            num_obs: int,
+            seed: int,
+            split_dim: int,
+    ) -> np.ndarray:
+        """How many observations the reference variable puts in each stratum.
+
+        The same figure ``generate_stratified_indices`` derives, without
+        placing anything. Both stages behind it are global: the Latin
+        hypercube draws from ``stream(seed, Stream.LHS)``, and the fill is
+        apportioned across all strata at once. So a worker holding one chunk
+        can still learn the counts of strata it does not own, at the cost of
+        one LHS draw of ``max(shape)`` points.
+
+        This is what lets the overlap target be apportioned globally rather
+        than rounded in each stratum.
+
+        Args:
+            global_shape: Full grid shape
+            num_obs: Reference variable's global observation count
+            seed: Base random seed
+            split_dim: Dimension the strata run along
+
+        Returns:
+            Array of length ``global_shape[split_dim]`` summing to ``num_obs``
+        """
+        shape = [int(size) for size in global_shape]
+        num_strata = shape[split_dim]
+        hyper_shape = [size for dim, size in enumerate(shape) if dim != split_dim]
+        stratum_sites = int(np.prod(hyper_shape)) if hyper_shape else 1
+        num_obs = int(num_obs)
+
+        n_s = max(shape)
+        lhs = RecordGenerator.generate_lhs_indices(
+            shape, n_s, stream(seed, Stream.LHS)
+        )
+        taken = np.bincount(
+            np.asarray(lhs[split_dim], dtype=np.int64), minlength=num_strata
+        )
+        available = stratum_sites - taken
+        return taken + ChunkUtils.apportion(num_obs - n_s, available, available)
+
+    @staticmethod
     def generate_stratified_indices(
         global_shape: List[int],
         num_obs: int,
@@ -312,6 +356,9 @@ class RecordGenerator:
         taken = np.bincount(lhs_split, minlength=num_strata)
         available = stratum_sites - taken
         fill_counts = ChunkUtils.apportion(num_obs - n_s, available, available)
+        # Same arithmetic as stratum_counts, which a worker calls to learn the
+        # counts of strata it does not own. Kept in step by the test that
+        # compares the two.
 
         # --- per-stratum draw ---------------------------------------------
         if strata is None:

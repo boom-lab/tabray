@@ -624,3 +624,121 @@ class TestSingleVariableCase:
         
         # Both should use 'random' path due to num_vars==1
         np.testing.assert_array_equal(records1['var0'], records2['var0'])
+
+
+class TestOverlapIsApportionedAcrossStrata:
+    """The overlap total is decided once, not rounded in every stratum.
+
+    Rounding target * p_j per stratum and summing is not the same as rounding
+    the total. Each stratum rounds to a whole cell, and on a coarse grid one
+    cell is a large share of the variable: a 3x3 grid asking for 7 of 8 shared
+    cells used to get 8, and one asking for 1 of 3 used to get 0.
+    """
+
+    @staticmethod
+    def achieved(shape, obs, target, seed=12345, num_vars=2, var_dims=None,
+                 split_dim=0):
+        """Generate, then measure F1 from the occupancy masks."""
+        num_dims = len(shape)
+        dims = var_dims or [list(range(num_dims))] * num_vars
+        records = MultiVarRecordGenerator.generate_multivar_stratified(
+            global_shape=shape,
+            num_vars=num_vars,
+            var_num_obs=np.array([obs] * num_vars),
+            var_dims_indices=dims,
+            var_constant_coords={v: {} for v in range(num_vars)},
+            overlap_targets=[target] * (num_vars - 1),
+            fixed_overlap_flags=[False] * (num_vars - 1),
+            seed=seed,
+            split_dim=split_dim,
+        )
+        sites = []
+        for var in range(num_vars):
+            indices, _ = records[f"var{var}"]
+            sites.append(set(zip(*[np.asarray(a) for a in indices])))
+        return len(sites[0] & sites[1]) / len(sites[0]), len(sites[0])
+
+    def test_the_case_that_rendered_as_complete_overlap(self):
+        """3x3, 8 observations, target 7/8. Per-stratum rounding gave 8 of 8."""
+        f1, reference = self.achieved([3, 3], 8, 7 / 8)
+        assert reference == 8
+        assert f1 == pytest.approx(7 / 8)
+
+    def test_the_case_that_rendered_as_no_overlap(self):
+        """3x3, 3 observations, target 1/3. Each stratum rounded 0.33 to 0."""
+        f1, reference = self.achieved([3, 3], 3, 1 / 3)
+        assert reference == 3
+        assert f1 == pytest.approx(1 / 3)
+
+    @pytest.mark.parametrize("side,obs", [(3, 8), (6, 32), (9, 72), (20, 350)])
+    def test_target_is_met_at_every_grid_size(self, side, obs):
+        """Within one cell, which is the resolution F1 has on that grid.
+
+        0.875 of 350 reference cells is 306.25, so 306/350 is as close as the
+        grid allows. What must not happen is the drift to an endpoint.
+        """
+        f1, reference = self.achieved([side, side], obs, 7 / 8)
+        assert abs(f1 - 7 / 8) <= 1 / reference
+
+    def test_unreachable_target_lands_on_the_nearest_whole_cell(self):
+        """0.75 of 6 cells is 4.5. Neither 4 nor 5 is the target; the result
+        must be one of them rather than an endpoint."""
+        f1, reference = self.achieved([3, 3], 6, 0.75)
+        assert reference == 6
+        assert f1 in (pytest.approx(4 / 6), pytest.approx(5 / 6))
+
+    def test_reduced_dimension_variables_keep_the_per_stratum_rule(self):
+        """p_j counts distinct PROJECTED cells there, which depends on where
+        the reference landed -- a worker cannot know it for strata it does not
+        own. Falling back keeps serial and parallel identical."""
+        records = MultiVarRecordGenerator.generate_multivar_stratified(
+            global_shape=[3, 3], num_vars=2, var_num_obs=np.array([8, 3]),
+            var_dims_indices=[[0, 1], [1]],
+            var_constant_coords={0: {}, 1: {0: 1}},   # var1 sits on x0 index 1
+            overlap_targets=[1 / 8], fixed_overlap_flags=[False],
+            seed=12345, split_dim=0)
+        indices, _ = records["var1"]
+        assert len(indices[0]) == 3                  # it ran, and placed its own
+        assert set(np.asarray(indices[0])) == {1}    # all in its one stratum
+
+    def test_serial_and_parallel_agree(self):
+        """The counts come from globally known quantities, so a worker holding
+        two strata derives the same numbers as a serial run."""
+        shape, obs = [6, 6], 32
+        whole = MultiVarRecordGenerator.generate_multivar_stratified(
+            global_shape=shape, num_vars=2, var_num_obs=np.array([obs, obs]),
+            var_dims_indices=[[0, 1], [0, 1]],
+            var_constant_coords={0: {}, 1: {}}, overlap_targets=[7 / 8],
+            fixed_overlap_flags=[False], seed=7, split_dim=0)
+        pieces = [
+            MultiVarRecordGenerator.generate_multivar_stratified(
+                global_shape=shape, num_vars=2, var_num_obs=np.array([obs, obs]),
+                var_dims_indices=[[0, 1], [0, 1]],
+                var_constant_coords={0: {}, 1: {}}, overlap_targets=[7 / 8],
+                fixed_overlap_flags=[False], seed=7, split_dim=0, strata=chunk)
+            for chunk in ([0, 1, 2], [3, 4, 5])
+        ]
+        for var in ("var0", "var1"):
+            full = set(zip(*[np.asarray(a) for a in whole[var][0]]))
+            split = set()
+            for piece in pieces:
+                split |= set(zip(*[np.asarray(a) for a in piece[var][0]]))
+            assert full == split
+
+
+class TestStratumCounts:
+    """The helper a worker uses to learn counts for strata it does not hold."""
+
+    @pytest.mark.parametrize("shape,obs", [
+        ([3, 3], 8), ([3, 3], 3), ([6, 6], 32), ([30, 30], 800), ([100, 40], 1500),
+    ])
+    def test_matches_what_placement_produces(self, shape, obs):
+        """If these drift apart, the apportioned overlap counts are wrong."""
+        from data_sparsity.generators.record_generator import RecordGenerator
+
+        counts = RecordGenerator.stratum_counts(shape, obs, 12345, 0)
+        indices, _ = RecordGenerator.generate_stratified_indices(
+            global_shape=shape, num_obs=obs, seed=12345, split_dim=0)
+        placed = np.bincount(np.asarray(indices[0]), minlength=shape[0])
+        assert np.array_equal(counts, placed)
+        assert counts.sum() == obs

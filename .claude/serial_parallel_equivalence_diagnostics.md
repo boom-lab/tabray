@@ -452,6 +452,52 @@ Scope: `merge_nc=True` only, which is not the default. The unmerged per-chunk ou
 parquet consolidation are not involved -- the whole stack is netCDF read/write.
 
 
+
+### [done] A9 — the overlap target was rounded in every stratum
+
+Found by comparing the tutorial notebooks against the code they branched from. `round(t_i * p_j)`
+was computed in each stratum and the results summed, which is not the same as rounding the total.
+Each stratum rounds to a whole cell, and on a coarse grid one cell is a large share of the
+variable:
+
+```
+3x3, 8 observations, target 7/8   ->  p_j = 2,3,3   round gives 2,3,3 = 8 of 8   F1 1.000
+3x3, 3 observations, target 1/3   ->  p_j = 1,1,1   round gives 0,0,0 = 0 of 3   F1 0.000
+```
+
+Both are reachable: 7 of 8 and 1 of 3 are valid placements. The docstring named the cost --
+"a drift of order sqrt(num_strata)/2 on the global numerator" -- and the bound holds, one cell in
+both cases. What it did not say is that one cell of eight is 0.125 of F1, which is the whole
+illustration in `notebooks/tutorial3.ipynb`.
+
+**Predictable before placement.** Given `p_j`, each variable's per-stratum counts, and the plane
+size, the achieved overlap is computable exactly, clipping included -- verified against five grids
+from 3x3 to 60x60. This is what the generation report in `docs/generation_report_plan.md` can use
+to attribute a deviation rather than guess at it.
+
+**Fixed for variables that vary along every dimension.** The total is decided once and apportioned
+across strata by largest remainder within each stratum's bounds, the same treatment observation
+counts already get from `ChunkUtils.apportion`. `RecordGenerator.stratum_counts` rederives var0's
+per-stratum counts from the global LHS without placing anything, so a worker can apportion
+globally.
+
+**Not fixed for variables that drop a dimension**, on purpose. Their `p_j` counts distinct
+*projected* cells, which depends on where var0 landed; a worker cannot know it for strata it does
+not own. Applying the fix in serial and not in parallel would break the equivalence this whole
+document is about, so both paths keep the per-stratum rule for those.
+
+Achieved overlap, after:
+
+```
+3x3  target 0.875 -> 0.875     30x30 target 0.875 -> 0.875   (was 0.8875)
+3x3  target 0.333 -> 0.333     mv3   target 0.500 -> 0.5006  (was 0.5028)
+6x6  target 0.875 -> 0.875     mv3   target 0.300 -> 0.3003  (was 0.2958)
+```
+
+Two golden digests moved, `mv3` and `mvfixed`; `mv2` was already exact and `mvred` uses reduced
+dimensions and falls back. Serial still equals parallel in all ten.
+
+
 ---
 
 ## Adjacent findings (not parallel-specific)

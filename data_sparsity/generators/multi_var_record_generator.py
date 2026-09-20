@@ -584,10 +584,17 @@ class MultiVarRecordGenerator:
 
         the fraction of the reference variable's (projected) sites that also
         carry variable i, where ``proj`` drops the dimensions variable i does
-        not vary along. The per-stratum target is ``t_i * |proj_j(S_0)|``, which
-        is local: the global denominator is never needed, so no worker has to
-        see the whole grid. Independent per-stratum rounding costs a drift of
-        order ``sqrt(num_strata)/2`` on the global numerator.
+        not vary along.
+
+        A variable that varies along every dimension has its overlap count
+        decided once and apportioned across strata, so the achieved F1 is the
+        requested one to within a cell. A variable that drops a dimension keeps
+        a per-stratum ``round(t_i * |proj_j(S_0)|)``, which drifts by order
+        ``sqrt(num_strata)/2`` on the global numerator: its ``p_j`` counts
+        distinct PROJECTED cells, which depends on where the reference landed,
+        and a worker holding one chunk cannot know it for strata it does not
+        own. Both paths use the same rule for a given variable, so serial and
+        parallel agree either way.
 
         The non-overlapping remainder is drawn from cells held by **neither**
         variable, so the achieved overlap equals the target instead of picking
@@ -627,6 +634,7 @@ class MultiVarRecordGenerator:
         # --- per-variable geometry and per-stratum counts --------------------
         wanted_strata = list(range(num_strata)) if strata is None else [int(j) for j in strata]
         plane, shared, home, counts = {}, {}, {}, {}
+        unreachable: Dict[int, tuple] = {}
         for var_idx in range(1, num_vars):
             dims = [d for d in var_dims_indices[var_idx] if d != split_dim]
             shared[var_idx] = dims
@@ -643,6 +651,46 @@ class MultiVarRecordGenerator:
             counts[var_idx] = ChunkUtils.apportion(
                 int(var_num_obs[var_idx]), weights, weights
             )
+
+        # --- how many overlapping cells each stratum gets --------------------
+        # Rounding target * p_j in every stratum and adding the results up is
+        # not the same as rounding the total: each stratum rounds to a whole
+        # cell, and on a coarse grid one cell is a large share of the variable.
+        # A 3x3 grid asking for 7 of 8 shared cells got 8, and one asking for 1
+        # of 3 got 0. So the total is decided once and handed out across strata,
+        # the way observation counts already are.
+        #
+        # Only for variables that vary along every dimension. Where a variable
+        # drops one, p_j counts DISTINCT PROJECTED cells, which depends on
+        # where the reference landed, and a worker holding one chunk cannot
+        # know it for strata it does not own. Falling back for those keeps
+        # serial and parallel identical, which matters more than the drift.
+        overlap_counts = {}
+        all_dims = set(range(num_dims))
+        for var_idx in range(1, num_vars):
+            target = overlap_targets[var_idx - 1]
+            if target is None or set(var_dims_indices[var_idx]) != all_dims:
+                overlap_counts[var_idx] = None
+                continue
+            p_all = RecordGenerator.stratum_counts(
+                shape, int(var_num_obs[0]), seed, split_dim
+            )
+            n_all = np.asarray(counts[var_idx], dtype=np.int64)
+            free_all = plane[var_idx] - p_all
+            lo_all = np.maximum(0, n_all - free_all)
+            hi_all = np.minimum(n_all, p_all)
+            goal = int(np.round(target * p_all.sum()))
+            room = hi_all - lo_all
+            spare = goal - int(lo_all.sum())
+            if spare <= 0:
+                chosen = lo_all.copy()          # the forced minimum already exceeds it
+            else:
+                chosen = lo_all + ChunkUtils.apportion(
+                    min(spare, int(room.sum())), room, room
+                )
+            overlap_counts[var_idx] = chosen
+            if int(chosen.sum()) != goal:
+                unreachable[var_idx] = (goal, int(chosen.sum()), int(p_all.sum()))
 
         # --- per stratum ------------------------------------------------------
         per_var = {v: ([[] for _ in range(num_dims)], []) for v in range(1, num_vars)}
@@ -680,6 +728,8 @@ class MultiVarRecordGenerator:
                 target = overlap_targets[var_idx - 1]
                 if target is None:                 # overlap='random': no control
                     n_overlap = None
+                elif overlap_counts[var_idx] is not None:
+                    n_overlap = int(overlap_counts[var_idx][stratum])
                 else:
                     ideal = int(np.round(target * proj.size))
                     n_overlap = int(np.clip(ideal, lo, hi))
