@@ -142,6 +142,12 @@ class MultiVarOverlapConfig:
         number of observations. If there are fewer grid points than the sum of
         all observations, some observations must overlap.
 
+        Expressed as F1: forced coincidences divided by the reference
+        variable's observation count. With more than two variables this pools
+        the forced coincidences of every non-reference variable into one
+        number, so it is a lower bound on each rather than an exact per-variable
+        minimum.
+
         Args:
             total_grid_points: Total number of grid points available
             var_num_obs: Array of observation counts for each variable
@@ -152,14 +158,12 @@ class MultiVarOverlapConfig:
         # Get total sites available
         total_sites = total_grid_points
 
-        # Get observation counts for all variables
-        sorted_obs = np.sort(var_num_obs)[::-1]  # Descending order
-
-        # The variable with most observations sets the baseline
-        max_obs = sorted_obs[0]
-
-        # Sum of all other observations
-        other_obs = np.sum(sorted_obs[1:])
+        # var0 is the reference by definition, not whichever variable happens
+        # to be largest -- validate_reference_is_largest guarantees the two
+        # coincide for any accepted configuration.
+        obs = np.asarray(var_num_obs)
+        max_obs = obs[0]
+        other_obs = np.sum(obs[1:])
 
         # If there are no other observations, this is an error
         # (shouldn't happen with num_vars>1 after validation)
@@ -172,9 +176,13 @@ class MultiVarOverlapConfig:
         if total_sites >= max_obs + other_obs:
             return 0.0
 
-        # Otherwise, compute how many must overlap
+        # Otherwise, compute how many must overlap. Overlap is F1, the share of
+        # the REFERENCE variable's sites that another variable also occupies
+        # (docs/explainer_multivar.md), so the denominator is the reference
+        # count. Dividing by the non-reference total, as this used to, measured
+        # a different quantity from the one the generator targets.
         must_overlap = max_obs + other_obs - total_sites
-        min_overlap = must_overlap / other_obs
+        min_overlap = must_overlap / max_obs
 
         return min_overlap
 

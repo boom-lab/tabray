@@ -353,7 +353,10 @@ class TestGenerate:
         
         assert isinstance(records, dict)
         assert 'var0' in records
-        assert overlap_actual is None
+        # one variable has nothing to overlap with: an empty per-variable array,
+        # matching the multi-variable return type
+        assert isinstance(overlap_actual, np.ndarray)
+        assert overlap_actual.size == 0
     
     def test_random_overlap_calls_without_overlap(self):
         """Should use without_overlap for random overlap."""

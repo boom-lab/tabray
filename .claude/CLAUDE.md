@@ -58,7 +58,11 @@ The grid is always `num_dims`-dimensional. A variable with fewer dimensions vari
 
 ### Overlap
 
-`var0` is the reference variable in `MultiVarRecordGenerator`: it is placed first, and each other variable takes `round(overlap_target[i] * var_num_obs[i])` of its sites from `var0`'s occupied sites (filtered to those compatible with its own constant coordinates), then fills the rest from unused sites. So overlap is the fraction of the *non-reference* variable's sites that coincide with reference sites — `OverlapCalculator.compute_actual_overlaps_against_reference` measures exactly that. `compute_actual_overlap` is an older, different metric that picks its reference by observation count instead; note that `MultiVarSparsityConfig` does not sort densities, so `var0` is not necessarily the densest variable.
+`var0` is the reference variable, placed first. Overlap is **F1**, the definition in `docs/explainer_multivar.md`: `|proj(S0) & proj(Si)| / |proj(S0)|`, the share of *var0's* sites that also carry variable i, measured on the dimensions the two share. `OverlapCalculator.compute_overlap_report` returns it together with the reverse ratio; `compute_actual_overlaps_against_reference` returns F1 alone. `compute_actual_overlap` is an older pooled metric, no longer used by the generator.
+
+Placement is per stratum: `MultiVarRecordGenerator.generate_multivar_stratified` takes `round(t_i * |proj_j(S0)|)` of each variable's sites from var0's footprint *within that hyperplane*, then fills the rest from cells held by neither variable, so the achieved overlap equals the target rather than picking up accidental coincidences. Where the target is unreachable — a reduced-dimension variable whose projected reference saturates — it warns and density takes precedence.
+
+`var0` is always the largest variable: `validate_reference_is_largest` rejects anything else, and `validate_density_refvar` forces `density[0]` to the maximum (mutating the caller's list, and collapsing a 2-element range to a single value).
 
 `fixed_overlap` (per-variable bool) makes variables draw their overlapping sites from one shared permutation of the reference sites, so opted-in variables overlap each other as well as the reference; with `False` each variable draws independently.
 
