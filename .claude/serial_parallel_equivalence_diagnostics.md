@@ -22,8 +22,16 @@ plus the coverage fix (A5).
   semantic half of **D5**. Overlap follows F1 and the split dimension is restricted to
   dimensions every variable varies along.
 
-535 tests pass. Still open: **D6** (on-disk layout and metadata, now including D5's squeeze
-question), **S2-S6**, and **A1-A2, A4, A6**. Sections describing a closed item record the behaviour *before* the change.
+* **D6** closed the on-disk differences: one overlap definition reported everywhere (F1, with
+  F2 alongside), the same self-describing attributes from both paths, an opt-in `merge_nc`, and
+  a parquet row order that is identical as written rather than only after sorting. **S2** and
+  the rest of **D5** fell out of it.
+
+**Serial and parallel now produce identical files on disk** -- coordinates, dimensions, values,
+parquet rows and attributes -- verified across single- and multi-variable, 2D to 6D, minimum
+density, reduced-dimension variables, `overlap='random'` and `fixed_overlap`.
+
+535 tests pass. Still open: **S3-S6**, and **A1-A2, A4, A6-A7**. Sections describing a closed item record the behaviour *before* the change.
 
 ## Question
 
@@ -139,7 +147,7 @@ for 2 and 3 variables, scalar and per-variable targets, `overlap='random'`, `fix
 6D anisotropic grids. Overlap now follows F1 (`docs/explainer_multivar.md`): the per-stratum
 target `t * |proj_j(S_0)|` is local, so the global denominator is never needed.
 
-### [partly done] D5 — variables on fewer dimensions: structurally different, and wrong when the constant dim is the split dim
+### [done] D5 — variables on fewer dimensions: structurally different, and wrong when the constant dim is the split dim
 
 Two distinct causes:
 
@@ -166,11 +174,11 @@ coordinate is drawn from the global shape, and the split dimension is chosen onl
 dimensions *every* variable varies along (`_choose_split_dim`), so no variable can be constant
 along it. That constraint is required anyway for projected overlap to stay stratum-local.
 
-**Cause 1 still open** and belongs with D6: serial squeezes the constant dimension out, chunk
-files cannot because they must concatenate. Either the merge step squeezes, or serial stops
-squeezing. This is the only thing left between multi-variable parallel and full identity.
+**Cause 1 fixed in D6** by the merge step: chunk files keep every dimension so they can
+concatenate, and `generate(..., merge_nc=True)` squeezes on merge. Merging is opt-in because
+large datasets are routinely served as many files.
 
-### D6 — on-disk layout
+### [done] D6 — on-disk layout
 
 - N `.nc` chunk files with no merge step (serial writes one file).
 - Multi-var chunk attributes differ from serial's: `chunk_id`, per-chunk `num_obs`, and a
@@ -254,11 +262,16 @@ Two further properties of this config, both verified:
   machinery that S1 pays for buys nothing in this regime.
 
 
-### S2 — `build_multi_var_dataframe` cost is O(num_obs x grid_points)
+### [done] S2 — `build_multi_var_dataframe` cost is O(num_obs x grid_points)
 
 `record[non_nan_mask][obs_idx]` re-masks the whole array inside the row loop
 (`output/parquet_builder.py:99`). Holding observations fixed at 4000/var and growing the grid:
 40k points 0.31 s, 360k 0.57 s, 1.44M 1.92 s.
+
+**Fixed in D6d**, as a side effect of making the row order deterministic. Vectorised with one
+`unique` over the union of the variables' flat indices and a `searchsorted` per variable:
+40k 0.001 s, 360k 0.003 s, 1.44M 0.008 s, 9M 0.043 s -- 240x at 1.44M, and no longer scaling
+with the grid.
 
 ### S3 — the parallel path deletes the parquet output directory recursively
 
