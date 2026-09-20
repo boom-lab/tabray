@@ -19,54 +19,82 @@ import numpy as np
 class VariableEncoding:
     """The on-disk representation of one variable.
 
-    An integer dtype implies packing: the generator's values are fractional,
-    so they are carried as ``scale_factor * code + add_offset``. The scale is
-    derived from the declared value range, never from the data, so that a
-    parallel chunk computes the same scale as a serial run without having to
-    see the whole array.
+    Two separate choices, one parameter each:
+
+    * ``dtype`` is what the variable holds. A continuous quantity is a float.
+    * ``pack`` is how a float is compacted on disk. Naming an integer type
+      here carries the values as ``scale_factor * code + add_offset``, the
+      convention GLORYS12 and most reanalysis products use.
+
+    They are separate because a file can hold both. Argo stores ``TEMP`` as a
+    plain float32 and ``CYCLE_NUMBER`` as a plain int32, and neither is packed.
+
+    The packing scale comes from the declared value range, not from the data,
+    so a parallel chunk derives the same scale as a serial run without seeing
+    the whole array.
     """
 
     #: ObservationGenerator draws uniform(0, 1).
     VALUE_RANGE = (0.0, 1.0)
 
     FLOAT_DTYPES = ("float64", "float32")
-    #: Integer dtypes, with the fill code each reserves.
+    #: Integer types a float can be packed into, with the fill code each
+    #: reserves.
     INT_FILL = {"int8": -127, "int16": -32767, "int32": -2147483647}
 
     def __init__(
             self,
             dtype: str = "float64",
+            pack: Optional[str] = None,
             fill_value: Optional[float] = None,
             value_range: Optional[Tuple[float, float]] = None,
     ) -> None:
         """Resolve one variable's encoding.
 
         Args:
-            dtype: ``float64``, ``float32``, ``int8``, ``int16`` or ``int32``
-            fill_value: Value marking a vacant site. Defaults to NaN for float
-                dtypes and to the reserved code for integer ones. A float
-                dtype may take a sentinel instead, as Argo does.
-            value_range: (min, max) the data can take, used to derive the
+            dtype: What the variable holds: ``float64`` or ``float32``
+            pack: Integer type to compact the values into on disk
+                (``int8``, ``int16``, ``int32``), or None to store them plain
+            fill_value: Value marking a vacant site. Defaults to NaN, or to
+                the reserved code when packed. A float may take a sentinel
+                instead, as Argo does with 99999.0.
+            value_range: (min, max) the values span, used to derive the
                 packing. Defaults to the generator's own range.
 
         Raises:
-            ValueError: If the dtype is unsupported, or a fill value is given
-                that collides with the representable range
+            ValueError: If the dtype or pack type is unknown, or pack is asked
+                for on a type that cannot be packed
         """
         dtype = str(dtype).lower()
-        if dtype not in self.FLOAT_DTYPES and dtype not in self.INT_FILL:
+        if dtype in self.INT_FILL:
+            raise ValueError(
+                f"dtype={dtype!r} names an integer type. To store float values "
+                f"compacted into {dtype}, pass pack={dtype!r} and leave dtype "
+                "as a float. dtype names what the variable holds."
+            )
+        if dtype not in self.FLOAT_DTYPES:
             raise ValueError(
                 f"Unsupported dtype {dtype!r}. Use one of "
-                f"{list(self.FLOAT_DTYPES) + list(self.INT_FILL)}."
+                f"{list(self.FLOAT_DTYPES)}."
             )
         self.dtype = dtype
+
+        if pack is not None:
+            pack = str(pack).lower()
+            if pack not in self.INT_FILL:
+                raise ValueError(
+                    f"Cannot pack into {pack!r}. Use one of "
+                    f"{list(self.INT_FILL)}, or None to store the values plain."
+                )
+        self.pack = pack
+
         self.value_range = tuple(value_range or self.VALUE_RANGE)
-        self.param_dtype = np.float64  # set by _packing for packed dtypes
+        self.param_dtype = np.float64  # set by _packing when packed
 
         if self.packed:
             self.fill_value = (
                 int(fill_value) if fill_value is not None
-                else self.INT_FILL[dtype]
+                else self.INT_FILL[pack]
             )
             self.scale_factor, self.add_offset = self._packing()
         else:
@@ -76,7 +104,12 @@ class VariableEncoding:
     @property
     def packed(self) -> bool:
         """Whether values are carried as scaled integers."""
-        return self.dtype in self.INT_FILL
+        return self.pack is not None
+
+    @property
+    def storage_dtype(self) -> str:
+        """The type the file holds, which is the pack type when packing."""
+        return self.pack if self.packed else self.dtype
 
     def _packing(self) -> Tuple[float, float]:
         """Derive scale and offset, leaving the fill code unused.
@@ -87,7 +120,7 @@ class VariableEncoding:
         The usable codes are ``fill + 1 .. imax``.
         """
         vmin, vmax = self.value_range
-        imax = int(np.iinfo(self.dtype).max)
+        imax = int(np.iinfo(self.pack).max)
         steps = imax - (self.fill_value + 1)
         scale = (vmax - vmin) / steps
         offset = vmax - imax * scale
@@ -112,25 +145,25 @@ class VariableEncoding:
         Returns:
             The same array rounded to the representable grid
         """
-        if self.dtype == "float64":
+        if not self.packed:
+            if self.dtype == "float32":
+                return values.astype(np.float32).astype(np.float64)
             return values
-        if self.dtype == "float32":
-            return values.astype(np.float32).astype(np.float64)
 
         occupied = ~np.isnan(values)
         out = values.copy()
         codes = np.rint(
             (values[occupied] - self.add_offset) / self.scale_factor
         )
-        codes = np.clip(codes, self.fill_value + 1, np.iinfo(self.dtype).max)
+        codes = np.clip(codes, self.fill_value + 1, np.iinfo(self.pack).max)
         out[occupied] = self.add_offset + self.scale_factor * codes
         return out
 
     def netcdf_encoding(self) -> dict:
         """The per-variable part of xarray's ``encoding``."""
-        if self.dtype == "float64" and self.fill_value is None:
-            # The default. Say nothing, so xarray writes exactly as it would
-            # without an encoding argument at all.
+        if not self.packed and self.dtype == "float64" and self.fill_value is None:
+            # The default. Say nothing, so xarray writes as it would without
+            # an encoding argument at all.
             return {}
         if not self.packed:
             encoding = {"dtype": self.dtype}
@@ -138,10 +171,10 @@ class VariableEncoding:
                 encoding["_FillValue"] = np.dtype(self.dtype).type(self.fill_value)
             return encoding
         return {
-            "dtype": self.dtype,
+            "dtype": self.pack,
             "scale_factor": self.param_dtype(self.scale_factor),
             "add_offset": self.param_dtype(self.add_offset),
-            "_FillValue": np.dtype(self.dtype).type(self.fill_value),
+            "_FillValue": np.dtype(self.pack).type(self.fill_value),
         }
 
     def pandas_dtype(self) -> str:
@@ -160,19 +193,20 @@ class VariableEncoding:
         if not self.packed:
             fill = "NaN" if self.fill_value is None else self.fill_value
             return f"VariableEncoding({self.dtype}, fill={fill})"
-        return (f"VariableEncoding({self.dtype} packed, "
+        return (f"VariableEncoding({self.dtype} -> {self.pack}, "
                 f"scale={self.scale_factor:.6g}, fill={self.fill_value})")
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, VariableEncoding):
             return NotImplemented
-        return (self.dtype, self.fill_value, self.value_range) == (
-            other.dtype, other.fill_value, other.value_range)
+        return (self.dtype, self.pack, self.fill_value, self.value_range) == (
+            other.dtype, other.pack, other.fill_value, other.value_range)
 
     @classmethod
     def per_variable(
             cls,
             dtype: Union[str, Sequence[str], None],
+            pack: Union[str, Sequence, None],
             fill_value: Union[float, Sequence, None],
             num_vars: int,
     ) -> List["VariableEncoding"]:
@@ -184,6 +218,7 @@ class VariableEncoding:
 
         Args:
             dtype: One dtype, or one per variable. None means float64.
+            pack: One pack type, or one per variable. None stores plain.
             fill_value: One fill value, or one per variable. None means the
                 default for the dtype.
             num_vars: Number of variables
@@ -206,8 +241,9 @@ class VariableEncoding:
             return values
 
         dtypes = spread(dtype, "dtype")
+        packs = spread(pack, "pack")
         fills = spread(fill_value, "fill_value")
         return [
-            cls(d if d is not None else "float64", f)
-            for d, f in zip(dtypes, fills)
+            cls(d if d is not None else "float64", pk, f)
+            for d, pk, f in zip(dtypes, packs, fills)
         ]
