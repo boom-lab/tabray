@@ -13,7 +13,7 @@ import numpy as np
 from numpy.typing import ArrayLike
 
 from data_sparsity.generators import CoordinateGenerator, MultiVarRecordGenerator
-from data_sparsity.output import NetCDFBuilder, ParquetBuilder
+from data_sparsity.output import NetCDFBuilder, ParquetBuilder, VariableEncoding
 from data_sparsity.utils import ChunkUtils
 
 
@@ -77,6 +77,8 @@ def generate_chunk(
     num_obs_global: Optional[int] = None,
     fixed_overlap: Union[bool, List[bool]] = False,
     log_dir: str = "logs",
+    var_dtypes: Union[str, List, None] = None,
+    var_fill_values: Union[float, List, None] = None,
 ) -> Tuple[int, int, str]:
     """Generate a single chunk of data in parallel.
 
@@ -112,11 +114,16 @@ def generate_chunk(
             strata take their share of this global count
         log_dir: Directory for this worker's log, used only when
             TABRAY_WORKER_LOG is set
+        var_dtypes: On-disk dtype per variable, or one for all
+        var_fill_values: Fill value per variable, or one for all
 
     Returns:
         Tuple of (chunk_id, total_observations, parquet_chunk_path)
     """
     log = _configure_worker_logging(chunk_id, log_dir)
+    var_encodings = VariableEncoding.per_variable(
+        var_dtypes, var_fill_values, num_vars
+    )
     log.debug("######------ NEW CHUNK ------######")
 
     # Determine chunk dimensions and range along split dimension FIRST
@@ -174,6 +181,10 @@ def generate_chunk(
             div_points=div_points,  # Pass division points for chunk filtering
         )
 
+        # Round to what the encoding can store, before either format is
+        # written, so the two hold the same numbers.
+        records["var0"] = var_encodings[0].quantize(records["var0"])
+
         # Extract the single record from the dictionary
         record = records["var0"]
 
@@ -211,6 +222,7 @@ def generate_chunk(
             dataarray,
             fpath,
             overwrite=False,
+            var_encodings=var_encodings,
         )
         del dataarray
         gc.collect()
@@ -232,6 +244,7 @@ def generate_chunk(
             parquet_chunk_path,
             overwrite=False,
             write_metadata=False,
+            var_encodings=var_encodings,
         )
 
         total_obs = np.sum(~np.isnan(record))
@@ -257,6 +270,11 @@ def generate_chunk(
             num_obs_global=num_obs_global,
             fixed_overlap=fixed_overlap,
         )
+
+        for var_idx, encoding in enumerate(var_encodings):
+            name = f"var{var_idx}"
+            if name in records:
+                records[name] = encoding.quantize(records[name])
 
         log.debug("chunk id: %s", chunk_id)
         # Count what was actually placed. var_num_obs is the GLOBAL per-variable
@@ -314,6 +332,7 @@ def generate_chunk(
             dataset,
             fpath,
             overwrite=False,
+            var_encodings=var_encodings,
         )
         del dataset
         gc.collect()
@@ -337,6 +356,7 @@ def generate_chunk(
             parquet_chunk_path,
             overwrite=False,
             write_metadata=False,
+            var_encodings=var_encodings,
         )
 
     return chunk_id, total_obs, parquet_chunk_path
