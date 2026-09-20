@@ -10,6 +10,7 @@ import pandas as pd
 import dask.dataframe as dd
 
 from data_sparsity.output.compression_settings import CompressionSettings
+from data_sparsity.output.variable_encoding import VariableEncoding
 
 
 class ParquetBuilder:
@@ -137,13 +138,41 @@ class ParquetBuilder:
         return pd.DataFrame(columns)
 
     @staticmethod
+    def cast_values(dataframe, var_encodings: list = None):
+        """Cast the value columns to the type netCDF stores.
+
+        A variable packed to int16 on the netCDF side is stored decoded here,
+        as float32: packing is a netCDF device for a format without per-column
+        encodings, while parquet's idiom is the natural type. Casting keeps the
+        two formats holding the same numbers, so a size comparison is about the
+        formats rather than about their default precisions.
+
+        Args:
+            dataframe: Frame with columns ``record`` or ``var0..varN``
+            var_encodings: One VariableEncoding per variable, or None
+
+        Returns:
+            The frame, with value columns cast
+        """
+        if not var_encodings:
+            return dataframe
+        for index, encoding in enumerate(var_encodings):
+            for column in (f"var{index}", "record" if index == 0 else None):
+                if column and column in dataframe.columns:
+                    dataframe[column] = dataframe[column].astype(
+                        encoding.pandas_dtype()
+                    )
+        return dataframe
+
+    @staticmethod
     def save_to_file(
         dataframe: pd.DataFrame | dd.DataFrame,
         filepath: str,
         overwrite: bool = False,
         chunk_id: int = None,
         write_metadata: bool = None,
-        compression: CompressionSettings = None
+        compression: CompressionSettings = None,
+        var_encodings: list = None
     ) -> None:
         """Save DataFrame to Parquet file.
         
@@ -160,12 +189,17 @@ class ParquetBuilder:
             compression: Codec to apply, shared with the netCDF output. None
                 writes uncompressed -- which must be said explicitly, because
                 dask's own default is Snappy.
+            var_encodings: One VariableEncoding per variable. The value
+                columns are cast to match what netCDF stores, so the two
+                formats hold the same numbers in the same precision.
             
         Raises:
             FileExistsError: If file exists and overwrite is False
         """
         import os
         
+        dataframe = ParquetBuilder.cast_values(dataframe, var_encodings)
+
         # Convert pandas to dask if needed
         if isinstance(dataframe, pd.DataFrame):
             ddf = dd.from_pandas(dataframe, npartitions=1)

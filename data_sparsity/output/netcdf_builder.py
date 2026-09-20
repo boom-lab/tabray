@@ -8,6 +8,7 @@ import numpy as np
 import xarray as xr
 
 from data_sparsity.output.compression_settings import CompressionSettings
+from data_sparsity.output.variable_encoding import VariableEncoding
 
 
 class NetCDFBuilder:
@@ -206,11 +207,51 @@ class NetCDFBuilder:
         return xr.Dataset(data_vars, attrs=dataset.attrs)
 
     @staticmethod
+    def build_encoding(
+        data,
+        compression: CompressionSettings = None,
+        var_encodings: list = None
+    ) -> dict:
+        """Merge the per-variable dtype choice with the compression settings.
+
+        Variables are matched by name: ``varN`` takes the Nth encoding, and a
+        single-variable DataArray (named ``record``) takes the first.
+
+        Args:
+            data: The DataArray or Dataset about to be written
+            compression: Codec, or None
+            var_encodings: One VariableEncoding per variable, or None
+
+        Returns:
+            Encoding dict keyed by variable name
+        """
+        if isinstance(data, xr.DataArray):
+            names = [data.name] if data.name is not None else []
+        else:
+            names = list(data.data_vars)
+
+        encoding = {}
+        for position, name in enumerate(names):
+            entry = {}
+            if var_encodings:
+                index = (int(name[3:]) if name.startswith("var") and
+                         name[3:].isdigit() else position)
+                if index < len(var_encodings):
+                    entry.update(var_encodings[index].netcdf_encoding())
+            encoding[name] = entry
+
+        if compression:
+            for name, settings in compression.netcdf_encoding(data).items():
+                encoding.setdefault(name, {}).update(settings)
+        return {k: v for k, v in encoding.items() if v}
+
+    @staticmethod
     def save_to_file(
         data: xr.DataArray | xr.Dataset,
         filepath: str,
         overwrite: bool = False,
-        compression: CompressionSettings = None
+        compression: CompressionSettings = None,
+        var_encodings: list = None
     ) -> None:
         """Save DataArray or Dataset to NetCDF file.
         
@@ -220,6 +261,8 @@ class NetCDFBuilder:
             overwrite: Whether to overwrite existing file
             compression: Codec to apply, shared with the parquet output.
                 None writes uncompressed.
+            var_encodings: One VariableEncoding per variable, or None for
+                plain float64.
             
         Raises:
             FileExistsError: If file exists and overwrite is False
@@ -231,6 +274,6 @@ class NetCDFBuilder:
                 f"File {filepath} already exists. Set overwrite=True to replace."
             )
         
-        encoding = compression.netcdf_encoding(data) if compression else {}
+        encoding = NetCDFBuilder.build_encoding(data, compression, var_encodings)
         data.to_netcdf(filepath, encoding=encoding)
         print(f"Saved to {filepath}")

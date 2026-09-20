@@ -208,6 +208,8 @@ __marimo__/
 
 # Generated data files
 *.nc
+# Partial downloads: the Copernicus toolbox appends a suffix, so *.nc misses them
+*.nc.*
 *.parquet
 *.pkl
 *.csv

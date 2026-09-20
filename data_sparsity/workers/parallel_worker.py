@@ -15,6 +15,7 @@ from numpy.typing import ArrayLike
 from data_sparsity.generators import CoordinateGenerator, MultiVarRecordGenerator
 from data_sparsity.output import (
     CompressionSettings,
+    VariableEncoding,
     NetCDFBuilder,
     ParquetBuilder,
 )
@@ -85,6 +86,8 @@ def generate_chunk(
     fixed_overlap: Union[bool, List[bool]] = False,
     compression_codec: Optional[str] = None,
     compression_level: int = 4,
+    var_dtypes: Union[str, List, None] = None,
+    var_fill_values: Union[float, List, None] = None,
 ) -> Tuple[int, int, str]:
     """Generate a single chunk of data in parallel.
     
@@ -122,12 +125,17 @@ def generate_chunk(
             string rather than a CompressionSettings so the worker arguments
             stay plain values.
         compression_level: Compression level, ignored when the codec is None
+        var_dtypes: On-disk dtype per variable, or one for all
+        var_fill_values: Fill value per variable, or one for all
         
     Returns:
         Tuple of (chunk_id, total_observations, parquet_chunk_path)
     """
     log = _configure_worker_logging(chunk_id, netcdf_filepath)
     compression = CompressionSettings(compression_codec, compression_level)
+    var_encodings = VariableEncoding.per_variable(
+        var_dtypes, var_fill_values, num_vars
+    )
     log.debug("######------ NEW CHUNK ------######")
     
     # Determine chunk dimensions and range along split dimension FIRST
@@ -188,6 +196,10 @@ def generate_chunk(
             div_points=div_points  # Pass division points for chunk filtering
         )
         
+        # Round to what the encoding can store, before either format is
+        # written, so the two hold the same numbers.
+        records['var0'] = var_encodings[0].quantize(records['var0'])
+
         # Extract the single record from the dictionary
         record = records['var0']
         
@@ -214,7 +226,8 @@ def generate_chunk(
         nb_digits = len(str(ntasks))
         fpath = f"{netcdf_filepath[:-3]}_{chunk_id:0{nb_digits}d}.nc"
         NetCDFBuilder.save_to_file(
-            dataarray, fpath, overwrite=False, compression=compression
+            dataarray, fpath, overwrite=False, compression=compression,
+            var_encodings=var_encodings
         )
         del dataarray
         gc.collect()
@@ -230,7 +243,8 @@ def generate_chunk(
         parquet_chunk_path = os.path.join(parquet_tmp, f"chunk_{chunk_id:04d}.parquet")
         ParquetBuilder.save_to_file(
             dataframe, parquet_chunk_path, overwrite=False,
-            write_metadata=False, compression=compression
+            write_metadata=False, compression=compression,
+            var_encodings=var_encodings
         )
         
         total_obs = np.sum(~np.isnan(record))
@@ -251,6 +265,11 @@ def generate_chunk(
             num_obs_global=num_obs_global,
             fixed_overlap=fixed_overlap
         )
+
+        for var_idx, encoding in enumerate(var_encodings):
+            name = f"var{var_idx}"
+            if name in records:
+                records[name] = encoding.quantize(records[name])
 
         log.debug("chunk id: %s", chunk_id)
         # Count what was actually placed. var_num_obs is the GLOBAL per-variable
@@ -298,7 +317,8 @@ def generate_chunk(
         nb_digits = len(str(ntasks))
         fpath = f"{netcdf_filepath[:-3]}_{chunk_id:0{nb_digits}d}.nc"
         NetCDFBuilder.save_to_file(
-            dataset, fpath, overwrite=False, compression=compression
+            dataset, fpath, overwrite=False, compression=compression,
+            var_encodings=var_encodings
         )
         del dataset
         gc.collect()
@@ -314,7 +334,8 @@ def generate_chunk(
         parquet_chunk_path = os.path.join(parquet_tmp, f"chunk_{chunk_id:04d}.parquet")
         ParquetBuilder.save_to_file(
             dataframe, parquet_chunk_path, overwrite=False,
-            write_metadata=False, compression=compression
+            write_metadata=False, compression=compression,
+            var_encodings=var_encodings
         )
     
     return chunk_id, total_obs, parquet_chunk_path

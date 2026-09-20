@@ -42,6 +42,37 @@ GenerateData.generate  ->  generators/   CoordinateGenerator, MultiVarRecordGene
                        ->  workers/      generate_chunk  (parallel path only)
 ```
 
+### Per-variable encoding
+
+`dtype` and `fill_value` (constructor, scalar or one per variable) go through
+`VariableEncoding` (`data_sparsity/output/variable_encoding.py`). Default is `float64` with NaN,
+which emits **no** xarray encoding entry at all, so the default output is byte-identical to what
+the code wrote before the parameter existed.
+
+Scientific netCDF has no single convention, which is why this is per variable rather than a mode.
+Two real files sit in the repo and disagree on nearly everything:
+
+| | GLORYS12 (`GLOBAL_MULTIYEAR_PHY_001_030/`) | Argo Sprof (`argo/`) |
+|---|---|---|
+| dtype | `int16` packed, scale + offset | `float32` plain |
+| missing | `-32767` | `99999.0`, not NaN |
+| compression | zlib **1**, no shuffle | zlib **4**, with shuffle |
+| coordinates | `float32` | `float64` |
+
+An integer dtype implies packing. Two things there are easy to get wrong and are covered by
+tests: the fill code must be **reserved** (mapping the value range onto the full integer range
+puts the minimum value on `_FillValue`, and those cells read back as missing — GLORYS reports
+`valid_min = -32760` for this reason), and the dtype of `scale_factor`/`add_offset` decides what
+xarray decodes *to*, so they are written as `float32` where that is precise enough, giving a
+`float32` array rather than a promoted `float64` one. `int32` is the exception: its step is finer
+than `float32` spacing, so it keeps `float64` parameters.
+
+Values are quantised once, by `GenerateData._quantize` and its worker counterpart, before either
+format is written — so netCDF and parquet hold the same numbers and the serial/parallel digest
+check still means something. The scale is derived from `VariableEncoding.VALUE_RANGE`, matching
+`ObservationGenerator`'s `uniform(0, 1)`, never measured from the data, because a parallel chunk
+never sees the whole array.
+
 ### Compression
 
 `compression` (default `None`) and `complevel` go through `CompressionSettings`
