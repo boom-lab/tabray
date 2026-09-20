@@ -139,7 +139,8 @@ class ParquetBuilder:
         dataframe: pd.DataFrame | dd.DataFrame,
         filepath: str,
         overwrite: bool = False,
-        chunk_id: int = None
+        chunk_id: int = None,
+        write_metadata: bool = None
     ) -> None:
         """Save DataFrame to Parquet file.
         
@@ -148,6 +149,11 @@ class ParquetBuilder:
             filepath: Path to save file (or directory for dask)
             overwrite: Whether to overwrite existing file
             chunk_id: Optional chunk ID for parallel generation
+            write_metadata: Whether to write the `_metadata` summary files.
+                Defaults to "only when this is not a chunk". Parallel workers
+                pass False explicitly: they write into a shared scratch
+                directory, and several processes writing `_metadata` at once
+                race for the same two filenames.
             
         Raises:
             FileExistsError: If file exists and overwrite is False
@@ -206,7 +212,8 @@ class ParquetBuilder:
         
         # For parallel generation, don't write metadata file
         # (will be written when chunks are merged)
-        write_metadata = (chunk_id is None)
+        if write_metadata is None:
+            write_metadata = (chunk_id is None)
         
         # Save to parquet (overwrite=False to avoid deleting other chunks)
         ddf.to_parquet(

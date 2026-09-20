@@ -31,7 +31,7 @@ plus the coverage fix (A5).
 parquet rows and attributes -- verified across single- and multi-variable, 2D to 6D, minimum
 density, reduced-dimension variables, `overlap='random'` and `fixed_overlap`.
 
-Still open: **S3-S7**, and **A1-A2, A4, A6-A7**. Sections describing a closed item record the behaviour *before* the change.
+Still open: **S5-S7**, and **A1-A2, A4, A6-A7**. Sections describing a closed item record the behaviour *before* the change.
 
 ## Question
 
@@ -273,7 +273,7 @@ Two further properties of this config, both verified:
 40k 0.001 s, 360k 0.003 s, 1.44M 0.008 s, 9M 0.043 s -- 240x at 1.44M, and no longer scaling
 with the grid.
 
-### S3 — the parallel path deletes the parquet output directory recursively
+### [done] S3 — the parallel path deletes the parquet output directory recursively
 
 `shutil.rmtree(tmp_dir)` in `generate_data.py:842` resolves `tmp_dir` to
 `dirname(parquet_tmp)`, which is the parquet output directory itself.
@@ -282,12 +282,23 @@ Measured: a `NOTES.md` and an `important_subdir/results.csv` placed in that dire
 serial run and are destroyed by a parallel one. Serial only removes `.nc`/`.parquet`/`_metadata`
 files.
 
-### S4 — workers race on shared parquet metadata
+**Fixed together with S4**, same root cause. `parquet_tmp` names the scratch directory -- which
+is what its docstring always said -- instead of being read with `os.path.dirname`, which
+resolved to the output directory. Scratch chunks now live in their own directory, removed once
+the merge succeeds. Cleanup goes through `PathManager.remove_scratch_dir`, which refuses to
+delete a directory holding any file this run did not write, or any subdirectory, and says so
+rather than proceeding.
+
+### [done] S4 — workers race on shared parquet metadata
 
 `ParquetBuilder.save_to_file` writes `_metadata`/`_common_metadata` when `chunk_id is None`, and
 the worker passes `chunk_id=None` for its temporary chunk. Every worker therefore writes those
 two files into the same directory concurrently, contradicting the "don't write metadata file"
 comment three lines above.
+
+**Fixed.** `save_to_file` takes an explicit `write_metadata` instead of inferring it from
+`chunk_id`, and the workers pass `False`. The output directory ends up with exactly one
+`_metadata`/`_common_metadata` pair, written by the consolidation.
 
 ### S5 — worker logging
 
