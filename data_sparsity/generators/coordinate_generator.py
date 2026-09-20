@@ -15,28 +15,6 @@ class CoordinateGenerator:
     """
 
     @staticmethod
-    def generate_dimension_coords(
-        dim_size: int,
-        rng: np.random.Generator,
-        coord_range: Optional[Tuple[float, float]] = None
-    ) -> np.ndarray:
-        """Generate random coordinates for a single dimension.
-        
-        Args:
-            dim_size: Number of coordinate points in this dimension
-            rng: Random number generator
-            coord_range: Optional (min, max) range for coordinates (default: (0, 1))
-            
-        Returns:
-            Sorted array of random coordinate values
-        """
-        if coord_range is None:
-            coord_range = (0, 1)
-        
-        coords = rng.uniform(coord_range[0], coord_range[1], size=dim_size)
-        coords.sort()
-        return coords
-
     @staticmethod
     def generate_all_coords(
         shape: List[int],

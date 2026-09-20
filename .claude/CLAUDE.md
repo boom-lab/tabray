@@ -50,7 +50,7 @@ Dimensions are `x0 … x{num_dims-1}`, variables are `var0 … var{num_vars-1}`.
 
 ### Single variable is a special case of multi-variable
 
-There is one generation path. `_generate_record` and `generate()` both call `MultiVarRecordGenerator.generate` with `num_vars=1`, all dimensions varying, no constant dims. Do not reintroduce a separate single-variable placement routine. `num_vars == 1` only changes the output type: `xr.DataArray` + per-observation DataFrame, versus `xr.Dataset` + one-row-per-coordinate DataFrame with a column per variable.
+There is one generation path. `generate()` calls `_generate_multi_var_records` for every case, which calls `MultiVarRecordGenerator.generate`; with `num_vars=1` all dimensions vary and there are no constant dims. Do not reintroduce a separate single-variable placement routine. `num_vars == 1` only changes the output type: `xr.DataArray` + per-observation DataFrame, versus `xr.Dataset` + one-row-per-coordinate DataFrame with a column per variable.
 
 ### Variables on fewer dimensions
 

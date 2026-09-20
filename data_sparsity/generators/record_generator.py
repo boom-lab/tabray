@@ -30,39 +30,7 @@ class RecordGenerator:
         return np.full(shape, np.nan)
 
     @staticmethod
-    def generate_flat_indices(
-        total_points: int,
-        num_obs: int,
-        rng: np.random.Generator
-    ) -> np.ndarray:
-        """Generate random flat indices for observation placement.
-        
-        Args:
-            total_points: Total number of grid points
-            num_obs: Number of observations to place
-            rng: Random number generator
-            
-        Returns:
-            Array of flat indices
-        """
-        return rng.choice(total_points, size=num_obs, replace=False)
-
     @staticmethod
-    def convert_to_multi_indices(
-        flat_indices: np.ndarray,
-        shape: List[int]
-    ) -> Tuple:
-        """Convert flat indices to multi-dimensional indices.
-        
-        Args:
-            flat_indices: Flat (1D) indices
-            shape: Shape of the multi-dimensional array
-            
-        Returns:
-            Tuple of index arrays for each dimension
-        """
-        return np.unravel_index(flat_indices, shape)
-
     @staticmethod
     def assign_observations(
         record: np.ndarray,
@@ -258,28 +226,6 @@ class RecordGenerator:
         return combined_indices
 
     @staticmethod
-    def validate_density(
-        num_obs: int,
-        total_grid_points: int,
-        expected_density: float
-    ) -> None:
-        """Validate that computed density matches expected value.
-        
-        Args:
-            num_obs: Number of observations
-            total_grid_points: Total grid points
-            expected_density: Expected density value
-            
-        Raises:
-            ValueError: If computed density doesn't match expected
-        """
-        computed_density = num_obs / total_grid_points
-        if not np.isclose(computed_density, expected_density):
-            raise ValueError(
-                f"Density {computed_density} determined from number "
-                f"of coordinates differs from expected density {expected_density}"
-            )
-
     @staticmethod
     def generate_global_lhs_indices_for_chunk(
         global_shape: List[int],

@@ -268,76 +268,6 @@ class TestValidateChunkPoints:
         assert total_points == 100
 
 
-class TestGenerateSplitDimensionRange:
-    """Tests for generate_split_dimension_range method."""
-
-    def test_range_normalization(self):
-        """Should normalize range by dimension size."""
-        dim_split = 1
-        task_range = (0, 50)
-        dim_size = 100
-
-        dim_ranges = ChunkUtils.generate_split_dimension_range(
-            dim_split, task_range, dim_size
-        )
-
-        # Should contain only the split dimension
-        assert len(dim_ranges) == 1
-        assert dim_split in dim_ranges
-        # Range should be normalized to [0, 0.5)
-        assert dim_ranges[dim_split] == (0.0, 0.5)
-
-    def test_different_dimension_indices(self):
-        """Should work with any dimension index."""
-        dim_split = 2
-        task_range = (25, 75)
-        dim_size = 100
-
-        dim_ranges = ChunkUtils.generate_split_dimension_range(
-            dim_split, task_range, dim_size
-        )
-
-        assert 2 in dim_ranges
-        assert dim_ranges[2] == (0.25, 0.75)
-
-    def test_full_range(self):
-        """Should handle full dimension range."""
-        dim_split = 0
-        task_range = (0, 100)
-        dim_size = 100
-
-        dim_ranges = ChunkUtils.generate_split_dimension_range(
-            dim_split, task_range, dim_size
-        )
-
-        assert dim_ranges[0] == (0.0, 1.0)
-
-    def test_edge_case_boundaries(self):
-        """Should handle edge cases at boundaries."""
-        dim_split = 1
-        task_range = (80, 100)
-        dim_size = 100
-
-        dim_ranges = ChunkUtils.generate_split_dimension_range(
-            dim_split, task_range, dim_size
-        )
-
-        assert dim_ranges[1] == (0.8, 1.0)
-
-    def test_returns_dict(self):
-        """Should return dictionary with single entry."""
-        dim_split = 0
-        task_range = (10, 20)
-        dim_size = 50
-
-        dim_ranges = ChunkUtils.generate_split_dimension_range(
-            dim_split, task_range, dim_size
-        )
-
-        assert isinstance(dim_ranges, dict)
-        assert len(dim_ranges) == 1
-
-
 class TestGenerateRngs:
     """Tests for generate_rngs method."""
 
@@ -475,49 +405,6 @@ class TestGenerateRngs:
         
         assert isinstance(rngs, dict)
         assert len(rngs) == num_dims
-
-
-class TestAssignRngsToDimensions:
-    """Tests for assign_rngs_to_dimensions method."""
-
-    def test_returns_input_dict(self):
-        """Should return the input RNG dict (pass-through)."""
-        seed = 42
-        num_dims = 3
-        dim_rngs = ChunkUtils.generate_rngs(seed, num_dims)
-        
-        result = ChunkUtils.assign_rngs_to_dimensions(
-            dim_split=0,
-            task_shape=np.array([10, 20, 30]),
-            dim_rngs_dict=dim_rngs
-        )
-        
-        # Should return same dict
-        assert result is dim_rngs
-        assert len(result) == num_dims
-    
-    def test_preserves_rng_state(self):
-        """Should not modify RNG states."""
-        seed = 42
-        num_dims = 2
-        dim_rngs = ChunkUtils.generate_rngs(seed, num_dims)
-        
-        # Generate some values
-        vals_before = [dim_rngs[i].uniform(0, 1, 3) for i in range(num_dims)]
-        
-        # Call assign_rngs_to_dimensions
-        result = ChunkUtils.assign_rngs_to_dimensions(
-            dim_split=0,
-            task_shape=np.array([10, 20]),
-            dim_rngs_dict=dim_rngs
-        )
-        
-        # RNGs should still be in the same state (generate next values)
-        vals_after = [result[i].uniform(0, 1, 3) for i in range(num_dims)]
-        
-        # Should not match before values (state advanced)
-        for i in range(num_dims):
-            assert not np.array_equal(vals_before[i], vals_after[i])
 
 
 class TestCalculateLhsDrawsPerGeneration:

@@ -219,3 +219,8 @@ _metadata
 parquet_tmp/
 nc/
 parquet/
+
+# editor/merge-tool backups
+*.~*~
+*.orig
+*.rej
