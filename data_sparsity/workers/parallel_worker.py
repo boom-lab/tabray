@@ -87,6 +87,7 @@ def generate_chunk(
     compression_codec: Optional[str] = None,
     compression_level: int = 4,
     var_dtypes: Union[str, List, None] = None,
+    var_packs: Union[str, List, None] = None,
     var_fill_values: Union[float, List, None] = None,
 ) -> Tuple[int, int, str]:
     """Generate a single chunk of data in parallel.
@@ -125,7 +126,8 @@ def generate_chunk(
             string rather than a CompressionSettings so the worker arguments
             stay plain values.
         compression_level: Compression level, ignored when the codec is None
-        var_dtypes: On-disk dtype per variable, or one for all
+        var_dtypes: What each variable holds, or one for all
+        var_packs: Integer type to pack each variable into, or one for all
         var_fill_values: Fill value per variable, or one for all
         
     Returns:
@@ -134,7 +136,7 @@ def generate_chunk(
     log = _configure_worker_logging(chunk_id, netcdf_filepath)
     compression = CompressionSettings(compression_codec, compression_level)
     var_encodings = VariableEncoding.per_variable(
-        var_dtypes, var_fill_values, num_vars
+        var_dtypes, var_packs, var_fill_values, num_vars
     )
     log.debug("######------ NEW CHUNK ------######")
     

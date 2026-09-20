@@ -243,13 +243,17 @@ dataset, df = gen.generate()
   **longest** axis that sets the bound, not the shortest, and that axes of length 1 cost nothing:
   a `50x10x1x1` grid needs the same 50 observations as `50x10`. `docs/explainer.md` derives this.
 - **sparsity** (float, list, or tuple, optional): Fraction of grid points that are vacant, `sparsity = 1 - density`. Accepts the same float/list/tuple forms as `density` and is converted to `density` internally. Provide either `density` or `sparsity` (not both).
-- **dtype** (str or list, optional): How each variable is stored on disk (default: `float64`).
-  One value for all variables, or one per variable. `float64`, `float32`, `int8`, `int16`,
-  `int32`. An integer dtype is *packed*: values are carried as `scale_factor * code +
-  add_offset`, the convention GLORYS12 and most reanalysis products use. The scale comes from
-  the generator's value range, not from the data, so parallel chunks agree with a serial run.
-  Parquet stores the decoded type (`float32` for a packed `int16`), because packing is a netCDF
-  device and parquet's idiom is the natural type.
+- **dtype** (str or list, optional): What each variable holds: `float64` (default) or
+  `float32`. One value for all variables, or one per variable.
+- **pack** (str or list, optional): Integer type to compact the values into on disk — `int8`,
+  `int16`, `int32` — or `None` (default) to store them plain. Values are carried as
+  `scale_factor * code + add_offset`, the convention GLORYS12 and most reanalysis products use.
+  The scale comes from the value range, not from the data, so parallel chunks agree with a
+  serial run. Parquet stores the decoded type (`float32` for a packed `int16`), because packing
+  is a netCDF device and parquet's idiom is the natural type.
+
+  `dtype` and `pack` are separate because a file holds both kinds. Argo stores `TEMP` as a plain
+  `float32` and `CYCLE_NUMBER` as a plain `int32`, neither packed.
 - **fill_value** (float or list, optional): What marks a vacant site (default: NaN for float
   dtypes, the reserved code for integers). One value for all variables, or one per variable.
   Argo files use `99999.0` in a `float32` variable, in preference to NaN; that is expressible

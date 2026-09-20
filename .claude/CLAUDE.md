@@ -44,10 +44,15 @@ GenerateData.generate  ->  generators/   CoordinateGenerator, MultiVarRecordGene
 
 ### Per-variable encoding
 
-`dtype` and `fill_value` (constructor, scalar or one per variable) go through
+`dtype`, `pack` and `fill_value` (constructor, scalar or one per variable) go through
 `VariableEncoding` (`data_sparsity/output/variable_encoding.py`). Default is `float64` with NaN,
 which emits **no** xarray encoding entry at all, so the default output is byte-identical to what
 the code wrote before the parameter existed.
+
+`dtype` says what a variable holds (`float64`, `float32`); `pack` says how a float is compacted
+on disk (`int8`, `int16`, `int32`, or None). They are separate axes because a file holds both
+kinds: Argo stores `TEMP` as a plain `float32` and `CYCLE_NUMBER` as a plain `int32`. Passing an
+integer as `dtype` raises and points at `pack`.
 
 Scientific netCDF has no single convention, which is why this is per variable rather than a mode.
 Two real files sit in the repo and disagree on nearly everything:
