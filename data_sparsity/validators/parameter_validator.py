@@ -121,13 +121,40 @@ class ParameterValidator:
                 )
 
         elif isinstance(var_dims, (list, tuple)):
-            var_dims_update = var_dims
-            if num_dims > var_dims[0]:
-                var_dims_update[0] = num_dims
-                print(
-                    "Reference variable must occupy all dimensions. Received "
-                    f"var_dims[0]={var_dims[0]} but num_dims={num_dims}. Assigning "
-                    f"{num_dims} to reference variable."
+            # Copy: this used to assign the caller's list and then write to
+            # element 0, changing the object the caller still holds.
+            var_dims_update = list(var_dims)
+            if not var_dims_update:
+                raise ValueError(
+                    f"var_dims must have one entry per variable ({num_vars}), got an "
+                    "empty sequence"
+                )
+
+            reference = var_dims_update[0]
+            if isinstance(reference, (list, tuple)):
+                # Explicit dimension indices, e.g. [[0,1,2], [1,2]]. This form
+                # is what MultiVarDimensionsConfig.from_list_element accepts and
+                # what the README's examples use; comparing it to num_dims as a
+                # number raised TypeError before reaching that code.
+                if sorted(reference) != list(range(num_dims)):
+                    var_dims_update[0] = list(range(num_dims))
+                    print(
+                        "Reference variable must occupy all dimensions. Received "
+                        f"var_dims[0]={list(reference)} but num_dims={num_dims}. "
+                        f"Assigning {list(range(num_dims))} to reference variable."
+                    )
+            elif isinstance(reference, (int, np.integer)) and not isinstance(reference, bool):
+                if num_dims > reference:
+                    var_dims_update[0] = num_dims
+                    print(
+                        "Reference variable must occupy all dimensions. Received "
+                        f"var_dims[0]={reference} but num_dims={num_dims}. Assigning "
+                        f"{num_dims} to reference variable."
+                    )
+            else:
+                raise TypeError(
+                    "var_dims entries must be an int (a number of dimensions) or a "
+                    f"list/tuple of dimension indices, got {type(reference)}"
                 )
 
         else:
