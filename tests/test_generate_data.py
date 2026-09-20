@@ -1695,41 +1695,88 @@ class TestHybridLHSSampling:
     """Tests for Hybrid LHS + Random sampling implementation."""
     
     def test_lhs_base_coverage(self):
-        """LHS component should ensure perfect coverage of min dimension."""
+        """LHS component should cover every coordinate of every dimension."""
         from data_sparsity.generators.record_generator import RecordGenerator
-        
+
         rng = np.random.default_rng(42)
         shape = [5, 7, 5]
-        n_s = min(shape)  # = 5
-        
+        n_s = max(shape)  # = 7; sized by the LONGEST axis, not the shortest
+
         lhs_indices = RecordGenerator.generate_lhs_indices(shape, n_s, rng)
-        
+
         # Check 1: Correct number of observations
         assert all(len(idx) == n_s for idx in lhs_indices), \
             f"All dimensions should have {n_s} samples"
-        
-        # Check 2: Minimum dimensions use all coordinates exactly once
-        assert set(lhs_indices[0]) == set(range(5)), \
-            "Dimension 0 (size 5) should use all coordinates exactly once"
-        assert set(lhs_indices[2]) == set(range(5)), \
-            "Dimension 2 (size 5) should use all coordinates exactly once"
-        
-        # Check 3: Larger dimension selects n_s unique coordinates
-        assert len(set(lhs_indices[1])) == n_s, \
-            f"Dimension 1 (size 7) should select {n_s} unique coordinates"
-        assert all(0 <= idx < 7 for idx in lhs_indices[1]), \
-            "All selected indices should be valid for dimension 1"
-    
-    def test_lhs_invalid_n_s_raises_error(self):
-        """LHS should raise error if n_s > any dimension size."""
+
+        # Check 2: the longest dimension uses all coordinates exactly once
+        assert sorted(lhs_indices[1]) == list(range(7)), \
+            "Dimension 1 (size 7) should use all coordinates exactly once"
+
+        # Check 3: shorter dimensions repeat, but still use every coordinate
+        for dim in (0, 2):
+            assert set(lhs_indices[dim].tolist()) == set(range(5)), \
+                f"Dimension {dim} (size 5) must use every coordinate"
+
+    def test_lhs_rejects_n_s_below_longest_axis(self):
+        """n_s below max(shape) cannot cover every axis, so it is refused.
+
+        An unused coordinate is a grid site carrying no information, which
+        docs/explainer.md excludes from the definition of a grid.
+        """
         from data_sparsity.generators.record_generator import RecordGenerator
-        
+
+        rng = np.random.default_rng(42)
+        with pytest.raises(ValueError, match=r"n_s .* < max\(shape\)"):
+            RecordGenerator.generate_lhs_indices([5, 7, 3], 5, rng)
+
+    def test_hybrid_rejects_too_few_observations(self):
+        """Fewer observations than the longest axis cannot cover it."""
+        from data_sparsity.generators.record_generator import RecordGenerator
+
+        with pytest.raises(ValueError, match=r"num_obs .* < max\(shape\)"):
+            RecordGenerator.generate_hybrid_indices(
+                [4, 7, 10], 5, np.random.default_rng(42)
+            )
+        with pytest.raises(ValueError, match=r"num_obs .* < max\(shape\)"):
+            RecordGenerator.generate_stratified_indices([4, 7, 10], 5, 1, 2)
+    
+    def test_lhs_covers_axes_shorter_than_n_s(self):
+        """Axes shorter than n_s are tiled so every coordinate is still used.
+
+        n_s used to be capped at min(shape) and a shorter axis raised. It is now
+        sized by max(shape), because covering an axis of length L needs at least
+        L points, so short axes must repeat coordinates rather than fail.
+        """
+        from data_sparsity.generators.record_generator import RecordGenerator
+
         rng = np.random.default_rng(42)
         shape = [5, 7, 3]
-        n_s = 6  # Larger than min(shape) = 3
-        
-        with pytest.raises(ValueError, match="Dimension size .* < n_s"):
-            RecordGenerator.generate_lhs_indices(shape, n_s, rng)
+        n_s = 7  # = max(shape); dimension 2 (size 3) is shorter than n_s
+
+        lhs_indices = RecordGenerator.generate_lhs_indices(shape, n_s, rng)
+
+        for dim, dim_size in enumerate(shape):
+            assert len(lhs_indices[dim]) == n_s
+            assert set(lhs_indices[dim].tolist()) == set(range(dim_size)), \
+                f"Dimension {dim} (size {dim_size}) must use every coordinate"
+
+    def test_lhs_covers_every_coordinate_of_every_axis(self):
+        """The guarantee that makes a grid legitimate: no unused coordinate.
+
+        docs/explainer.md only considers grids where every coordinate is
+        occupied at least once; an unused coordinate carries no information and
+        should not be part of the grid.
+        """
+        from data_sparsity.generators.record_generator import RecordGenerator
+
+        for shape in ([4, 7, 10], [3, 3], [5, 5, 20], [2, 3, 5, 7], [12]):
+            n_s = max(shape)
+            lhs_indices = RecordGenerator.generate_lhs_indices(
+                shape, n_s, np.random.default_rng(7)
+            )
+            for dim, dim_size in enumerate(shape):
+                assert set(lhs_indices[dim].tolist()) == set(range(dim_size)), \
+                    f"shape {shape}: dimension {dim} has an unused coordinate"
     
     def test_hybrid_at_minimum_sparsity(self):
         """Hybrid should equal pure LHS at minimum sparsity."""

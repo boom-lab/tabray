@@ -16,10 +16,16 @@ class SparsityValidator:
     """
     def compute_min_density(nb_coords_per_dim: np.ndarray) -> float:
         """Compute minimum allowable density for given dimensions.
-        
+
         The minimum density is 1.0 / (np.power( nmin, (d-1) )), which ensures
         that all coordinates tuples are used. d is number of dimensions, nmin is
         the size of the smallest dimension (number of coordinates along it).
+
+        Note that this is a sufficient but not tight bound for non-cubic grids:
+        covering an axis of length L needs at least L observations, so the
+        smallest density at which every coordinate CAN be used is
+        max(shape)/prod(shape). The two agree exactly when all dimensions are
+        equal. The stricter bound is kept deliberately.
         
         While density is generally defined as
         num_observations/total_grid_points ,
