@@ -58,7 +58,7 @@ The grid is always `num_dims`-dimensional. A variable with fewer dimensions vari
 
 ### Overlap
 
-`var0` is the reference variable, placed first. Overlap is **F1**, the definition in `docs/explainer_multivar.md`: `|proj(S0) & proj(Si)| / |proj(S0)|`, the share of *var0's* sites that also carry variable i, measured on the dimensions the two share. `OverlapCalculator.compute_overlap_report` returns it together with the reverse ratio; `compute_actual_overlaps_against_reference` returns F1 alone. `compute_actual_overlap` is an older pooled metric, no longer used by the generator.
+`var0` is the reference variable, placed first. Overlap is **F1**, the definition in `docs/explainer_multivar.md`: `|proj(S0) & proj(Si)| / |proj(S0)|`, the share of *var0's* sites that also carry variable i, measured on the dimensions the two share. `OverlapCalculator.compute_overlap_report` is the single entry point: it returns `f1`, `f2` and the set sizes behind them. `compute_actual_overlap` is an older pooled metric (`sum of intersections / sum of non-reference counts`, reference picked by observation count) kept for reference but not used by the generator.
 
 Placement is per stratum: `MultiVarRecordGenerator.generate_multivar_stratified` takes `round(t_i * |proj_j(S0)|)` of each variable's sites from var0's footprint *within that hyperplane*, then fills the rest from cells held by neither variable, so the achieved overlap equals the target rather than picking up accidental coincidences. Where the target is unreachable — a reduced-dimension variable whose projected reference saturates — it warns and density takes precedence.
 

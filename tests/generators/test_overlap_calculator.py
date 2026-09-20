@@ -422,8 +422,10 @@ class TestComputeActualOverlapsAgainstReference:
         records['var1'][0:2, 0:2] = 0.7
         records['var2'][2:4, 2:4] = 0.3
 
-        overlap = OverlapCalculator.compute_actual_overlaps_against_reference(
+        report = OverlapCalculator.compute_overlap_report(
             records, num_vars=3, num_dims=2, ref_var="var0"
         )
 
-        np.testing.assert_array_equal(overlap, np.array([1.0, 0.0]))
+        np.testing.assert_array_equal(report["f1"], np.array([1.0, 0.0]))
+        np.testing.assert_array_equal(report["f2"], np.array([1.0, 0.0]))
+        np.testing.assert_array_equal(report["shared"], np.array([4, 0]))

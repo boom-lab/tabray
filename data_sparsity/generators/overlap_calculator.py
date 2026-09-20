@@ -215,35 +215,6 @@ class OverlapCalculator:
         }
 
     @staticmethod
-    def compute_actual_overlaps_against_reference(
-        records: Dict[str, np.ndarray],
-        num_vars: int,
-        num_dims: int,
-        var_dims_indices: Optional[List[List[int]]] = None,
-        ref_var: str = "var0"
-    ) -> np.ndarray:
-        """Per-variable achieved overlap, F1, against the reference variable.
-
-        F1 = |proj(S_0) & proj(S_i)| / |proj(S_0)| -- the definition in
-        docs/explainer_multivar.md and the one the generator targets. This used
-        to return F2 (dividing by the non-reference variable), which did not
-        match what was being generated.
-
-        Args:
-            records: Dictionary mapping variable names to record arrays
-            num_vars: Number of variables
-            num_dims: Total number of dimensions
-            var_dims_indices: Dimensions each variable varies along
-            ref_var: Reference variable name
-
-        Returns:
-            Array of F1 overlap ratios for var1..varN-1
-        """
-        return OverlapCalculator.compute_overlap_report(
-            records, num_vars, num_dims, var_dims_indices, ref_var
-        )["f1"]
-
-    @staticmethod
     def print_overlap_report(
         report: Dict[str, np.ndarray],
         targets: Optional[List] = None
