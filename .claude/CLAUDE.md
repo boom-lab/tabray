@@ -42,6 +42,28 @@ GenerateData.generate  ->  generators/   CoordinateGenerator, MultiVarRecordGene
                        ->  workers/      generate_chunk  (parallel path only)
 ```
 
+### Compression
+
+`compression` (default `None`) and `complevel` go through `CompressionSettings`
+(`data_sparsity/output/compression_settings.py`), which hands netCDF `{"zlib": True,
+"complevel": n}` per data variable and parquet `compression="gzip"`. One setting drives both,
+because the comparison the package exists to make is only meaningful if the two formats are
+written on the same terms — and they were not: dask defaults to Snappy parquet while
+`to_netcdf` writes uncompressed, so the array side was being measured in its worst
+configuration against a compressed tabular side. At 5% density on a 20k-observation grid that
+was netCDF 3.26 MB against parquet 0.44 MB; with DEFLATE on both, 0.42 against 0.29.
+
+Only codecs both formats support are accepted. This netCDF build offers DEFLATE alone —
+`zstd` and `blosc` are refused by the python binding despite libnetcdf 4.9.4 — so `snappy`,
+`zstd`, `lz4` and `brotli` raise rather than silently applying to parquet only. Passing
+`compression=None` writes `compression=None` to `to_parquet` explicitly; omitting it would
+leave dask's Snappy default.
+
+Compression is also the only mechanism that shrinks a scattered sparse grid. HDF5 does not
+elide all-fill data that you write: a dense array of NaNs costs a full 8 bytes per vacant
+site. The "unwritten chunks cost nothing" property needs chunks that are *entirely* empty,
+which for randomly scattered occupancy requires fewer than about one point per chunk.
+
 ### Minimum density
 
 `SparsityValidator.compute_min_density` returns `max(shape) / prod(shape)`: the sparsest grid in

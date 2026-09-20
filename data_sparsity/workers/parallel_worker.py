@@ -13,7 +13,11 @@ import numpy as np
 from numpy.typing import ArrayLike
 
 from data_sparsity.generators import CoordinateGenerator, MultiVarRecordGenerator
-from data_sparsity.output import NetCDFBuilder, ParquetBuilder
+from data_sparsity.output import (
+    CompressionSettings,
+    NetCDFBuilder,
+    ParquetBuilder,
+)
 from data_sparsity.utils import ChunkUtils
 
 
@@ -79,6 +83,8 @@ def generate_chunk(
     ntasks: int,
     num_obs_global: Optional[int] = None,
     fixed_overlap: Union[bool, List[bool]] = False,
+    compression_codec: Optional[str] = None,
+    compression_level: int = 4,
 ) -> Tuple[int, int, str]:
     """Generate a single chunk of data in parallel.
     
@@ -112,11 +118,16 @@ def generate_chunk(
         parquet_tmp: Scratch directory for the temporary parquet chunks
         ntasks: Total number of tasks (for formatting)
         num_obs_global: Total observations globally (for LHS filtering and RNG advancement)
+        compression_codec: Codec name, applied to both outputs. Passed as a
+            string rather than a CompressionSettings so the worker arguments
+            stay plain values.
+        compression_level: Compression level, ignored when the codec is None
         
     Returns:
         Tuple of (chunk_id, total_observations, parquet_chunk_path)
     """
     log = _configure_worker_logging(chunk_id, netcdf_filepath)
+    compression = CompressionSettings(compression_codec, compression_level)
     log.debug("######------ NEW CHUNK ------######")
     
     # Determine chunk dimensions and range along split dimension FIRST
@@ -202,7 +213,9 @@ def generate_chunk(
         # Save to NetCDF
         nb_digits = len(str(ntasks))
         fpath = f"{netcdf_filepath[:-3]}_{chunk_id:0{nb_digits}d}.nc"
-        NetCDFBuilder.save_to_file(dataarray, fpath, overwrite=False)
+        NetCDFBuilder.save_to_file(
+            dataarray, fpath, overwrite=False, compression=compression
+        )
         del dataarray
         gc.collect()
         
@@ -216,7 +229,8 @@ def generate_chunk(
         import os
         parquet_chunk_path = os.path.join(parquet_tmp, f"chunk_{chunk_id:04d}.parquet")
         ParquetBuilder.save_to_file(
-            dataframe, parquet_chunk_path, overwrite=False, write_metadata=False
+            dataframe, parquet_chunk_path, overwrite=False,
+            write_metadata=False, compression=compression
         )
         
         total_obs = np.sum(~np.isnan(record))
@@ -283,7 +297,9 @@ def generate_chunk(
         # Save to NetCDF
         nb_digits = len(str(ntasks))
         fpath = f"{netcdf_filepath[:-3]}_{chunk_id:0{nb_digits}d}.nc"
-        NetCDFBuilder.save_to_file(dataset, fpath, overwrite=False)
+        NetCDFBuilder.save_to_file(
+            dataset, fpath, overwrite=False, compression=compression
+        )
         del dataset
         gc.collect()
         
@@ -297,7 +313,8 @@ def generate_chunk(
         import os
         parquet_chunk_path = os.path.join(parquet_tmp, f"chunk_{chunk_id:04d}.parquet")
         ParquetBuilder.save_to_file(
-            dataframe, parquet_chunk_path, overwrite=False, write_metadata=False
+            dataframe, parquet_chunk_path, overwrite=False,
+            write_metadata=False, compression=compression
         )
     
     return chunk_id, total_obs, parquet_chunk_path
