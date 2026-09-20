@@ -10,6 +10,7 @@ generators, and output builders for improved testability and maintainability.
 import os
 import warnings
 from typing import List, Tuple, Union, Optional
+import dask
 import dask.dataframe as dd
 import numpy as np
 from numpy.typing import ArrayLike
@@ -925,10 +926,16 @@ class GenerateData:
     def _merge_netcdf_files(self) -> None:
         """Concatenate the chunk netCDF files into one, then delete them.
 
-        Opened lazily with dask so a larger-than-memory dataset streams rather
-        than being materialised. Chunk files keep every dimension because they
-        have to concatenate; the constant dimensions are squeezed out here, so
-        the merged file matches what a serial run writes.
+        Opened lazily with dask and written one variable at a time, so the
+        merge holds one variable's chunks rather than the whole dataset. It is
+        not free of the dataset size: merging 382 MB of data needed roughly
+        900 MB of address space, against ~1200 MB when the whole dataset is
+        handed to to_netcdf in one call. For output large enough that even that
+        does not fit, leave merge_nc False and keep the per-chunk files.
+
+        Chunk files keep every dimension because they have to concatenate; the
+        constant dimensions are squeezed out here, so the merged file matches
+        what a serial run writes.
         """
         import glob
 
@@ -960,7 +967,42 @@ class GenerateData:
         if self.num_vars > 1:
             merged.attrs["var_num_obs"] = [int(n) for n in self.var_num_obs]
 
-        merged.to_netcdf(self.netcdf_filepath)
+        # Write one variable at a time rather than handing xarray the whole
+        # dataset. to_netcdf on a dask-backed dataset issues one store per
+        # data variable and runs them concurrently, so every variable's chunks
+        # are in flight at once. Writing them in sequence keeps one variable's
+        # chunks in memory instead of all of them: merging a 382 MB,
+        # 3-variable dataset under a hard address-space cap needed ~1200 MB as
+        # a single call and ~900 MB this way. Each write is still lazy and streams
+        # chunk by chunk -- only the concurrency across variables is given up,
+        # and that bought little, since the writes share one HDF5 file lock.
+        #
+        # It also makes the output byte-reproducible. With concurrent stores,
+        # HDF5 allocates each variable's space on first write, so the variables
+        # land at the same addresses in a different order on every run and
+        # identical data produces a different file. One store per call fixes
+        # the order. See S7 in the diagnostics.
+        var_names = list(merged.data_vars)
+        if not var_names:
+            raise RuntimeError(
+                f"Merged dataset from {len(chunk_files)} chunk files has no "
+                "data variables"
+            )
+
+        # Run the write in the calling thread. xarray guards the netCDF4
+        # library with one lock, and this write takes it on both sides: it
+        # reads the chunk files and writes the output through the same lock.
+        # With dask's default thread pool, a thread reading a chunk and a
+        # thread writing the output can block each other and the merge hangs
+        # for good. It is rare and load-dependent -- twice in four runs of the
+        # verification harness, never in 25 runs of the same case alone -- but
+        # a hang is unrecoverable, so the write runs single-threaded, where two
+        # threads cannot contend. Nothing is materialised: dask still walks the
+        # graph chunk by chunk, just in this thread.
+        with dask.config.set(scheduler="synchronous"):
+            merged[[var_names[0]]].to_netcdf(self.netcdf_filepath, mode="w")
+            for var_name in var_names[1:]:
+                merged[[var_name]].to_netcdf(self.netcdf_filepath, mode="a")
         merged.close()
         for chunk_file in chunk_files:
             os.remove(chunk_file)
