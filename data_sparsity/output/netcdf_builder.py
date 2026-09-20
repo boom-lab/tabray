@@ -44,6 +44,67 @@ class NetCDFBuilder:
             "seed": seed
         }
 
+    # Which convention the `overlap_target` attribute uses. Written into every
+    # multi-variable file so a dataset states what its own numbers mean --
+    # F1 and F2 are reciprocally related and either can be assumed by a reader.
+    OVERLAP_CONVENTION = (
+        "F1 = |proj(S0) & proj(Si)| / |proj(S0)|: share of var0's sites that "
+        "also carry the variable, measured on the dimensions the two share"
+    )
+
+    @staticmethod
+    def create_multivar_attrs(
+        num_vars: int,
+        var_densities,
+        var_num_obs,
+        overlap_target,
+        fixed_overlap,
+        overlap_actual_f1=None,
+        overlap_actual_f2=None,
+    ) -> Dict:
+        """Build the multi-variable attributes, identically for both paths.
+
+        A multi-variable dataset has no single density or observation count, so
+        the per-variable arrays are what actually describe it. They were
+        previously written by the parallel chunks only, leaving serial files
+        unable to say what any variable other than var0 was.
+
+        Args:
+            num_vars: Number of variables
+            var_densities: Density per variable
+            var_num_obs: Observation count per variable
+            overlap_target: Requested overlap for var1..varN-1
+            fixed_overlap: Per-variable fixed-overlap flags
+            overlap_actual_f1: Achieved overlap, if measured
+            overlap_actual_f2: The reverse ratio, if measured
+
+        Returns:
+            Dictionary of attributes to merge into the base set
+        """
+        def as_list(value):
+            if value is None:
+                return []
+            if isinstance(value, np.ndarray):
+                return value.tolist()
+            if isinstance(value, (list, tuple)):
+                return list(value)
+            return [value]
+
+        attrs = {
+            "num_vars": num_vars,
+            "var_densities": as_list(var_densities),
+            "var_num_obs": as_list(var_num_obs),
+            "overlap_target": as_list(overlap_target)
+            if not isinstance(overlap_target, str) else overlap_target,
+            "overlap_convention": NetCDFBuilder.OVERLAP_CONVENTION,
+            "fixed_overlap": [int(bool(flag)) for flag in as_list(fixed_overlap)],
+        }
+        if overlap_actual_f1 is not None:
+            attrs["overlap_actual_f1"] = as_list(overlap_actual_f1)
+        if overlap_actual_f2 is not None:
+            attrs["overlap_actual_f2"] = as_list(overlap_actual_f2)
+        return attrs
+
     @staticmethod
     def build_dataarray(
         record: np.ndarray,
