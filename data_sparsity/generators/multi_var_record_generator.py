@@ -548,9 +548,9 @@ class MultiVarRecordGenerator:
                 var_constant_coord_indices, seed, chunk_id, max_dim_size,
                 dim_split, lhs_rng, lhs_shape, num_obs_global, div_points
             )
-            overlap_actual = OverlapCalculator.compute_actual_overlaps_against_reference(
+            overlap_actual = OverlapCalculator.compute_overlap_report(
                 records, num_vars, num_dims, var_dims_indices
-            )
+            )["f1"]
         else:
             records = MultiVarRecordGenerator.generate_with_overlap(
                 shape, records, overlap, num_vars, var_num_obs,
@@ -558,14 +558,11 @@ class MultiVarRecordGenerator:
                 chunk_id, max_dim_size, dim_split, lhs_rng, lhs_shape, 
                 num_obs_global, div_points, fixed_overlap
             )
-            if isinstance(overlap, list):
-                overlap_actual = OverlapCalculator.compute_actual_overlaps_against_reference(
-                    records, num_vars, num_dims, var_dims_indices
-                )
-            else:
-                overlap_actual = OverlapCalculator.compute_actual_overlap(
-                    records, num_vars, num_dims, var_num_obs, var_dims_indices
-                )
+            # One metric regardless of how the target was expressed: a scalar
+            # and a one-element list describe the same request.
+            overlap_actual = OverlapCalculator.compute_overlap_report(
+                records, num_vars, num_dims, var_dims_indices
+            )["f1"]
         
         return records, overlap_actual
 
