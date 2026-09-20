@@ -793,6 +793,7 @@ class GenerateData:
         netcdf_filepath: str = None,
         parquet_filepath: str = None,
         parquet_tmp: str = None,
+        merge_nc: bool = False,
     ) -> Tuple[Union[xr.DataArray, xr.Dataset], pd.DataFrame]:
         """Generate all data and optionally save to files.
 
@@ -809,6 +810,10 @@ class GenerateData:
             netcdf_filepath: Optional path to save NetCDF file
             parquet_filepath: Optional path to save Parquet file
             parquet_tmp: Optional temporary directory for parallel generation
+            merge_nc: Parallel mode only. If True, concatenate the chunk files
+                into one netCDF and delete them. Off by default: large datasets
+                are routinely served as many files (daily observation files,
+                for instance), and merging doubles the I/O and the peak disk.
 
         Returns:
             Tuple of (DataArray/Dataset, DataFrame) containing the generated data
@@ -867,6 +872,8 @@ class GenerateData:
                 )
             )
             self._generate_par()
+            if merge_nc:
+                self._merge_netcdf_files()
             return None, None
 
         raise ValueError(f"NTASKS must be positive, got {self.NTASKS}")
@@ -1023,6 +1030,53 @@ class GenerateData:
 
         # Consolidate parquet files
         self._consolidate_parquet_files()
+
+    def _merge_netcdf_files(self) -> None:
+        """Concatenate the chunk netCDF files into one, then delete them.
+
+        Opened lazily with dask so a larger-than-memory dataset streams rather
+        than being materialised. Chunk files keep every dimension because they
+        have to concatenate; the constant dimensions are squeezed out here, so
+        the merged file matches what a serial run writes.
+        """
+        import glob
+
+        base = self.netcdf_filepath[:-3]
+        chunk_files = sorted(glob.glob(f"{base}_*.nc"))
+        if not chunk_files:
+            raise RuntimeError(f"No netCDF chunk files found matching {base}_*.nc")
+
+        print(f"Merging {len(chunk_files)} netCDF chunk files...")
+        split_dim = f"x{self.dim_split}"
+        merged = xr.open_mfdataset(
+            chunk_files, combine="nested", concat_dim=split_dim,
+            data_vars="minimal", coords="minimal", compat="override",
+        )
+        if self.num_vars > 1:
+            merged = NetCDFBuilder.squeeze_constant_dims(
+                merged, self.var_constant_dims
+            )
+
+        # Chunk-local bookkeeping does not describe the merged dataset.
+        merged.attrs.pop("chunk_id", None)
+        merged.attrs["description"] = merged.attrs.get(
+            "description", ""
+        ).replace(" (chunk)", "")
+        merged.attrs["num_obs"] = int(self.var_num_obs[0])
+        merged.attrs["density"] = float(
+            self.var_num_obs[0] / self.total_grid_points
+        )
+        if self.num_vars > 1:
+            merged.attrs["var_num_obs"] = [int(n) for n in self.var_num_obs]
+
+        merged.to_netcdf(self.netcdf_filepath)
+        merged.close()
+        for chunk_file in chunk_files:
+            os.remove(chunk_file)
+        print(
+            f"Merged netCDF written to {self.netcdf_filepath}; "
+            f"removed {len(chunk_files)} chunk files"
+        )
 
     def _consolidate_parquet_files(self) -> None:
         """Consolidate temporary parquet files into single output.
