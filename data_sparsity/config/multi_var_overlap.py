@@ -176,11 +176,9 @@ class MultiVarOverlapConfig:
         if total_sites >= max_obs + other_obs:
             return 0.0
 
-        # Otherwise, compute how many must overlap. Overlap is F1, the share of
-        # the REFERENCE variable's sites that another variable also occupies
-        # (docs/explainer_multivar.md), so the denominator is the reference
-        # count. Dividing by the non-reference total, as this used to, measured
-        # a different quantity from the one the generator targets.
+        # Overlap is F1, the share of the REFERENCE variable's sites another
+        # variable also occupies (docs/explainer_multivar.md), so the
+        # denominator is the reference count, not the non-reference total.
         must_overlap = max_obs + other_obs - total_sites
         min_overlap = must_overlap / max_obs
 

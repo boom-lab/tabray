@@ -22,10 +22,7 @@ class TestSeedSequenceTrailingZeros:
     """The NumPy behaviour the shift in stream() exists to defeat."""
 
     def test_numpy_ignores_trailing_zeros(self):
-        """Documents why stream() cannot pass raw tags and indices.
-
-        If this ever fails, NumPy changed and the shift could be dropped.
-        """
+        """Why stream() shifts. If this fails, NumPy changed and it need not."""
         assert first_draws(np.random.default_rng(42)) == first_draws(
             np.random.default_rng([42, 0, 0])
         )
