@@ -121,26 +121,38 @@ class RecordGenerator:
             >>> len(set(indices[1]))  # Dimension 1 (size 7): 5 unique selected
             5
         """
+        max_dim_size = max(shape)
+        if n_s < max_dim_size:
+            # Each point uses exactly one coordinate per axis, so n_s points
+            # touch at most n_s coordinates on any axis. With n_s below the
+            # longest axis, some coordinate of that axis would go unused -- a
+            # grid site carrying no information, which docs/explainer.md
+            # excludes by definition. Refuse rather than emit such a grid.
+            raise ValueError(
+                f"n_s {n_s} < max(shape) {max_dim_size}: cannot cover every "
+                f"coordinate of every axis. n_s must be max(shape) so that "
+                f"each axis can be fully used at least once."
+            )
+
         indices = []
-        
+
         for dim_size in shape:
             if dim_size == n_s:
                 # Full permutation: each coordinate used exactly once
                 perm = rng.permutation(dim_size)
                 indices.append(perm)
-            elif dim_size > n_s:
-                # Dimension larger than n_s: randomly select n_s coordinates
-                # Each coordinate has equal probability n_s/dim_size of selection
-                selected = rng.choice(dim_size, size=n_s, replace=False)
-                rng.shuffle(selected)  # Randomize order
-                indices.append(selected)
             else:
-                # dim_size < n_s: Invalid configuration
-                raise ValueError(
-                    f"Dimension size {dim_size} < n_s {n_s}. "
-                    f"n_s should equal min(shape) = {min(shape)}"
-                )
-        
+                # dim_size < n_s: tile independent permutations and truncate.
+                # The first block is a full permutation, so every coordinate of
+                # this axis is used at least once; the remainder spreads the
+                # surplus as evenly as possible. Shuffling afterwards keeps the
+                # positional pairing with the other axes random.
+                blocks = [rng.permutation(dim_size)
+                          for _ in range(-(-n_s // dim_size))]
+                tiled = np.concatenate(blocks)[:n_s]
+                rng.shuffle(tiled)
+                indices.append(tiled)
+
         return tuple(indices)
 
     @staticmethod
@@ -191,10 +203,19 @@ class RecordGenerator:
             >>> len(set(indices_high[0]))
             5
         """
-        min_dim_size = min(shape)
-        # n_s is the number of LHS samples - cannot exceed num_obs
-        n_s = min(num_obs, min_dim_size)  # LHS base coverage
-        n_random = max(0, num_obs - n_s)  # Additional random points
+        # Covering an axis of length L needs at least L points, because each
+        # point uses exactly one coordinate per axis. So the LHS must be sized
+        # by the LONGEST axis for every coordinate of every axis to be used at
+        # least once -- the property docs/explainer.md requires of a grid.
+        max_dim_size = max(shape)
+        if num_obs < max_dim_size:
+            raise ValueError(
+                f"num_obs {num_obs} < max(shape) {max_dim_size}: every "
+                f"coordinate of every axis must be used at least once, which "
+                f"needs at least max(shape) observations."
+            )
+        n_s = max_dim_size               # LHS base coverage: the whole longest axis
+        n_random = num_obs - n_s         # Additional random points
         
         # Stage 1: LHS for base coverage (first n_s observations)
         lhs_indices = RecordGenerator.generate_lhs_indices(shape, n_s, rng)
@@ -364,8 +385,8 @@ class RecordGenerator:
         index along the split dimension. Two stages, mirroring
         ``generate_hybrid_indices`` but decomposed:
 
-        * The LHS stage stays **global**. It is ``min(num_obs, min(shape))``
-          points and its guarantee (each coordinate of the shortest axis used)
+        * The LHS stage stays **global**. It is ``min(num_obs, max(shape))``
+          points and its guarantee (every coordinate of every axis used)
           spans strata, so no stratum can enforce it alone. Every caller
           recomputes it identically for a few hundred bytes.
         * The fill stage is **per stratum**. Counts are apportioned globally,
@@ -398,7 +419,13 @@ class RecordGenerator:
         num_obs = int(num_obs)
 
         # --- LHS stage: global, O(min(shape)) -----------------------------
-        n_s = min(num_obs, min(shape))
+        if num_obs < max(shape):
+            raise ValueError(
+                f"num_obs {num_obs} < max(shape) {max(shape)}: every "
+                f"coordinate of every axis must be used at least once, which "
+                f"needs at least max(shape) observations."
+            )
+        n_s = max(shape)
         lhs_rng = np.random.default_rng([seed, RecordGenerator.LHS_STREAM])
         lhs = RecordGenerator.generate_lhs_indices(shape, n_s, lhs_rng)
         lhs_split = np.asarray(lhs[split_dim], dtype=np.int64)

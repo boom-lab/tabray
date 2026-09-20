@@ -260,19 +260,21 @@ class TestGenerateWithoutOverlap:
             'var0': np.full(shape, np.nan),
             'var1': np.full(shape, np.nan)
         }
-        var_num_obs = np.array([15, 25])
+        # both counts must be >= max(shape), otherwise no placement can use
+        # every coordinate of the longest axis and generation is refused
+        var_num_obs = np.array([20, 25])
         var_constant_dims = [[], []]
         var_constant_coord_indices = {0: {}, 1: {}}
-        
+
         result = MultiVarRecordGenerator.generate_without_overlap(
             shape, records, 2, var_num_obs, var_constant_dims,
             var_constant_coord_indices, 42
         )
-        
+
         count0 = np.count_nonzero(~np.isnan(result['var0']))
         count1 = np.count_nonzero(~np.isnan(result['var1']))
-        
-        assert count0 == 15
+
+        assert count0 == 20
         assert count1 == 25
     
     def test_all_records_have_correct_shape(self):
@@ -283,7 +285,8 @@ class TestGenerateWithoutOverlap:
             'var1': np.full(shape, np.nan),
             'var2': np.full(shape, np.nan)
         }
-        var_num_obs = np.array([5, 5, 5])
+        # >= max(shape) = 12, so every coordinate of every axis can be used
+        var_num_obs = np.array([12, 12, 12])
         var_constant_dims = [[], [], []]
         var_constant_coord_indices = {0: {}, 1: {}, 2: {}}
         
