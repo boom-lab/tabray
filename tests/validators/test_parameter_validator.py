@@ -126,6 +126,54 @@ class TestValidateNumDims:
             ParameterValidator.validate_num_dims(None)
 
 
+class TestValidateVarDimsExplicitIndices:
+    """var_dims given as explicit dimension indices, one list per variable."""
+
+    def test_list_of_lists_is_accepted(self):
+        """The form MultiVarDimensionsConfig supports, and the README uses.
+
+        This used to raise TypeError: the reference check compared num_dims to
+        var_dims[0] as a number, and var_dims[0] was a list.
+        """
+        result = ParameterValidator.validate_var_dims(
+            [[0, 1, 2], [1, 2, 3], [0, 2, 3]], num_vars=3, num_dims=4
+        )
+        # var0 must occupy every dimension, so its entry is completed
+        assert result[0] == [0, 1, 2, 3]
+        assert result[1] == [1, 2, 3]
+        assert result[2] == [0, 2, 3]
+
+    def test_complete_reference_is_left_alone(self):
+        """A reference already covering every dimension is untouched."""
+        result = ParameterValidator.validate_var_dims(
+            [[0, 1], [1]], num_vars=2, num_dims=2
+        )
+        assert result == [[0, 1], [1]]
+
+    def test_caller_list_is_not_mutated(self):
+        """The argument must not be written through.
+
+        var_dims_update was bound to the caller's list and then assigned at
+        index 0, so the caller's object changed underneath them.
+        """
+        var_dims = [[0, 1, 2], [1, 2]]
+        original = [list(entry) for entry in var_dims]
+        ParameterValidator.validate_var_dims(var_dims, num_vars=2, num_dims=4)
+        assert var_dims == original
+
+    def test_empty_sequence_raises(self):
+        with pytest.raises(ValueError, match="one entry per variable"):
+            ParameterValidator.validate_var_dims([], num_vars=2, num_dims=3)
+
+    def test_bad_entry_type_raises(self):
+        with pytest.raises(TypeError, match="int .* or a list/tuple"):
+            ParameterValidator.validate_var_dims(["x", 2], num_vars=2, num_dims=3)
+
+    def test_integer_entries_still_work(self):
+        """The int-per-variable form is unchanged."""
+        assert ParameterValidator.validate_var_dims([2, 2], num_vars=2, num_dims=3) == [3, 2]
+
+
 class TestValidateRatioDims:
     """Tests for validate_ratio_dims method."""
     

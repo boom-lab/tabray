@@ -31,7 +31,7 @@ plus the coverage fix (A5).
 parquet rows and attributes -- verified across single- and multi-variable, 2D to 6D, minimum
 density, reduced-dimension variables, `overlap='random'` and `fixed_overlap`.
 
-Still open: **S6-S7**, and **A1-A2, A4, A6-A7**. Sections describing a closed item record the behaviour *before* the change.
+Still open: **S6-S7**, and **A2, A4, A6-A7**. Sections describing a closed item record the behaviour *before* the change.
 
 ## Question
 
@@ -376,11 +376,20 @@ level, the merge does not carry achieved overlap, and `description` differs.
 
 ## Adjacent findings (not parallel-specific)
 
-### A1 — `validate_var_dims` crashes on list-of-lists `var_dims`
+### [done] A1 — `validate_var_dims` crashes on list-of-lists `var_dims`
 
 `if num_dims > var_dims[0]` compares int to list (`validators/parameter_validator.py:125`). The
 README's own multi-variable examples use that form and raise `TypeError`. This also blocks
 testing explicit per-variable dimension lists in the parallel path.
+
+**Fixed.** The reference check now branches on the entry's type: a list of indices is completed
+to every dimension, an int is compared as a number. Two further defects in the same function
+went with it -- the caller's list was assigned rather than copied and then written at index 0,
+and an empty sequence indexed out of range.
+
+Verified on the README's own example: `num_dims=4`, `var_dims=[[0,1,2],[1,2,3],[0,2,3]]`. The
+reference is completed to `[0,1,2,3]`, the split dimension lands on 2 (shared by all three
+variables), and serial and parallel agree on values and parquet rows.
 
 ### A2 — seed offsets collide (single-variable path fixed)
 
