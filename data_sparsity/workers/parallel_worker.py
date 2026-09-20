@@ -71,7 +71,7 @@ def generate_chunk(
         div_points: Division points for chunks along split dimension
         section_sizes: Size of each chunk along split dimension
         netcdf_filepath: Base path for NetCDF output
-        parquet_tmp: Path template for temporary parquet chunks
+        parquet_tmp: Scratch directory for the temporary parquet chunks
         ntasks: Total number of tasks (for formatting)
         num_obs_global: Total observations globally (for LHS filtering and RNG advancement)
         
@@ -184,11 +184,13 @@ def generate_chunk(
             record, coordinates, order_dim=dim_split
         )
         
-        # Save to temporary parquet file
+        # Save to the scratch directory. write_metadata=False: several workers
+        # share this directory and _metadata is a single fixed filename.
         import os
-        tmp_dir = os.path.dirname(parquet_tmp)
-        parquet_chunk_path = os.path.join(tmp_dir, f"chunk_{chunk_id:04d}.parquet")
-        ParquetBuilder.save_to_file(dataframe, parquet_chunk_path, overwrite=False, chunk_id=None)
+        parquet_chunk_path = os.path.join(parquet_tmp, f"chunk_{chunk_id:04d}.parquet")
+        ParquetBuilder.save_to_file(
+            dataframe, parquet_chunk_path, overwrite=False, write_metadata=False
+        )
         
         total_obs = np.sum(~np.isnan(record))
         
@@ -266,10 +268,12 @@ def generate_chunk(
             records, coordinates, num_vars, num_dims, order_dim=dim_split
         )
         
-        # Save to temporary parquet file
+        # Save to the scratch directory. write_metadata=False: several workers
+        # share this directory and _metadata is a single fixed filename.
         import os
-        tmp_dir = os.path.dirname(parquet_tmp)
-        parquet_chunk_path = os.path.join(tmp_dir, f"chunk_{chunk_id:04d}.parquet")
-        ParquetBuilder.save_to_file(dataframe, parquet_chunk_path, overwrite=False, chunk_id=None)
+        parquet_chunk_path = os.path.join(parquet_tmp, f"chunk_{chunk_id:04d}.parquet")
+        ParquetBuilder.save_to_file(
+            dataframe, parquet_chunk_path, overwrite=False, write_metadata=False
+        )
     
     return chunk_id, total_obs, parquet_chunk_path

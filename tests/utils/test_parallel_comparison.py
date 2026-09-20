@@ -246,7 +246,8 @@ def run_chunked_multivar_serial(gen, netcdf_filepath, parquet_filepath, parquet_
 
     os.makedirs(os.path.dirname(netcdf_filepath), exist_ok=True)
     os.makedirs(os.path.dirname(parquet_filepath), exist_ok=True)
-    os.makedirs(os.path.dirname(parquet_tmp), exist_ok=True)
+    # parquet_tmp is the scratch DIRECTORY, not a path inside one
+    os.makedirs(parquet_tmp, exist_ok=True)
 
     chunk_args = build_chunked_multivar_args(gen, netcdf_filepath, parquet_tmp)
     for args in chunk_args:
@@ -254,7 +255,7 @@ def run_chunked_multivar_serial(gen, netcdf_filepath, parquet_filepath, parquet_
 
     netcdf_files = sorted(glob.glob(f"{netcdf_filepath[:-3]}_*.nc"))
     data = xr.open_mfdataset(netcdf_files)
-    parquet_pattern = os.path.join(os.path.dirname(parquet_tmp), "chunk_*.parquet")
+    parquet_pattern = os.path.join(parquet_tmp, "chunk_*.parquet")
     frame = dd.read_parquet(parquet_pattern).compute()
 
     return data, frame
@@ -561,7 +562,7 @@ class TestParallelSerialComparison:
         result = gen_parallel.generate(
             netcdf_filepath=os.path.join(nc_dir, "test.nc"),
             parquet_filepath=os.path.join(pq_dir, "test"),
-            parquet_tmp=os.path.join(pq_dir, "tmp", "chunk.parquet"),
+            parquet_tmp=os.path.join(pq_dir, "tmp"),
         )
         assert result == (None, None)
 
@@ -604,7 +605,7 @@ class TestParallelSerialComparison:
             gen_serial,
             os.path.join(serial_nc_dir, "test.nc"),
             os.path.join(serial_pq_dir, "test"),
-            os.path.join(serial_pq_dir, "tmp", "chunk.parquet"),
+            os.path.join(serial_pq_dir, "tmp"),
         )
 
         gen_parallel = GenerateData(**cfg)
@@ -615,7 +616,7 @@ class TestParallelSerialComparison:
         result = gen_parallel.generate(
             netcdf_filepath=os.path.join(parallel_nc_dir, "test.nc"),
             parquet_filepath=os.path.join(parallel_pq_dir, "test"),
-            parquet_tmp=os.path.join(parallel_pq_dir, "tmp", "chunk.parquet"),
+            parquet_tmp=os.path.join(parallel_pq_dir, "tmp"),
         )
         assert result == (None, None)
 
@@ -776,7 +777,7 @@ class TestComparisonUtilities:
         assert gen.generate(
             netcdf_filepath=os.path.join(nc_dir, "test.nc"),
             parquet_filepath=os.path.join(pq_dir, "test"),
-            parquet_tmp=os.path.join(pq_dir, "tmp", "chunk.parquet"),
+            parquet_tmp=os.path.join(pq_dir, "tmp"),
         ) == (None, None)
 
         nc_files = sorted(glob.glob(os.path.join(nc_dir, "test_*.nc")))

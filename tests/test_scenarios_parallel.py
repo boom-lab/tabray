@@ -96,7 +96,7 @@ class TestScenariosParallel:
         result = gen.generate(
             netcdf_filepath=os.path.join(temp_dir, "test_1a_p.nc"),
             parquet_filepath=os.path.join(temp_dir, "test_1a_p.parquet"),
-            parquet_tmp=os.path.join(temp_dir, "tmp_1a_p", "chunk.parquet")
+            parquet_tmp=os.path.join(temp_dir, "tmp_1a_p")
         )
         assert result == (None, None), "Parallel generation should return (None, None)"
         
@@ -145,7 +145,7 @@ class TestScenariosParallel:
         result = gen.generate(
             netcdf_filepath=os.path.join(temp_dir, "test_1b_p.nc"),
             parquet_filepath=os.path.join(temp_dir, "test_1b_p.parquet"),
-            parquet_tmp=os.path.join(temp_dir, "tmp_1b_p", "chunk.parquet")
+            parquet_tmp=os.path.join(temp_dir, "tmp_1b_p")
         )
         assert result == (None, None)
         
@@ -202,7 +202,7 @@ class TestScenariosParallel:
         result = gen.generate(
             netcdf_filepath=os.path.join(temp_dir, "test_1c_p.nc"),
             parquet_filepath=os.path.join(temp_dir, "test_1c_p.parquet"),
-            parquet_tmp=os.path.join(temp_dir, "tmp_1c_p", "chunk.parquet")
+            parquet_tmp=os.path.join(temp_dir, "tmp_1c_p")
         )
         assert result == (None, None)
         
@@ -264,7 +264,7 @@ class TestScenariosParallel:
         result = gen.generate(
             netcdf_filepath=os.path.join(temp_dir, "test_2b_p.nc"),
             parquet_filepath=os.path.join(temp_dir, "test_2b_p.parquet"),
-            parquet_tmp=os.path.join(temp_dir, "tmp_2b_p", "chunk.parquet")
+            parquet_tmp=os.path.join(temp_dir, "tmp_2b_p")
         )
         assert result == (None, None)
         
@@ -318,7 +318,7 @@ class TestScenariosParallel:
         result = gen.generate(
             netcdf_filepath=os.path.join(temp_dir, "test_2c_p.nc"),
             parquet_filepath=os.path.join(temp_dir, "test_2c_p.parquet"),
-            parquet_tmp=os.path.join(temp_dir, "tmp_2c_p", "chunk.parquet")
+            parquet_tmp=os.path.join(temp_dir, "tmp_2c_p")
         )
         assert result == (None, None)
         
@@ -398,7 +398,7 @@ class TestScenariosParallel:
         result = gen.generate(
             netcdf_filepath=os.path.join(temp_dir, "test_3a_p.nc"),
             parquet_filepath=os.path.join(temp_dir, "test_3a_p.parquet"),
-            parquet_tmp=os.path.join(temp_dir, "tmp_3a_p", "chunk.parquet")
+            parquet_tmp=os.path.join(temp_dir, "tmp_3a_p")
         )
         assert result == (None, None)
         
@@ -461,7 +461,7 @@ class TestScenariosParallel:
         result = gen.generate(
             netcdf_filepath=os.path.join(temp_dir, "test_3b_p.nc"),
             parquet_filepath=os.path.join(temp_dir, "test_3b_p.parquet"),
-            parquet_tmp=os.path.join(temp_dir, "tmp_3b_p", "chunk.parquet")
+            parquet_tmp=os.path.join(temp_dir, "tmp_3b_p")
         )
         assert result == (None, None)
         
@@ -521,7 +521,7 @@ class TestScenariosParallel:
         result = gen.generate(
             netcdf_filepath=os.path.join(temp_dir, "test_3c_p.nc"),
             parquet_filepath=os.path.join(temp_dir, "test_3c_p.parquet"),
-            parquet_tmp=os.path.join(temp_dir, "tmp_3c_p", "chunk.parquet")
+            parquet_tmp=os.path.join(temp_dir, "tmp_3c_p")
         )
         assert result == (None, None)
         

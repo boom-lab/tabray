@@ -789,7 +789,6 @@ class GenerateData:
         from concurrent.futures import ProcessPoolExecutor, as_completed
         import multiprocessing
         from data_sparsity.workers import generate_chunk
-        import shutil
         
         # Ensure output directories exist
         nc_dir = os.path.dirname(self.netcdf_filepath)
@@ -800,19 +799,11 @@ class GenerateData:
         if parquet_dir and not os.path.exists(parquet_dir):
             os.makedirs(parquet_dir, exist_ok=True)
             
-        tmp_dir = os.path.dirname(self.parquet_tmp)
-        
-        # Remove the entire temporary directory if it exists
-        if os.path.exists(tmp_dir):
-            try:
-                shutil.rmtree(tmp_dir)
-                print(f"Deleted temporary directory: {tmp_dir}")
-            except Exception as e:
-                print(f"Warning: Could not remove {tmp_dir}: {e}")
-        
-        # Recreate the temporary directory
-        if tmp_dir:
-            os.makedirs(tmp_dir, exist_ok=True)
+        # Scratch chunks go in their own directory, not alongside the real
+        # output. Clear any leftovers from an interrupted run, but only if the
+        # directory holds nothing this code did not write.
+        PathManager.remove_scratch_dir(self.parquet_tmp)
+        os.makedirs(self.parquet_tmp, exist_ok=True)
 
         if self.num_vars == 1:
             density_for_parallel = (
@@ -989,7 +980,7 @@ class GenerateData:
         """
         import glob
         
-        tmp_dir = os.path.dirname(self.parquet_tmp)
+        tmp_dir = self.parquet_tmp
         tmp_pattern = os.path.join(tmp_dir, "chunk_*.parquet")
         tmp_files = sorted(glob.glob(tmp_pattern))
         
@@ -1009,8 +1000,9 @@ class GenerateData:
         # Write consolidated file using ParquetBuilder (which handles dask DataFrames)
         ParquetBuilder.save_to_file(ddf, self.parquet_filepath, overwrite=True)
         
-        # Cleanup temporary files
+        # Cleanup: the scratch directory goes once the merge has succeeded
         print(f"Cleaning up {len(tmp_files)} temporary files...")
         for f in tmp_files:
             os.remove(f)
+        PathManager.remove_scratch_dir(tmp_dir)
         print(f"Consolidated parquet file saved to {self.parquet_filepath}")
