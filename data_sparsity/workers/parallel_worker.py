@@ -212,29 +212,39 @@ def generate_chunk(
             chunk_id=chunk_id,
             max_dim_size=max_dim_size,
             dim_split=dim_split,
+            lhs_shape=list(shape),        # GLOBAL shape
+            div_points=div_points,        # which strata belong to this chunk
+            num_obs_global=num_obs_global,
             fixed_overlap=fixed_overlap
         )
 
         logging.debug("chunk id: %s", chunk_id)
+        # Count what was actually placed. var_num_obs is the GLOBAL per-variable
+        # count -- the strata apportion it internally -- so the chunk's own
+        # figures have to be measured, not inherited from the arguments.
+        chunk_var_counts = []
         total_obs = 0
         for var_idx in range(num_vars):
             var_name = f"var{var_idx}"
-            var_obs = np.sum(~np.isnan(records[var_name]))
+            var_obs = int(np.sum(~np.isnan(records[var_name])))
+            chunk_var_counts.append(var_obs)
             total_obs += var_obs
             logging.debug("%s obs in chunk: %s", var_name, var_obs)
-        
-        # Create Dataset with chunk-specific attributes
-        chunk_obs_total = int(np.sum(chunk_var_num_obs))
+
+        # Create Dataset with chunk-specific attributes. The density recorded is
+        # the reference variable's within this chunk, which is a meaningful
+        # quantity; summing every variable's observations over one grid was not.
+        chunk_obs_total = int(total_obs)
         chunk_attrs = NetCDFBuilder.create_default_attrs(
             chunk_obs_total, num_dims, ratio_dims,
-            float(chunk_obs_total / np.prod(task_shape)), seed
+            float(chunk_var_counts[0] / np.prod(task_shape)), seed
         )
         chunk_attrs.update({
             "chunk_id": chunk_id,
             "description": "Multi-variable sparse observation data (chunk)",
             "num_vars": num_vars,
             "var_densities": var_densities.tolist() if var_densities is not None else [],
-            "var_num_obs": chunk_var_num_obs.tolist() if var_num_obs is not None else [],
+            "var_num_obs": chunk_var_counts,
             "overlap_target": overlap_target if isinstance(
                 overlap_target, (str, list)
             ) else float(overlap_target),

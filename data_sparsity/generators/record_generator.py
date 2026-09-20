@@ -362,14 +362,21 @@ class RecordGenerator:
         """Map ranks within the free sites of a stratum to local site indices.
 
         ``ranks`` index the sites of a hyperplane once the ``excluded`` ones are
-        removed. Walking the excluded indices in ascending order and shifting
-        anything at or above each of them recovers the true local index, without
-        ever materialising the complement.
+        removed; this returns the true local indices without ever materialising
+        the complement.
+
+        For sorted excluded values ``e``, ``e[i] - i`` counts the free sites
+        below ``e[i]``, so the r-th free site is ``r`` plus however many excluded
+        values sit at or below it. That is one searchsorted, O(k log |e|),
+        rather than a pass over ``e`` per rank -- which matters once ``e`` is a
+        projected footprint of hundreds of thousands of cells.
         """
         local = np.asarray(ranks, dtype=np.int64)
-        for excluded in excluded_sorted:
-            local = local + (local >= excluded)
-        return local
+        excluded_sorted = np.asarray(excluded_sorted, dtype=np.int64)
+        if excluded_sorted.size == 0:
+            return local
+        offset = excluded_sorted - np.arange(excluded_sorted.size, dtype=np.int64)
+        return local + np.searchsorted(offset, local, side="right")
 
     @staticmethod
     def generate_stratified_indices(

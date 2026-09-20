@@ -194,7 +194,12 @@ def dataframes_coordinate_nan_match(df1, df2, coordinates, variable='record'):
 
 
 def build_chunked_multivar_args(gen, netcdf_filepath, parquet_tmp):
-    """Build worker arguments for chunked multi-variable generation."""
+    """Build worker arguments for chunked multi-variable generation.
+
+    Mirrors GenerateData._generate_par: the stratified placement apportions the
+    per-variable counts across strata itself, so each worker is handed the
+    GLOBAL counts rather than a pre-chunked slice.
+    """
     chunk_var_num_obs = ChunkUtils.get_multi_var_observations_per_chunk(
         gen.var_num_obs,
         gen.max_dim_size,
@@ -214,7 +219,7 @@ def build_chunked_multivar_args(gen, netcdf_filepath, parquet_tmp):
             'ratio_dims': gen.ratio_dims,
             'num_obs': int(np.sum(var_obs_chunk)),
             'var_densities': gen.var_densities,
-            'var_num_obs': var_obs_chunk,
+            'var_num_obs': gen.var_num_obs,   # GLOBAL: strata apportion
             'var_dims_indices': gen.var_dims_indices,
             'var_constant_dims': gen.var_constant_dims,
             'var_constant_coord_indices': copy.deepcopy(gen.var_constant_coord_indices),
