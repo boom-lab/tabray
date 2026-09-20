@@ -8,6 +8,8 @@ from typing import List
 import numpy as np
 from numpy.typing import ArrayLike
 
+from data_sparsity.utils.streams import Stream, stream
+
 class ChunkUtils:
     """Utilities manager for chunked dataset generation"""
 
@@ -182,9 +184,10 @@ class ChunkUtils:
     def generate_rngs(seed: int, num_dims: int) -> dict:
         """Generate one deterministic RNG per dimension.
 
-        ``base_seed = seed + dim_idx * 1000``. Serial and every worker derive
-        the same stream per dimension, which is what makes the non-split
-        coordinate axes identical in every chunk file.
+        Serial and every worker derive the same stream per dimension, which is
+        what makes the non-split coordinate axes identical in every chunk file.
+        The offsets this used to add to the seed collided with other purposes
+        (see data_sparsity.utils.streams).
 
         This used to accept ``chunk_id``, ``dim_split`` and ``obs_in_chunk``
         and fast-forward the split dimension's stream by ``chunk_id *
@@ -202,7 +205,7 @@ class ChunkUtils:
             Dict mapping dimension index to RNG
         """
         return {
-            dim_idx: np.random.default_rng(seed + (dim_idx * 1000))
+            dim_idx: stream(seed, Stream.COORDINATE, dim_idx)
             for dim_idx in range(num_dims)
         }
 

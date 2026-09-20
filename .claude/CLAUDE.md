@@ -68,13 +68,34 @@ Placement is per stratum: `MultiVarRecordGenerator.generate_multivar_stratified`
 
 ### Determinism and the serial/parallel contract
 
-Every RNG is derived from `seed` by a fixed offset, never by sequential consumption of one stream:
+Every RNG comes from `stream(seed, tag, *index)` in `data_sparsity/utils/streams.py`, never
+from sequential consumption of one stream. The tuple goes to `numpy.random.default_rng`, which
+runs it through `SeedSequence`, so distinct tuples give independent generators. Tags live in the
+`Stream` class:
 
-- coordinates: `seed + dim_idx * 1000` (`ChunkUtils.generate_rngs`)
-- overlap site selection: `seed + 9999` (+ `chunk_id * 10000`)
-- per-variable values and non-overlapping placement: `seed + var_idx + 2000` (+ `chunk_id * 100`)
+| tag | indexed by | used for |
+|---|---|---|
+| `COORDINATE` | dimension | one coordinate axis |
+| `LHS` | — | the global Latin hypercube stage |
+| `STRATUM` | stratum | per-stratum fill and values |
+| `DENSITY` | — | drawing per-variable densities from a range |
+| `VAR_DIMS` | variable | choosing which dimensions a variable varies along |
+| `CONST_COORD` | variable, constant dim | a variable's coordinate on a constant dimension |
+| `VAR` | variable, stratum | per-variable placement |
+| `SHARED_OVERLAP` | — | the shared ordering behind `fixed_overlap` |
 
-The point of this scheme is that parallel chunks reproduce serial output: shared dimensions get identical coordinates across chunks, and the split dimension's RNG is fast-forwarded by `chunk_id * obs_in_chunk` draws. Any change to seeding, or to the order in which draws are taken, breaks that equivalence — `tests/test_scenarios_parallel.py` mirrors the serial scenarios specifically to catch it.
+No tuple contains a chunk id, which is what makes parallel chunks reproduce serial output: serial
+and every worker derive the same generator for the same purpose. Chunks differ only in *which*
+strata they generate, so a chunk slices the global sorted coordinate axis by index rather than
+advancing a stream. Any change to a tag value, or to the order in which draws are taken, changes
+the data — `tests/test_scenarios_parallel.py` mirrors the serial scenarios specifically to catch
+divergence.
+
+Streams used to be derived by adding offsets to the seed (`seed + dim_idx * 1000` for coordinates
+and so on). That collided: `seed + 0*1000` is `seed`, so the x0 axis and the density range were
+one stream; `seed + 5000` is `seed + 5*1000`, so at six dimensions the x5 axis and var0's
+dimension selection were one stream. Adding a purpose now means adding a tag where the existing
+values are visible, rather than picking an offset and hoping it misses.
 
 `seed` has a default of `None` in the signature but is required; passing nothing raises `TypeError`.
 

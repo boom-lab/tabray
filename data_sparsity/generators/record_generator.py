@@ -8,6 +8,7 @@ from typing import Iterable, List, Optional, Tuple
 import numpy as np
 
 from data_sparsity.utils.chunk_utils import ChunkUtils
+from data_sparsity.utils.streams import Stream, stream
 
 
 class RecordGenerator:
@@ -225,12 +226,6 @@ class RecordGenerator:
         
         return combined_indices
 
-    # Stream tags for the stratified design. Passing a list to default_rng
-    # derives independent streams from (seed, tag, ...) via SeedSequence, so
-    # these cannot collide with each other the way additive offsets can.
-    LHS_STREAM = 1
-    STRATUM_STREAM = 2
-
     @staticmethod
     def _ranks_to_local(ranks: np.ndarray, excluded_sorted: np.ndarray) -> np.ndarray:
         """Map ranks within the free sites of a stratum to local site indices.
@@ -307,7 +302,7 @@ class RecordGenerator:
                 f"needs at least max(shape) observations."
             )
         n_s = max(shape)
-        lhs_rng = np.random.default_rng([seed, RecordGenerator.LHS_STREAM])
+        lhs_rng = stream(seed, Stream.LHS)
         lhs = RecordGenerator.generate_lhs_indices(shape, n_s, lhs_rng)
         lhs_split = np.asarray(lhs[split_dim], dtype=np.int64)
         if hyper_shape:
@@ -335,9 +330,7 @@ class RecordGenerator:
             here = lhs_split == stratum
             lhs_here = lhs_local[here]
             n_fill = int(fill_counts[stratum])
-            rng = np.random.default_rng(
-                [seed, RecordGenerator.STRATUM_STREAM, stratum]
-            )
+            rng = stream(seed, Stream.STRATUM, stratum)
 
             if n_fill > 0:
                 ranks = rng.choice(

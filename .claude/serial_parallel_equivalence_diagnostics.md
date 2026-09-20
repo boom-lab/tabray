@@ -31,7 +31,7 @@ plus the coverage fix (A5).
 parquet rows and attributes -- verified across single- and multi-variable, 2D to 6D, minimum
 density, reduced-dimension variables, `overlap='random'` and `fixed_overlap`.
 
-Still open: **S6-S7**, and **A2, A4, A6-A7**. Sections describing a closed item record the behaviour *before* the change.
+Still open: **S6-S7**, and **A4, A6-A7**. Sections describing a closed item record the behaviour *before* the change.
 
 ## Question
 
@@ -391,7 +391,7 @@ Verified on the README's own example: `num_dims=4`, `var_dims=[[0,1,2],[1,2,3],[
 reference is completed to `[0,1,2,3]`, the split dimension lands on 2 (shared by all three
 variables), and serial and parallel agree on values and parquet rows.
 
-### A2 — seed offsets collide (single-variable path fixed)
+### [done] A2 — seed offsets collide
 
 - `generate_without_overlap` uses `seed + var_idx + 1000`, which for `var0` is exactly the
   dimension-1 coordinate seed `seed + 1*1000`.
@@ -400,10 +400,42 @@ variables), and serial and parallel agree on values and parquet rows.
   coordinate seed.
 - CLAUDE.md documents placement as `seed + var_idx + 2000`; that holds only for the overlap path.
 
-**Partly fixed in stage B.** The single-variable path now derives streams as
-`default_rng([seed, tag, stratum])`, which SeedSequence keeps independent by construction, so the
-collision is gone there. The multi-variable branch still uses `seed + var_idx + 1000`, and the
-coordinate axes still use `seed + dim_idx * 1000`.
+Three further collisions were measured on live configurations, by drawing from both streams and
+comparing the bits:
+
+```
+seed 42:    coord x0  ==  the density-range draw     (seed + 0*1000 is seed)
+seed 5042:  coord x5  ==  var_dims selection, var0   (live at 6+ dimensions)
+seed 6042:  coord x6  ==  constant coords, var0      (live at 7+ dimensions)
+```
+
+The first is live at any dimensionality. With a two-element `density` range, `var1`'s density came
+out as `min + (max-min)*u` for the same `u` that became the first x0 coordinate.
+
+A fourth was structural rather than arithmetic: `seed + 6000 + var_idx` carried no dimension
+index, so a variable constant on two dimensions drew the same coordinate index on both.
+
+**Fixed.** Every stream now comes from `stream(seed, tag, *index)` in
+`data_sparsity/utils/streams.py`, with tags in a `Stream` class. Adding a purpose means adding a
+tag where the existing values are visible, instead of picking an offset and hoping it misses.
+Constant coordinates gained the missing dimension index. Verified: the seven streams involved in
+the collisions above are pairwise distinct.
+
+**A latent collision inside the new scheme, found while verifying it.** `SeedSequence` ignores
+trailing zeros, so `default_rng([42,0,0])`, `default_rng([42,0])` and `default_rng(42)` are one
+stream. With `COORDINATE = 0`, the x0 axis was therefore still `default_rng(seed)`, and
+`stream(s, tag, 0)` equalled `stream(s, tag)`. No two *used* purposes collided — tags differ, and
+same-tag index tuples all have the same length — so nothing generated was wrong, but the registry
+did not deliver the guarantee it was written for. `stream` now shifts every component up by one,
+so no component is ever zero and no tuple is a zero-extension of another; negative indices raise,
+since they would cancel the shift. `tests/utils/test_streams.py` pins this, including a sweep over
+every tag against every index tuple up to depth two.
+
+**Cost: a full rebaseline.** Moving the coordinate seeds changes every coordinate axis and so every
+output. Nine of the ten golden cases changed; `sv1d` did not, because it is one-dimensional with one
+variable, no density range and no constant dims, so its only moved stream was x0 — which, under the
+trailing-zero collapse, was still the old `seed + 0*1000`. The shift then changed all ten. Serial
+and parallel remained identical in all ten cases throughout.
 
 ### [done] A3 — achieved overlap exceeds the target, in **both** modes
 
