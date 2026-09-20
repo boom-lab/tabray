@@ -258,26 +258,21 @@ dataset, df = gen.generate()
 - **seed** (int): Random seed for reproducibility (non-negative integer). Required.
 - **max_obs** (int, optional): Maximum number of observations per chunk (default: `None`, serial generation). When `num_obs` exceeds this value, the dataset is split into chunks and generated in parallel (see **Parallel Generation for Large Datasets**).
 - **max_workers** (int, optional): Maximum number of processes running at once in parallel generation (default: the CPU count)
-- **dtype** (str or list, optional): How each variable is stored on disk (default: `float64`).
-  One value for all variables, or one per variable. `float64`, `float32`, `int8`, `int16`,
-  `int32`. An integer dtype is *packed*: values are carried as `scale_factor * code +
-  add_offset`, the convention GLORYS12 and most reanalysis products use. The scale comes from
-  the generator's value range, not from the data, so parallel chunks agree with a serial run.
-  Parquet stores the decoded type (`float32` for a packed `int16`), because packing is a netCDF
-  device and parquet's idiom is the natural type.
+- **dtype** (str or list, optional): What each variable holds: `float64` (default) or
+  `float32`. One value for all variables, or one per variable.
+- **pack** (str or list, optional): Integer type to compact the values into on disk — `int8`,
+  `int16`, `int32` — or `None` (default) to store them plain. Values are carried as
+  `scale_factor * code + add_offset`, the convention GLORYS12 and most reanalysis products use.
+  The scale comes from the value range, not from the data, so parallel chunks agree with a
+  serial run. Parquet stores the decoded type (`float32` for a packed `int16`), because packing
+  is a netCDF device and parquet's idiom is the natural type.
+
+  `dtype` and `pack` are separate because a file holds both kinds. Argo stores `TEMP` as a plain
+  `float32` and `CYCLE_NUMBER` as a plain `int32`, neither packed.
 - **fill_value** (float or list, optional): What marks a vacant site (default: NaN for float
   dtypes, the reserved code for integers). One value for all variables, or one per variable.
   Argo files use `99999.0` in a `float32` variable, in preference to NaN; that is expressible
   here. For packed dtypes the fill code is reserved, so no real value can collide with it.
-- **compression** (str, optional): Codec applied to **both** outputs, so the two formats are
-  written on the same terms (default: `None`, uncompressed). `"gzip"` (aliases `"zlib"`,
-  `"deflate"`) is DEFLATE, which netCDF4 and parquet can both do. Parquet-only codecs
-  (`snappy`, `zstd`, `lz4`, `brotli`) are refused: using one would mean the formats were no
-  longer comparable. Note that `None` is not the same as leaving it out — dask writes Snappy
-  parquet by default, so an uncompressed netCDF was previously being compared against a
-  compressed parquet.
-- **complevel** (int, optional): Compression level 1-9 (default: 4), ignored when
-  `compression` is `None`.
 - **num_vars** (int, optional): Number of variables in the dataset (default: 1)
 - **var_dims** (int, list, or tuple, optional): 
   - Int: Number of dimensions for each variable (randomly selected if less than num_dims)

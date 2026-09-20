@@ -79,6 +79,7 @@ class GenerateData:
         fixed_overlap: Union[bool, List[bool]] = False,
         density: Union[int, float, List, Tuple, None] = None,
         dtype: Union[str, List, Tuple, None] = None,
+        pack: Union[str, List, Tuple, None] = None,
         fill_value: Union[float, List, Tuple, None] = None,
     ) -> None:
         """Initialize the data generator with validation.
@@ -130,7 +131,7 @@ class GenerateData:
         # convention -- GLORYS packs everything to int16, Argo writes plain
         # float32 -- so this is per variable, defaulting to float64.
         self.var_encodings = VariableEncoding.per_variable(
-            dtype, fill_value, self.num_vars
+            dtype, pack, fill_value, self.num_vars
         )
         self._resolve_density_input()
 
@@ -813,6 +814,7 @@ class GenerateData:
                     "num_obs_global": self.num_obs,
                     "log_dir": log_dir,
                     "var_dtypes": [e.dtype for e in self.var_encodings],
+                    "var_packs": [e.pack for e in self.var_encodings],
                     "var_fill_values": [e.fill_value for e in self.var_encodings],
                 }
                 chunk_args.append(args)
@@ -853,6 +855,7 @@ class GenerateData:
                     "num_obs_global": self.num_obs,
                     "log_dir": log_dir,
                     "var_dtypes": [e.dtype for e in self.var_encodings],
+                    "var_packs": [e.pack for e in self.var_encodings],
                     "var_fill_values": [e.fill_value for e in self.var_encodings],
                 }
                 chunk_args.append(args)

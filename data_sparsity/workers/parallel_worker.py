@@ -78,6 +78,7 @@ def generate_chunk(
     fixed_overlap: Union[bool, List[bool]] = False,
     log_dir: str = "logs",
     var_dtypes: Union[str, List, None] = None,
+    var_packs: Union[str, List, None] = None,
     var_fill_values: Union[float, List, None] = None,
 ) -> Tuple[int, int, str]:
     """Generate a single chunk of data in parallel.
@@ -114,7 +115,8 @@ def generate_chunk(
             strata take their share of this global count
         log_dir: Directory for this worker's log, used only when
             TABRAY_WORKER_LOG is set
-        var_dtypes: On-disk dtype per variable, or one for all
+        var_dtypes: What each variable holds, or one for all
+        var_packs: Integer type to pack each variable into, or one for all
         var_fill_values: Fill value per variable, or one for all
 
     Returns:
@@ -122,7 +124,7 @@ def generate_chunk(
     """
     log = _configure_worker_logging(chunk_id, log_dir)
     var_encodings = VariableEncoding.per_variable(
-        var_dtypes, var_fill_values, num_vars
+        var_dtypes, var_packs, var_fill_values, num_vars
     )
     log.debug("######------ NEW CHUNK ------######")
 
