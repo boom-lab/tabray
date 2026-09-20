@@ -428,6 +428,58 @@ once", which is achievable only on cubic grids -- on a non-cubic grid dim 0 of
 generalisation has to be chosen, and that is a definitional call.
 
 
+
+### A7 — per-variable dtype is not a parameter (suggested, not implemented)
+
+Everything is float64: the record arrays, the observation values and the coordinate axes. Real
+data is not. GLORYS12 and most CMEMS products are float32, and many are packed `int16` with
+`scale_factor`/`add_offset`, i.e. 2 bytes per value.
+
+**Proposed**: a `var_dtype` parameter accepting a scalar applied to every variable, or one entry
+per variable, e.g. `["float64", "str", "float32", "int", "int"]`.
+
+**Why it is not just a memory knob.** Changing dtype moves the array/tabular crossover, which is
+the headline result of the comparison. Measured on a 50x50x50 grid, netCDF zlib-4 against
+parquet snappy:
+
+```
+ density |  ----- float64 -----  |  ----- float32 -----
+         |    nc.z    pq  ncz/pq |    nc.z    pq  ncz/pq
+    0.01 |   0.05M  0.02M   2.59 |   0.03M  0.01M   2.44
+    0.10 |   0.23M  0.14M   1.60 |   0.12M  0.09M   1.30
+    0.20 |   0.36M  0.28M   1.31 |   0.18M  0.18M   1.04
+    0.40 |   0.57M  0.55M   1.04 |   0.28M  0.34M   0.82
+    0.90 |   0.85M  1.18M   0.72 |   0.42M  0.72M   0.58
+```
+
+The array format is smaller where `ncz/pq < 1`: around density 0.4 in float64, around 0.2 in
+float32. netCDF halves exactly (dense array, measured 0.503) while parquet only falls to ~0.65,
+because it stores coordinates as well as values and encodes float32 less efficiently per value.
+Different scaling on the two sides, so dtype is an axis of the comparison rather than a constant
+factor on it.
+
+**Constraints for whoever implements it:**
+
+* **Coordinates must stay float64.** Sorted uniforms in [0,1) collide in float32 from about
+  N = 100,000, because the minimum gap among N order statistics goes as 1/N^2 while float32
+  resolution near 1.0 is 1.19e-7. Measured duplicates: 0 at N=4,320, 189 at N=100,000, 19,613
+  at N=1,000,000. xarray dimension coordinates must be unique and the tests assert it. Axes cost
+  `sum(shape)` values, so there is no memory reason to shrink them.
+* **Values lose uniqueness.** float32 has only ~1.07e9 representable values in [0,1), so more
+  than that many observations cannot be distinct, and duplicates become certain above ~1e5.
+  Several tests assert distinct observation values; they encode a float64 assumption.
+* **Integer and string types have no NaN**, and the empty-site marker is `np.nan` throughout
+  (`RecordGenerator.initialize_record`, and `~np.isnan(record)` in every consumer). These would
+  need a masked array or a `_FillValue` sentinel, which itself changes the array/tabular
+  comparison -- netCDF stores the fill value at every vacant site, parquet stores no row at all.
+* **Strings in netCDF** are either variable-length or fixed-width char arrays, with storage
+  behaviour unlike any numeric type. Worth treating as its own case rather than one more dtype.
+
+Memory is not the motivating reason: float32 halves the record array, where stage B already cut
+the binding cost by ~1300x. A GLORYS12 chunk is 119 MB; float32 makes it 60 MB. The case for
+this parameter is realism and coverage of the comparison, not footprint.
+
+
 ---
 
 ## How this was measured

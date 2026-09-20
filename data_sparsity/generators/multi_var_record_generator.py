@@ -535,10 +535,12 @@ class MultiVarRecordGenerator:
                     )
                 records[var_name][indices] = values
 
-            overlap_actual = OverlapCalculator.compute_actual_overlaps_against_reference(
-                records, num_vars, num_dims
+            report = OverlapCalculator.compute_overlap_report(
+                records, num_vars, num_dims, var_dims_indices
             )
-            return records, overlap_actual
+            if chunk_id is None:
+                OverlapCalculator.print_overlap_report(report, targets)
+            return records, report["f1"]
 
         if overlap == 'random' or num_vars == 1:
             records = MultiVarRecordGenerator.generate_without_overlap(
@@ -546,8 +548,8 @@ class MultiVarRecordGenerator:
                 var_constant_coord_indices, seed, chunk_id, max_dim_size,
                 dim_split, lhs_rng, lhs_shape, num_obs_global, div_points
             )
-            overlap_actual = OverlapCalculator.compute_actual_overlap(
-                records, num_vars, num_dims, var_num_obs, var_dims_indices
+            overlap_actual = OverlapCalculator.compute_actual_overlaps_against_reference(
+                records, num_vars, num_dims, var_dims_indices
             )
         else:
             records = MultiVarRecordGenerator.generate_with_overlap(
@@ -558,7 +560,7 @@ class MultiVarRecordGenerator:
             )
             if isinstance(overlap, list):
                 overlap_actual = OverlapCalculator.compute_actual_overlaps_against_reference(
-                    records, num_vars, num_dims
+                    records, num_vars, num_dims, var_dims_indices
                 )
             else:
                 overlap_actual = OverlapCalculator.compute_actual_overlap(
