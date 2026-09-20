@@ -258,8 +258,15 @@ dataset, df = gen.generate()
 - **seed** (int): Random seed for reproducibility (non-negative integer). Required.
 - **max_obs** (int, optional): Maximum number of observations per chunk (default: `None`, serial generation). When `num_obs` exceeds this value, the dataset is split into chunks and generated in parallel (see **Parallel Generation for Large Datasets**).
 - **max_workers** (int, optional): Maximum number of processes running at once in parallel generation (default: the CPU count)
-- **dtype** (str or list, optional): What each variable holds: `float64` (default) or
-  `float32`. One value for all variables, or one per variable.
+- **dtype** (str or list, optional): What each variable holds: `float64` (default), `float32`,
+  or an integer type (`int8`, `int16`, `int32`) for a variable of counts, flags or identifiers.
+  One value for all variables, or one per variable.
+- **value_range** (tuple or list, optional): The (min, max) a variable spans, inclusive.
+  Defaults to `(0, 1)` for floats and `(0, 100)` for integers. One pair for all variables, or
+  one per variable. For a packed float it also sets the packing scale, so a value cannot fall
+  outside the grid that stores it. For an integer variable the width sets the column's
+  **cardinality**: `(0, 8)` is flag-like data, which both formats encode very differently from
+  the near-continuous `(0, 50000)`.
 - **pack** (str or list, optional): Integer type to compact the values into on disk — `int8`,
   `int16`, `int32` — or `None` (default) to store them plain. Values are carried as
   `scale_factor * code + add_offset`, the convention GLORYS12 and most reanalysis products use.
