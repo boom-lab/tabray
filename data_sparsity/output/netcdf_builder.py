@@ -7,6 +7,8 @@ from typing import Dict, List, Optional
 import numpy as np
 import xarray as xr
 
+from data_sparsity.output.compression_settings import CompressionSettings
+
 
 class NetCDFBuilder:
     """Builder for NetCDF/xarray output formats.
@@ -207,7 +209,8 @@ class NetCDFBuilder:
     def save_to_file(
         data: xr.DataArray | xr.Dataset,
         filepath: str,
-        overwrite: bool = False
+        overwrite: bool = False,
+        compression: CompressionSettings = None
     ) -> None:
         """Save DataArray or Dataset to NetCDF file.
         
@@ -215,6 +218,8 @@ class NetCDFBuilder:
             data: xarray DataArray or Dataset
             filepath: Path to save file
             overwrite: Whether to overwrite existing file
+            compression: Codec to apply, shared with the parquet output.
+                None writes uncompressed.
             
         Raises:
             FileExistsError: If file exists and overwrite is False
@@ -226,5 +231,6 @@ class NetCDFBuilder:
                 f"File {filepath} already exists. Set overwrite=True to replace."
             )
         
-        data.to_netcdf(filepath)
+        encoding = compression.netcdf_encoding(data) if compression else {}
+        data.to_netcdf(filepath, encoding=encoding)
         print(f"Saved to {filepath}")
