@@ -212,10 +212,42 @@ class NetCDFBuilder:
         return xr.Dataset(data_vars, attrs=dataset.attrs)
 
     @staticmethod
+    def build_encoding(data, var_encodings: list = None) -> dict:
+        """Build the per-variable netCDF encoding from each variable's dtype.
+
+        Variables are matched by name: ``varN`` takes the Nth encoding, and a
+        single-variable DataArray (named ``record``) takes the first.
+
+        Args:
+            data: The DataArray or Dataset about to be written
+            var_encodings: One VariableEncoding per variable, or None
+
+        Returns:
+            Encoding dict keyed by variable name
+        """
+        if isinstance(data, xr.DataArray):
+            names = [data.name] if data.name is not None else []
+        else:
+            names = list(data.data_vars)
+
+        encoding = {}
+        for position, name in enumerate(names):
+            entry = {}
+            if var_encodings:
+                index = (int(name[3:]) if name.startswith("var") and
+                         name[3:].isdigit() else position)
+                if index < len(var_encodings):
+                    entry.update(var_encodings[index].netcdf_encoding())
+            encoding[name] = entry
+
+        return {k: v for k, v in encoding.items() if v}
+
+    @staticmethod
     def save_to_file(
         data: xr.DataArray | xr.Dataset,
         filepath: str,
         overwrite: bool = False,
+        var_encodings: list = None,
     ) -> None:
         """Save DataArray or Dataset to NetCDF file.
 
@@ -223,6 +255,8 @@ class NetCDFBuilder:
             data: xarray DataArray or Dataset
             filepath: Path to save file
             overwrite: Whether to overwrite existing file
+            var_encodings: One VariableEncoding per variable, or None for
+                plain float64.
 
         Raises:
             FileExistsError: If file exists and overwrite is False
@@ -234,5 +268,6 @@ class NetCDFBuilder:
                 f"File {filepath} already exists. Set overwrite=True to replace."
             )
 
-        data.to_netcdf(filepath)
+        encoding = NetCDFBuilder.build_encoding(data, var_encodings)
+        data.to_netcdf(filepath, encoding=encoding)
         print(f"Saved to {filepath}")

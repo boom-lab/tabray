@@ -32,6 +32,7 @@ from data_sparsity.generators import (
     MultiVarRecordGenerator,
 )
 from data_sparsity.output import (
+    VariableEncoding,
     NetCDFBuilder,
     ParquetBuilder,
     PathManager,
@@ -77,6 +78,8 @@ class GenerateData:
         overlap: Union[float, str] = "random",
         fixed_overlap: Union[bool, List[bool]] = False,
         density: Union[int, float, List, Tuple, None] = None,
+        dtype: Union[str, List, Tuple, None] = None,
+        fill_value: Union[float, List, Tuple, None] = None,
     ) -> None:
         """Initialize the data generator with validation.
 
@@ -123,6 +126,12 @@ class GenerateData:
         self.var_dims = var_dims if var_dims is not None else num_dims
         self.overlap = overlap
         self.fixed_overlap = fixed_overlap
+        # How each variable is stored. Scientific netCDF has no one
+        # convention -- GLORYS packs everything to int16, Argo writes plain
+        # float32 -- so this is per variable, defaulting to float64.
+        self.var_encodings = VariableEncoding.per_variable(
+            dtype, fill_value, self.num_vars
+        )
         self._resolve_density_input()
 
         self._print_input_config()
@@ -196,6 +205,7 @@ class GenerateData:
         print(f"  Variable dimensions: {self.var_dims}")
         print(f"  Overlap: {self.overlap}")
         print(f"  Fixed overlap: {self.fixed_overlap}")
+        print(f"  Variable encodings: {self.var_encodings}")
 
     def _print_updated_config(self) -> None:
         """Print updated configuration after validation."""
@@ -510,6 +520,24 @@ class GenerateData:
             self.overlap_actual = report["f1"]
             self.overlap_actual_f2 = report["f2"]
 
+        return self._quantize(records)
+
+    def _quantize(self, records: dict) -> dict:
+        """Round values to what their encoding can store.
+
+        Done before either format is written so the two hold the same numbers.
+        With the default float64 encoding this returns the values unchanged.
+
+        Args:
+            records: Mapping of variable name to value array
+
+        Returns:
+            The same mapping, values rounded to the representable grid
+        """
+        for index, encoding in enumerate(self.var_encodings):
+            name = f"var{index}"
+            if name in records:
+                records[name] = encoding.quantize(records[name])
         return records
 
     def _create_dataarray(self) -> xr.DataArray:
@@ -609,7 +637,10 @@ class GenerateData:
         if dataarray is None:
             dataarray = self._dataset if self.num_vars > 1 else self._dataarray
 
-        NetCDFBuilder.save_to_file(dataarray, filepath, overwrite)
+        NetCDFBuilder.save_to_file(
+            dataarray, filepath, overwrite,
+            var_encodings=self.var_encodings
+        )
 
     def save_to_parquet(
         self,
@@ -629,7 +660,10 @@ class GenerateData:
         if dataframe is None:
             dataframe = self._dataframe
 
-        ParquetBuilder.save_to_file(dataframe, filepath, overwrite, chunk_id)
+        ParquetBuilder.save_to_file(
+            dataframe, filepath, overwrite, chunk_id,
+            var_encodings=self.var_encodings
+        )
 
     def generate(
         self,
@@ -778,6 +812,8 @@ class GenerateData:
                     "ntasks": self.NTASKS,
                     "num_obs_global": self.num_obs,
                     "log_dir": log_dir,
+                    "var_dtypes": [e.dtype for e in self.var_encodings],
+                    "var_fill_values": [e.fill_value for e in self.var_encodings],
                 }
                 chunk_args.append(args)
         else:
@@ -816,6 +852,8 @@ class GenerateData:
                     "ntasks": self.NTASKS,
                     "num_obs_global": self.num_obs,
                     "log_dir": log_dir,
+                    "var_dtypes": [e.dtype for e in self.var_encodings],
+                    "var_fill_values": [e.fill_value for e in self.var_encodings],
                 }
                 chunk_args.append(args)
 
@@ -909,10 +947,19 @@ class GenerateData:
         # different file on each run. With the threaded scheduler, a thread
         # reading a chunk and a thread writing the output can deadlock on
         # xarray's netCDF4 lock. The write still streams chunk by chunk.
+        encoding = NetCDFBuilder.build_encoding(merged, self.var_encodings)
         with dask.config.set(scheduler="synchronous"):
-            merged[[var_names[0]]].to_netcdf(self.netcdf_filepath, mode="w")
+            merged[[var_names[0]]].to_netcdf(
+                self.netcdf_filepath,
+                mode="w",
+                encoding={k: v for k, v in encoding.items() if k == var_names[0]},
+            )
             for var_name in var_names[1:]:
-                merged[[var_name]].to_netcdf(self.netcdf_filepath, mode="a")
+                merged[[var_name]].to_netcdf(
+                    self.netcdf_filepath,
+                    mode="a",
+                    encoding={k: v for k, v in encoding.items() if k == var_name},
+                )
         merged.close()
         for chunk_file in chunk_files:
             os.remove(chunk_file)
@@ -951,6 +998,8 @@ class GenerateData:
         print(f"Dask DataFrame has {ddf.npartitions} partitions")
 
         # Write consolidated file using ParquetBuilder (which handles dask DataFrames)
+        # Columns were cast when each chunk was written; casting the
+        # concatenation again would be a no-op that materialises the frame.
         ParquetBuilder.save_to_file(ddf, self.parquet_filepath, overwrite=True)
 
         # Cleanup: the scratch directory goes once the merge has succeeded
