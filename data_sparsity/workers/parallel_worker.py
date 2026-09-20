@@ -191,7 +191,9 @@ def generate_chunk(
         gc.collect()
         
         # Create DataFrame
-        dataframe = ParquetBuilder.build_single_var_dataframe(record, coordinates)
+        dataframe = ParquetBuilder.build_single_var_dataframe(
+            record, coordinates, order_dim=dim_split
+        )
         
         # Save to temporary parquet file
         import os
@@ -272,7 +274,7 @@ def generate_chunk(
         
         # Create DataFrame
         dataframe = ParquetBuilder.build_multi_var_dataframe(
-            records, coordinates, num_vars, num_dims
+            records, coordinates, num_vars, num_dims, order_dim=dim_split
         )
         
         # Save to temporary parquet file
