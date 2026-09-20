@@ -555,6 +555,37 @@ the binding cost by ~1300x. A GLORYS12 chunk is 119 MB; float32 makes it 60 MB. 
 this parameter is realism and coverage of the comparison, not footprint.
 
 
+
+### [done] A8 — the two-element density form collapsed, and var0 was assigned by a coin flip
+
+Three coupled defects in how `density=[a, b]` was handled.
+
+* `validate_density_refvar` overwrote `density[0]` with the maximum. For a two-element list --
+  a `[max, min]` range, not per-variable densities -- that collapsed the range to a point, so
+  every variable got the same density. Measured: `[0.3, 0.5]`, `num_vars=2`, 100 seeds ->
+  accepted 100, densities collapsed to equal 100.
+* `from_two_element_list` then assigned min and max to the two variables with a coin flip, so
+  var0 depended on the seed and was not reproducible from the arguments.
+* `validate_reference_is_largest` rejected the half where var0 drew the minimum. Measured:
+  `[0.5, 0.3]`, 100 seeds -> accepted 57, rejected 43.
+
+So the form the README documented as "multiple variables with different densities" either gave
+every variable the same density, or worked on roughly half of seeds.
+
+**Fixed.** The two-element form is `[max, min]`: var0 takes the maximum, some other variable
+takes the minimum, and any further variables are drawn uniformly from `[min, max]`. With two
+variables the range is exactly the two prescribed densities. `validate_density_refvar` raises
+instead of overwriting when `density[0]` is not the largest, for both the range form and the
+full per-variable list, so a user's numbers are never silently rewritten.
+
+No data change: all ten golden digests are unchanged. What changed is that var0 is now the
+maximum for every seed rather than for about half of them, and the rejections are gone.
+
+Ascending input raises rather than being silently reinterpreted. Nine of the repository's
+thirteen two-element density literals were already descending; the four ascending ones (two
+README examples, two tests) were corrected.
+
+
 ---
 
 ## How this was measured

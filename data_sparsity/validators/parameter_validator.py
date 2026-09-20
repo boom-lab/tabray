@@ -222,29 +222,42 @@ class ParameterValidator:
     ) -> List:
         """Validate density value when a list is provided.
 
-        The density of the reference value (position 0) must
-        be the largest as refvar has the largest number of
-        observations.
+        The density of the reference value (position 0) must be the largest,
+        because var0 is the overlap reference and must have the largest number
+        of observations.
 
+        This used to overwrite ``density[0]`` with the maximum. For a
+        two-element list -- which is a ``[max, min]`` range, not per-variable
+        densities -- that collapsed the range to a point and gave every
+        variable the same density, silently. Raising instead leaves the user's
+        numbers alone and says what is wrong.
+
+        Args:
+            density: Density input, scalar or sequence. Scalars pass through.
+
+        Returns:
+            A new list. The argument is never modified.
+
+        Raises:
+            ValueError: If the reference density is not the largest given
         """
 
         if not isinstance(density, (tuple, list)):
             return density
 
-        if isinstance(density, tuple):
-            density = [*density]
+        # Copy unconditionally. This used to convert tuples only, so a list
+        # argument was written through at index 0 and the caller's object
+        # changed underneath them.
+        density = list(density)
 
         max_density = max(density)
-        if not density[0] == max_density:
-            print(
-                f"Reference variable was assigned density "
-                f"{density[0]}, which is lower than the "
-                f"maximum density {max_density} in the "
-                f"density argument provided, but refvar "
-                f"must have the maximum number of observations."
-                f" Imposing refvar density to be {max_density}."
+        if density[0] != max_density:
+            raise ValueError(
+                f"The reference variable takes density[0]={density[0]}, but the "
+                f"largest density given is {max_density}. var0 is the overlap "
+                "reference and must have the largest density, so list the "
+                "largest value first."
             )
-            density[0] = max_density
 
         return density
 
