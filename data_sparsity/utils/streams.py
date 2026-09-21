@@ -30,6 +30,7 @@ class Stream:
     DENSITY = 3         # drawing per-variable densities from a range
     VAR_DIMS = 4        # choosing which dimensions a variable varies along
     CONST_COORD = 5     # choosing a variable's coordinate on a constant dim
+    PADDED = 6          # the spread of prefix lengths under layout='padded'
     VAR = 10            # per-variable placement, indexed by variable, stratum
     SHARED_OVERLAP = 11 # the shared ordering behind fixed_overlap
 

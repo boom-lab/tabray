@@ -84,6 +84,31 @@ class GenerationReport:
         drop = [d for d in mask.dims if d not in keep]
         return mask.any(dim=drop) if drop else mask
 
+    @staticmethod
+    def run_fraction(mask, padded_dim: int) -> float:
+        """Share of occupied cells whose neighbour towards 0 is occupied too.
+
+        Separates the layouts sharply: a prefix gives every cell but the first
+        of each run a filled neighbour, so the figure sits near 1, while
+        scattered occupancy gives roughly the density. Measuring it is how the
+        report confirms that `layout` did what was asked rather than taking the
+        argument's word for it.
+
+        Args:
+            mask: Occupancy mask, as a DataArray
+            padded_dim: Index of the axis prefixes run along
+
+        Returns:
+            The fraction, or 0.0 if nothing is occupied
+        """
+        values = mask.values
+        if values.ndim <= padded_dim:
+            return 0.0
+        ahead = np.take(values, range(1, values.shape[padded_dim]), axis=padded_dim)
+        behind = np.take(values, range(values.shape[padded_dim] - 1), axis=padded_dim)
+        occupied = int(ahead.sum())
+        return float((ahead & behind).sum() / occupied) if occupied else 0.0
+
     @classmethod
     def from_arrays(
             cls,
@@ -147,6 +172,23 @@ class GenerationReport:
                        "fewer observations than the longest axis, or placement "
                        "constrained by the overlap target")
 
+        # --- the layout did what was asked -------------------------------
+        # the resolved values, not the raw arguments: padded_dim defaults
+        # to the last dimension and the caller may not have named it
+        layout = getattr(gen, "layout", "scattered")
+        padded_dim = getattr(gen, "padded_dim", None)
+        if layout == "padded" and padded_dim is not None:
+            for name in names:
+                achieved = cls.run_fraction(masks[name], int(padded_dim))
+                report.add(
+                    "run fraction", name, "near 1 under padded",
+                    round(achieved, 4),
+                    MATCH if achieved > 0.9 else DIFFERS,
+                    "" if achieved > 0.9 else
+                    "a prefix leaves every cell but the first of each run with "
+                    "a filled neighbour; this is closer to the density, which "
+                    "is what scattered occupancy gives")
+
         # --- overlap ------------------------------------------------------
         targets = getattr(gen, "overlap_target", None)
         if targets is not None and len(names) > 1:
@@ -195,7 +237,8 @@ class GenerationReport:
 
     # ------------------------------------------------- the chunked path
     @staticmethod
-    def measure_chunk(records, var_dims_indices, dim_split, stratum_offset):
+    def measure_chunk(records, var_dims_indices, dim_split, stratum_offset,
+                      padded_dim=None):
         """Counts a worker returns so the parent can assemble the report.
 
         Overlap never spans strata, so intersections and occupancy counts add
@@ -208,6 +251,7 @@ class GenerationReport:
             var_dims_indices: Dimensions each variable varies along
             dim_split: Dimension the chunks run along
             stratum_offset: Index of this chunk's first stratum
+            padded_dim: The padded axis, so the run fraction can be summed
 
         Returns:
             Plain dict, picklable, no arrays larger than an axis
@@ -215,11 +259,19 @@ class GenerationReport:
         names = sorted(records)
         masks = {name: ~np.isnan(records[name]) for name in names}
         summary = {"occupied": {}, "axis_used": {}, "intersect": {},
-                   "ref_proj": {}, "offset": int(stratum_offset)}
+                   "ref_proj": {}, "offset": int(stratum_offset),
+                   "runs": {}, "run_total": {}}
 
         for index, name in enumerate(names):
             mask = masks[name]
             summary["occupied"][name] = int(mask.sum())
+            if padded_dim is not None and mask.ndim > padded_dim:
+                ahead = np.take(mask, range(1, mask.shape[padded_dim]),
+                                axis=padded_dim)
+                behind = np.take(mask, range(mask.shape[padded_dim] - 1),
+                                 axis=padded_dim)
+                summary["runs"][name] = int((ahead & behind).sum())
+                summary["run_total"][name] = int(ahead.sum())
             used = {}
             for dim in range(mask.ndim):
                 others = tuple(d for d in range(mask.ndim) if d != dim)
@@ -292,6 +344,18 @@ class GenerationReport:
                        "" if not unused else
                        "fewer observations than the longest axis, or placement "
                        "constrained by the overlap target")
+
+        if getattr(gen, "layout", "scattered") == "padded":
+            for name in names:
+                total = sum(s["run_total"].get(name, 0) for s in summaries)
+                runs = sum(s["runs"].get(name, 0) for s in summaries)
+                achieved = runs / total if total else 0.0
+                report.add("run fraction", name, "near 1 under padded",
+                           round(achieved, 4),
+                           MATCH if achieved > 0.9 else DIFFERS,
+                           "" if achieved > 0.9 else
+                           "closer to the density, which is what scattered "
+                           "occupancy gives")
 
         targets = getattr(gen, "overlap_target", None)
         if targets is not None and len(names) > 1:

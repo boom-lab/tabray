@@ -90,6 +90,8 @@ def generate_chunk(
     var_packs: Union[str, List, None] = None,
     var_fill_values: Union[float, List, None] = None,
     var_value_ranges: Union[List, None] = None,
+    layout: str = "scattered",
+    padded_dim: Optional[int] = None,
 ) -> Tuple[int, int, str, dict]:
     """Generate a single chunk of data in parallel.
     
@@ -130,6 +132,8 @@ def generate_chunk(
         var_packs: Integer type to pack each variable into, or one for all
         var_fill_values: Fill value per variable, or one for all
         var_value_ranges: (min, max) per variable, or one for all
+        layout: How the occupied cells are arranged
+        padded_dim: The axis prefixes run along under layout='padded'
         
     Returns:
         Tuple of (chunk_id, total_observations, parquet_chunk_path,
@@ -197,7 +201,9 @@ def generate_chunk(
             dim_split=dim_split,
             lhs_shape=list(shape),  # Pass global shape for LHS
             num_obs_global=num_obs_global,  # Pass global observation count
-            div_points=div_points  # Pass division points for chunk filtering
+            div_points=div_points,  # Pass division points for chunk filtering
+            layout=layout,
+            padded_dim=padded_dim,
         )
         
         # Round to what the encoding can store, before either format is
@@ -205,7 +211,8 @@ def generate_chunk(
         records['var0'] = var_encodings[0].to_stored(records['var0'])
 
         measurements = GenerationReport.measure_chunk(
-            records, [list(range(len(task_shape)))], dim_split, task_range[0]
+            records, [list(range(len(task_shape)))], dim_split, task_range[0],
+            padded_dim
         )
 
         # Extract the single record from the dictionary
@@ -270,7 +277,9 @@ def generate_chunk(
             lhs_shape=list(shape),        # GLOBAL shape
             div_points=div_points,        # which strata belong to this chunk
             num_obs_global=num_obs_global,
-            fixed_overlap=fixed_overlap
+            fixed_overlap=fixed_overlap,
+            layout=layout,
+            padded_dim=padded_dim,
         )
 
         for var_idx, encoding in enumerate(var_encodings):
@@ -279,7 +288,7 @@ def generate_chunk(
                 records[name] = encoding.to_stored(records[name])
 
         measurements = GenerationReport.measure_chunk(
-            records, var_dims_indices, dim_split, task_range[0]
+            records, var_dims_indices, dim_split, task_range[0], padded_dim
         )
 
         log.debug("chunk id: %s", chunk_id)

@@ -96,6 +96,35 @@ check still means something. The scale is derived from `VariableEncoding.VALUE_R
 `ObservationGenerator`'s `uniform(0, 1)`, never measured from the data, because a parallel chunk
 never sees the whole array.
 
+### Layout
+
+`layout` (`"scattered"` default, or `"padded"`) and `padded_dim` decide where the occupied cells
+sit, which `density` says nothing about. It matters: at a fixed occupancy of 0.149 the compressed
+array is 1.15 MB scattered against 0.55 MB padded, and parquet is smaller than netCDF under
+scattered while netCDF is smaller under padded — the sweep's headline answer depends on it.
+`docs/layout_plan.md` carries the measurements and the design.
+
+`padded` is implemented as its own placement, `RecordGenerator.generate_padded_indices`, dispatched
+from `generate_stratified_indices`. Each combination of the dimensions other than the split and the
+padded one is a **line**, and a line holds positions `0..k-1`. Coverage comes from the construction
+rather than from the LHS stage, which is skipped: every line holds at least one observation, which
+uses every coordinate of the split axis and of every axis but the padded one, and one line runs the
+full length, which uses the padded axis. So nothing sits outside the pattern.
+
+Three consequences. The **minimum density is higher** — `prod(shape)/n_padded + n_padded - 1`
+observations, so `compute_min_density` takes `padded_dim`. **`overlap` raises**, because with every
+variable filling a prefix of the same axis the intersection is `min(k_0, k_i)` and F1 is the ratio
+of the densities; Argo confirms it, NITRATE at 0.161 occupancy against TEMP's 0.986 measuring
+F1 = 0.163. And **the padded axis cannot be the split dimension**, so `_choose_split_dim` excludes
+it alongside the dimensions not shared by every variable.
+
+Per-stratum counts come from `RecordGenerator.padded_stratum_counts`, a plain apportionment with a
+floor of one per line, lognormally weighted so profile lengths vary — uniform weights gave every
+profile the same length. One stratum is raised so a line can run the full length and the difference
+comes back from the others' slack. The report measures the achieved layout as a run fraction, the
+share of occupied cells whose neighbour towards 0 is also occupied: near 1 under padded, near the
+density under scattered.
+
 ### Compression
 
 `compression` (default `None`) and `complevel` go through `CompressionSettings`

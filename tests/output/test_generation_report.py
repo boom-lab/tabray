@@ -140,3 +140,47 @@ class TestRender:
         summary = report.to_dict()
         assert summary["differences"] == 1
         assert summary["adjusted"] == 1
+
+
+class TestLayoutIsMeasured:
+    """The report checks that `layout` did what was asked."""
+
+    def test_padded_reports_a_run_fraction_near_one(self, tmp_path):
+        gen = generate(tmp_path, "pad", num_obs=10296, num_dims=2,
+                       ratio_dims=(20, 520), density=0.99, seed=42,
+                       layout="padded")
+        rows = [r for r in gen.report.rows if r["property"] == "run fraction"]
+        assert rows and rows[0]["achieved"] > 0.9
+        assert rows[0]["status"] == "match"
+
+    def test_scattered_does_not_report_it(self, tmp_path):
+        gen = generate(tmp_path, "sca", num_obs=500, num_dims=2,
+                       ratio_dims=(1, 1), density=0.5, seed=42)
+        assert not [r for r in gen.report.rows if r["property"] == "run fraction"]
+
+    def test_run_fraction_separates_the_layouts(self):
+        """A prefix leaves every cell but the first of each run with a filled
+        neighbour, so it sits near 1. Scattered occupancy gives roughly the
+        density, which is what makes the two distinguishable.
+        """
+        import xarray as xr
+
+        rng = np.random.default_rng(0)
+        shape = (400, 200)
+        density = 0.15
+        count = int(density * shape[0] * shape[1])
+
+        padded = np.full(shape, np.nan)
+        lengths = np.full(shape[0], count // shape[0])
+        for row, length in enumerate(lengths):
+            padded[row, :length] = 1.0
+        scattered = np.full(shape, np.nan)
+        scattered.flat[rng.choice(scattered.size, int(np.isfinite(padded).sum()),
+                                  replace=False)] = 1.0
+
+        def fraction(values):
+            mask = xr.DataArray(values, dims=("x0", "x1")).notnull()
+            return GenerationReport.run_fraction(mask, 1)
+
+        assert fraction(padded) > 0.9
+        assert fraction(scattered) == pytest.approx(density, abs=0.03)

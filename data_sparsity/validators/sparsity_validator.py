@@ -14,7 +14,10 @@ class SparsityValidator:
     This class provides static methods to validate density bounds and
     ensure consistency between number of observations, density, and grid size.
     """
-    def compute_min_density(nb_coords_per_dim: np.ndarray) -> float:
+    def compute_min_density(
+            nb_coords_per_dim: np.ndarray,
+            padded_dim: int = None,
+    ) -> float:
         """Compute minimum allowable density for given dimensions.
 
         The minimum density is max(shape) / prod(shape): the sparsest grid in
@@ -26,15 +29,26 @@ class SparsityValidator:
         observations. docs/explainer.md, "Minimum density, on any grid",
         derives it and shows the floor is reachable.
 
+        Under ``layout='padded'`` the bound is higher. Every line needs an
+        observation and one line must run the full length of the padded axis,
+        which is ``prod(shape)/n_padded + n_padded - 1`` observations. The
+        number of lines is ``prod(shape)/n_padded`` whichever axis the strata
+        run along, so the split dimension does not enter.
+
         Args:
             nb_coords_per_dim: Number of coordinates per dimension
+            padded_dim: The padded axis, or None for a scattered layout
 
         Returns:
             Minimum density value
 
         """
         shape = np.asarray(nb_coords_per_dim, dtype=np.int64)
-        return float(shape.max()) / float(np.prod(shape, dtype=np.float64))
+        total = float(np.prod(shape, dtype=np.float64))
+        if padded_dim is None:
+            return float(shape.max()) / total
+        n_padded = float(shape[int(padded_dim)])
+        return (total / n_padded + n_padded - 1.0) / total
     def validate_density_bounds(
         density: float,
         density_min: float

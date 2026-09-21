@@ -265,6 +265,17 @@ dataset, df = gen.generate()
   dtypes, the reserved code for integers). One value for all variables, or one per variable.
   Argo files use `99999.0` in a `float32` variable, in preference to NaN; that is expressible
   here. For packed dtypes the fill code is reserved, so no real value can collide with it.
+- **layout** (str, optional): How the occupied cells are arranged — `"scattered"` (default,
+  uniformly at random) or `"padded"` (each line fills positions `0..k-1` of one axis, as Argo and
+  CrocoLake profiles do). `density` says how many cells are occupied and nothing about where they
+  sit, and at a fixed density the arrangement changes compressed array size by 2.3× and reverses
+  which format is smaller. `docs/layout_plan.md` has the measurements.
+- **padded_dim** (int, optional): The axis the prefixes run along under `layout="padded"`
+  (default: the last dimension). It cannot be the split dimension, so the split is chosen from the
+  remaining axes. `overlap` cannot be set alongside `layout="padded"`: with every variable filling
+  a prefix of the same axis the achieved F1 is the ratio of the densities, so no target can be
+  honoured. Note the minimum density is higher under `padded` — every line needs an observation
+  and one line must run the full length.
 - **compression** (str, optional): Codec applied to **both** outputs, so the two formats are
   written on the same terms (default: `None`, uncompressed). `"gzip"` (aliases `"zlib"`,
   `"deflate"`) is DEFLATE, which netCDF4 and parquet can both do. Parquet-only codecs

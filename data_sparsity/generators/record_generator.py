@@ -145,6 +145,236 @@ class RecordGenerator:
         return local + np.searchsorted(offset, local, side="right")
 
     @staticmethod
+    def generate_padded_indices(
+            global_shape: List[int],
+            num_obs: int,
+            seed: int,
+            split_dim: int,
+            padded_dim: int,
+            strata: Optional[Iterable[int]] = None,
+    ) -> Tuple[Tuple[np.ndarray, ...], np.ndarray]:
+        """Place observations as a prefix along one axis, with values.
+
+        Each combination of the dimensions other than the split and the padded
+        one is a **line**, and a line holds positions ``0..k-1`` of the padded
+        axis. This is the arrangement Argo and CrocoLake have: a profile fills
+        its first so many levels and the rest of the row is fill.
+
+        Coverage comes from the construction rather than from an LHS stage.
+        Every line holds at least one observation, which uses every coordinate
+        of the split axis and of every axis but the padded one; one line runs
+        the full length, which uses every coordinate of the padded axis. So no
+        cell sits outside the pattern, which an LHS would have put there.
+
+        A stratum still depends only on ``(seed, stratum)``, so a caller asking
+        for a subset of strata gets the same slices as one asking for all.
+
+        Args:
+            global_shape: Full grid shape
+            num_obs: Total observations across the whole grid
+            seed: Base random seed
+            split_dim: Dimension indexing the strata
+            padded_dim: Dimension the prefixes run along
+            strata: Which strata to generate (default: all of them)
+
+        Returns:
+            Tuple of (multi-indices in GLOBAL space, observation values)
+
+        Raises:
+            ValueError: If the padded and split dimensions are the same
+        """
+        shape = [int(size) for size in global_shape]
+        num_dims = len(shape)
+        if padded_dim == split_dim:
+            raise ValueError(
+                f"padded_dim and split_dim are both {split_dim}: a stratum "
+                "holds one index of the split dimension, so a prefix along it "
+                "would be a single cell."
+            )
+        n_padded = shape[padded_dim]
+        line_dims = [d for d in range(num_dims) if d not in (split_dim, padded_dim)]
+        line_shape = [shape[d] for d in line_dims]
+        lines = int(np.prod(line_shape)) if line_shape else 1
+
+        counts, carrier = RecordGenerator.padded_stratum_counts(
+            shape, num_obs, seed, split_dim, padded_dim
+        )
+
+        if strata is None:
+            strata = range(shape[split_dim])
+        per_dim = [[] for _ in range(num_dims)]
+        values = []
+
+        for stratum in strata:
+            stratum = int(stratum)
+            count = int(counts[stratum])
+            if count == 0:
+                continue
+            rng = stream(seed, Stream.STRATUM, stratum)
+            lengths = RecordGenerator._prefix_lengths(
+                count, lines, n_padded, rng, full_line=(stratum == carrier)
+            )
+
+            # one line per column of the line space, each contributing a run
+            line_index = np.repeat(np.arange(lines, dtype=np.int64), lengths)
+            positions = np.concatenate(
+                [np.arange(length, dtype=np.int64) for length in lengths]
+            )
+            unravelled = (np.unravel_index(line_index, line_shape)
+                          if line_shape else ())
+
+            per_dim[split_dim].append(
+                np.full(line_index.size, stratum, dtype=np.int64))
+            per_dim[padded_dim].append(positions)
+            for axis, dim in enumerate(line_dims):
+                per_dim[dim].append(unravelled[axis].astype(np.int64))
+
+            # values after the sites, on the same stream, so site i and value i
+            # stay paired however the strata are grouped
+            values.append(
+                ObservationGenerator.generate_observations(line_index.size, rng)
+            )
+
+        if not values:
+            empty = tuple(np.empty(0, dtype=np.int64) for _ in range(num_dims))
+            return empty, np.empty(0, dtype=float)
+        return (tuple(np.concatenate(axis) for axis in per_dim),
+                np.concatenate(values))
+
+    @staticmethod
+    def padded_stratum_counts(
+            global_shape: List[int],
+            num_obs: int,
+            seed: int,
+            split_dim: int,
+            padded_dim: int,
+            sigma: float = 1.5,
+    ) -> Tuple[np.ndarray, int]:
+        """Observations per stratum under the padded layout, and which stratum
+        carries the full-length line.
+
+        No LHS stage: coverage comes from the prefix construction, so the
+        counts are a plain apportionment over stratum capacity with a floor of
+        one observation per line. One line has to reach the last coordinate of
+        the padded axis, or that coordinate goes unused; the stratum with the
+        largest count is raised to afford it and the difference comes back from
+        the others, bounded so none drops below its own floor.
+
+        Every figure here follows from the arguments alone, so a worker holding
+        one chunk derives the same vector as a serial run.
+
+        Args:
+            global_shape: Full grid shape
+            num_obs: Total observations across the whole grid
+            seed: Base random seed
+            split_dim: Dimension indexing the strata
+            padded_dim: Dimension the prefixes run along
+            sigma: Spread of the lognormal weighting the strata. 1.5 puts the
+                median near CrocoLake's, whose profiles run 1 / 70 / 155 / 1042
+                for minimum, median, mean and maximum levels; the generated
+                minimum comes out higher than the real one because the
+                apportionment redistributes what will not fit under the cap,
+                which lifts the low tail. Raising it further is self-defeating:
+                at 2.0 the cap dominates and the minimum climbs.
+
+        Returns:
+            Tuple of (counts per stratum, index of the stratum holding the
+            full-length line)
+
+        Raises:
+            ValueError: If num_obs cannot cover every line and reach the last
+                padded coordinate
+        """
+        shape = [int(size) for size in global_shape]
+        num_strata = shape[split_dim]
+        n_padded = shape[padded_dim]
+        lines = int(np.prod([size for dim, size in enumerate(shape)
+                             if dim not in (split_dim, padded_dim)])) or 1
+
+        floor = np.full(num_strata, lines, dtype=np.int64)
+        room = np.full(num_strata, lines * (n_padded - 1), dtype=np.int64)
+        capacity = int(np.prod(shape))
+        if num_obs > capacity:
+            raise ValueError(
+                f"num_obs {num_obs} exceeds the {capacity} cells of shape "
+                f"{shape}; the apportionment would cap it and the realised "
+                f"count would be short with no error."
+            )
+        minimum = num_strata * lines + n_padded - 1
+        if num_obs < minimum:
+            raise ValueError(
+                f"num_obs {num_obs} < {minimum} for a padded layout on shape "
+                f"{shape}: every one of the {num_strata * lines} lines needs an "
+                f"observation, and one line must reach coordinate "
+                f"{n_padded - 1} of the padded axis."
+            )
+        # Lognormal weights rather than uniform, because on a two-dimensional
+        # grid each stratum is one line and the profile-to-profile variation in
+        # length comes from here, not from _prefix_lengths. Uniform weights
+        # gave every profile the same length: median 155 of a maximum 1042,
+        # where Argo's median is 70.
+        weights = stream(seed, Stream.PADDED).lognormal(0.0, sigma, num_strata)
+        counts = floor + ChunkUtils.apportion(
+            int(num_obs) - int(floor.sum()), weights, room
+        )
+
+        # Raise the chosen stratum so one of its lines can run the full length,
+        # and take the difference back from the slack the others hold.
+        carrier = int(np.argmax(counts))
+        needed = n_padded + lines - 1
+        deficit = needed - int(counts[carrier])
+        if deficit > 0:
+            slack = counts - floor
+            slack[carrier] = 0
+            taken = ChunkUtils.apportion(deficit, slack, slack)
+            counts = counts - taken
+            counts[carrier] += int(taken.sum())
+        return counts, carrier
+
+    @staticmethod
+    def _prefix_lengths(
+            count: int,
+            lines: int,
+            n_padded: int,
+            rng: np.random.Generator,
+            full_line: bool,
+            sigma: float = 0.8,
+    ) -> np.ndarray:
+        """How far along the padded axis each line reaches.
+
+        Lengths are lognormal in shape, which is closer to real profile data
+        than a uniform: Argo's levels per profile have a median of 70 against a
+        maximum of 1042. The draw sets the proportions and an apportionment
+        turns them into whole numbers summing to ``count``, so density stays
+        exact whatever the distribution does.
+
+        Args:
+            count: Observations this stratum must place
+            lines: How many lines it holds
+            n_padded: Length of the padded axis
+            rng: This stratum's generator
+            full_line: Whether line 0 must reach the last coordinate
+            sigma: Spread of the lognormal
+
+        Returns:
+            Array of ``lines`` prefix lengths, each between 1 and n_padded
+        """
+        weights = rng.lognormal(0.0, sigma, size=lines)
+        lengths = np.ones(lines, dtype=np.int64)
+        if full_line:
+            lengths[0] = n_padded
+            room = np.full(lines, n_padded - 1, dtype=np.int64)
+            room[0] = 0
+            weights = weights.copy()
+            weights[0] = 0.0
+        else:
+            room = np.full(lines, n_padded - 1, dtype=np.int64)
+        spare = int(count) - int(lengths.sum())
+        if spare > 0:
+            lengths = lengths + ChunkUtils.apportion(spare, weights, room)
+        return lengths
+
+    @staticmethod
     def stratum_counts(
             global_shape: List[int],
             num_obs: int,
@@ -195,6 +425,8 @@ class RecordGenerator:
         seed: int,
         split_dim: int,
         strata: Optional[Iterable[int]] = None,
+        layout: str = "scattered",
+        padded_dim: Optional[int] = None,
     ) -> Tuple[Tuple[np.ndarray, ...], np.ndarray]:
         """Place observations one hyperplane at a time, with values.
 
@@ -222,12 +454,34 @@ class RecordGenerator:
             seed: Base random seed
             split_dim: Dimension indexing the strata
             strata: Which strata to generate (default: all of them)
+            layout: ``scattered``, the Latin hypercube plus uniform fill, or
+                ``padded``, a prefix along ``padded_dim`` in every line
+            padded_dim: The axis the prefixes run along, required for
+                ``padded``
 
         Returns:
             Tuple of (multi-indices in GLOBAL space, observation values). The
             caller maps the split dimension to chunk-local coordinates if it
             needs to.
+
+        Raises:
+            ValueError: If the layout is unknown, or padded is asked for
+                without a padded_dim
         """
+        if layout == "padded":
+            if padded_dim is None:
+                raise ValueError(
+                    "layout='padded' needs padded_dim: the axis the prefixes "
+                    "run along."
+                )
+            return RecordGenerator.generate_padded_indices(
+                global_shape, num_obs, seed, split_dim, padded_dim, strata
+            )
+        if layout != "scattered":
+            raise ValueError(
+                f"Unknown layout {layout!r}. Use 'scattered' or 'padded'."
+            )
+
         shape = [int(size) for size in global_shape]
         num_dims = len(shape)
         num_strata = shape[split_dim]

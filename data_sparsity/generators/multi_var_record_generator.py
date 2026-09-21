@@ -117,7 +117,9 @@ class MultiVarRecordGenerator:
         dim_split: Optional[int] = None,
         lhs_shape: Optional[List[int]] = None,
         num_obs_global: Optional[int] = None,
-        div_points: Optional[List[int]] = None
+        div_points: Optional[List[int]] = None,
+        layout: str = "scattered",
+        padded_dim: Optional[int] = None
     ) -> Dict[str, np.ndarray]:
         """Generate multi-variable records without overlap constraints.
         
@@ -180,6 +182,8 @@ class MultiVarRecordGenerator:
                     seed=seed,
                     split_dim=dim_split,
                     strata=wanted,
+                    layout=layout,
+                    padded_dim=padded_dim,
                 )
             )
             # The record array is chunk-shaped, so rebase the split axis.
@@ -218,7 +222,9 @@ class MultiVarRecordGenerator:
         lhs_shape: Optional[List[int]] = None,
         num_obs_global: Optional[int] = None,
         div_points: Optional[List[int]] = None,
-        fixed_overlap: Union[bool, List[bool]] = False
+        fixed_overlap: Union[bool, List[bool]] = False,
+        layout: str = "scattered",
+        padded_dim: Optional[int] = None
     ) -> tuple[Dict[str, np.ndarray], float]:
         """Generate multi-variable records with overlap control.
         
@@ -284,6 +290,8 @@ class MultiVarRecordGenerator:
                 seed=seed,
                 split_dim=dim_split,
                 strata=strata,
+                layout=layout,
+                padded_dim=padded_dim,
             )
             for var_idx in range(num_vars):
                 var_name = f"var{var_idx}"
@@ -309,7 +317,8 @@ class MultiVarRecordGenerator:
         records = MultiVarRecordGenerator.generate_without_overlap(
             shape, records, num_vars, var_num_obs, var_constant_dims,
             var_constant_coord_indices, seed, chunk_id,
-            dim_split, lhs_shape, num_obs_global, div_points
+            dim_split, lhs_shape, num_obs_global, div_points,
+            layout, padded_dim
         )
         overlap_actual = OverlapCalculator.compute_overlap_report(
             records, num_vars, num_dims, var_dims_indices
@@ -328,6 +337,8 @@ class MultiVarRecordGenerator:
         seed: int,
         split_dim: int,
         strata: Optional[Iterable[int]] = None,
+        layout: str = "scattered",
+        padded_dim: Optional[int] = None,
     ) -> Dict[str, Tuple[Tuple[np.ndarray, ...], np.ndarray]]:
         """Place every variable, one stratum at a time.
 
@@ -385,6 +396,8 @@ class MultiVarRecordGenerator:
             seed=seed,
             split_dim=split_dim,
             strata=strata,
+            layout=layout,
+            padded_dim=padded_dim,
         )
         out = {"var0": (ref_indices, ref_values)}
         ref_split = ref_indices[split_dim]
