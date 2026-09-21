@@ -72,7 +72,9 @@ golden baseline, so it belongs in a later opt-in step rather than as a side effe
 ## Stages
 
 1. **Done.** The report class, the serial path, printing and returning. Nothing written changes.
-2. Parallel aggregation from worker counts.
+2. **Done.** Parallel aggregation: `GenerationReport.measure_chunk` runs in the worker and
+   travels back with the chunk result, `from_chunks` sums them in the parent. Serial and chunked
+   produce the same figures for observations, density, overlap and coverage.
 3. **Done**, ahead of the others -- `7ddc833`, the overlap apportionment.
 4. Not done, and still optional: the report in the file attributes. It would change every output
    file.

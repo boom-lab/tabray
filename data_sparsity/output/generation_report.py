@@ -253,6 +253,152 @@ class GenerationReport:
                 )
         return report
 
+    # ------------------------------------------------- the chunked path
+    @staticmethod
+    def measure_chunk(records, var_dims_indices, dim_split, stratum_offset):
+        """Counts a worker returns so the parent can assemble the report.
+
+        Overlap never spans strata, so intersections and occupancy counts add
+        up across chunks. Coverage is a union rather than a sum, so it travels
+        as one boolean vector per axis -- cheap, and it avoids re-reading the
+        output.
+
+        Args:
+            records: Mapping of variable name to its chunk-shaped array
+            var_dims_indices: Dimensions each variable varies along
+            dim_split: Dimension the chunks run along
+            stratum_offset: Index of this chunk's first stratum
+
+        Returns:
+            Plain dict, picklable, no arrays larger than an axis
+        """
+        names = sorted(records)
+        masks = {name: ~np.isnan(records[name]) for name in names}
+        summary = {
+            "occupied": {},
+            "axis_used": {},
+            "intersect": {},
+            "ref_proj": {},
+            "offset": int(stratum_offset),
+        }
+
+        for index, name in enumerate(names):
+            mask = masks[name]
+            summary["occupied"][name] = int(mask.sum())
+            used = {}
+            for dim in range(mask.ndim):
+                others = tuple(d for d in range(mask.ndim) if d != dim)
+                used[dim] = mask.any(axis=others).tolist()
+            summary["axis_used"][name] = used
+
+        reference = names[0]
+        for index, name in enumerate(names[1:], start=1):
+            shared = sorted(set(var_dims_indices[0]) & set(var_dims_indices[index]))
+            drop = tuple(d for d in range(masks[name].ndim) if d not in shared)
+            a = masks[reference].any(axis=drop) if drop else masks[reference]
+            b = masks[name].any(axis=drop) if drop else masks[name]
+            summary["intersect"][name] = int((a & b).sum())
+            summary["ref_proj"][name] = int(a.sum())
+        return summary
+
+    @classmethod
+    def from_chunks(cls, gen, summaries) -> "GenerationReport":
+        """Assemble the report from what the workers measured.
+
+        Args:
+            gen: The GenerateData instance
+            summaries: One measure_chunk result per chunk
+
+        Returns:
+            The report
+        """
+        report = cls()
+        requested = getattr(gen, "_requested", {})
+        report.compare(
+            "num_obs",
+            None,
+            requested.get("num_obs"),
+            int(gen.num_obs),
+            "validation and chunk rounding both move this",
+            adjusted=True,
+        )
+        if not summaries:
+            return report
+
+        names = sorted(summaries[0]["occupied"])
+        shape = [int(s) for s in gen.shape]
+        for index, name in enumerate(names):
+            occupied = sum(s["occupied"][name] for s in summaries)
+            wanted = (
+                int(gen.var_num_obs[index]) if index < len(gen.var_num_obs) else None
+            )
+            report.compare("observations", name, wanted, occupied, "")
+
+            grid = int(np.prod(shape))
+            report.compare(
+                "density",
+                name,
+                (
+                    float(gen.var_densities[index])
+                    if index < len(gen.var_densities)
+                    else None
+                ),
+                round(occupied / grid, 6),
+                "chunking rounds the per-chunk counts",
+                tolerance=1e-3,
+            )
+
+            # coverage: union the per-axis vectors, the split axis by offset
+            unused = []
+            for dim in range(len(shape)):
+                if dim == gen.dim_split:
+                    seen = np.zeros(shape[dim], dtype=bool)
+                    for s in summaries:
+                        local = np.asarray(s["axis_used"][name][dim], dtype=bool)
+                        seen[s["offset"] : s["offset"] + local.size] |= local
+                else:
+                    seen = np.zeros(shape[dim], dtype=bool)
+                    for s in summaries:
+                        seen |= np.asarray(s["axis_used"][name][dim], dtype=bool)
+                if not seen.all():
+                    unused.append(f"x{dim}")
+            report.add(
+                "coverage",
+                name,
+                "every coordinate used",
+                "yes" if not unused else f"unused on {','.join(unused)}",
+                MATCH if not unused else DIFFERS,
+                (
+                    ""
+                    if not unused
+                    else "fewer observations than the longest axis, or placement "
+                    "constrained by the overlap target"
+                ),
+            )
+
+        targets = getattr(gen, "overlap_target", None)
+        if targets is not None and len(names) > 1:
+            targets = np.atleast_1d(targets)
+            for index, name in enumerate(names[1:]):
+                if index >= len(targets) or targets[index] is None:
+                    continue
+                if isinstance(targets[index], str):
+                    continue
+                shared = sum(s["intersect"].get(name, 0) for s in summaries)
+                denominator = sum(s["ref_proj"].get(name, 0) for s in summaries)
+                achieved = shared / denominator if denominator else 0.0
+                step = 1 / denominator if denominator else 0
+                report.compare(
+                    "overlap F1",
+                    name,
+                    round(float(targets[index]), 6),
+                    round(achieved, 6),
+                    f"the reference has {denominator:,} cells, so F1 "
+                    f"moves in steps of {step:.4g}",
+                    tolerance=step or 1e-9,
+                )
+        return report
+
     # -------------------------------------------------------------- render
     def render(self) -> str:
         """The table, as printed at the end of a run."""

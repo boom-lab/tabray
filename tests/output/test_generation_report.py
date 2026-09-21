@@ -142,6 +142,46 @@ class TestMeasuredFromTheData:
         assert rows and rows[0]["achieved"] == "yes"
 
 
+class TestSerialAndParallelAgree:
+    """The chunked path measures in the workers and sums; it must agree."""
+
+    def test_same_report_either_way(self, tmp_path):
+        params = dict(
+            num_obs=900,
+            num_dims=3,
+            ratio_dims=(1, 1, 1),
+            density=[0.4, 0.3, 0.2],
+            seed=8,
+            num_vars=3,
+            overlap=[0.5, 0.3],
+        )
+        serial = generate(tmp_path, "s", **params)
+        out = tmp_path / "p"
+        (out / "nc").mkdir(parents=True)
+        (out / "pq").mkdir(parents=True)
+        with contextlib.redirect_stdout(io.StringIO()):
+            par = GenerateData(max_obs=400, **params)
+            par.generate(
+                netcdf_filepath=str(out / "nc" / "d.nc"),
+                parquet_filepath=str(out / "pq" / "d.parquet"),
+            )
+
+        def comparable(report):
+            return {
+                (r["property"], r["variable"]): r["achieved"]
+                for r in report.rows
+                if r["property"]
+                in (
+                    "observations",
+                    "density",
+                    "overlap F1",
+                    "coverage",
+                )
+            }
+
+        assert comparable(serial.report) == comparable(par.report)
+
+
 class TestRender:
     def test_render_names_the_differences(self):
         report = GenerationReport()
