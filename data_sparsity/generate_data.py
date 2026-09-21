@@ -902,6 +902,7 @@ class GenerateData:
             f"Starting parallel generation with {max_workers} workers for {self.NTASKS} chunks"
         )
 
+        chunk_summaries = []
         ctx = multiprocessing.get_context("spawn")
         with ProcessPoolExecutor(max_workers=max_workers, mp_context=ctx) as executor:
             futures = [executor.submit(generate_chunk, **args) for args in chunk_args]
@@ -909,7 +910,8 @@ class GenerateData:
             tot_completed = 0
             tot_obs = 0
             for future in as_completed(futures):
-                chunk_id, obs_num, chunk_path = future.result()
+                chunk_id, obs_num, chunk_path, measurements = future.result()
+                chunk_summaries.append(measurements)
                 tot_completed += 1
                 tot_obs += obs_num
                 print(
@@ -918,6 +920,10 @@ class GenerateData:
                 )
 
         print(f"Total obs stored to disk: {tot_obs}.")
+        # Workers measured their own chunk; overlap never spans strata, so
+        # the counts add up and nothing has to be read back from disk.
+        self.report = GenerationReport.from_chunks(self, chunk_summaries)
+        print(self.report.render())
 
         # Consolidate parquet files
         self._consolidate_parquet_files()
