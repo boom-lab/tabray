@@ -15,7 +15,6 @@ class CoordinateGenerator:
     """
 
     @staticmethod
-    @staticmethod
     def generate_all_coords(
         shape: List[int],
         rng: np.random.Generator,
