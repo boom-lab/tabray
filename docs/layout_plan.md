@@ -30,10 +30,8 @@ actually in the window, so layout decides which queries are cheap.
 
 Two orthogonal parameters rather than three layouts.
 
-`layout="scattered"` (default, today's behaviour) or `"padded"` says how the data fills the cells
-available to it. `mask_fraction` says which cells are available at all. They compose: a mask with
-scattered fill is GLORYS, a mask with padded fill is a profile dataset confined to a region, and
-no mask with padded fill is Argo.
+`layout="scattered"` (default, today's behaviour) or `"padded"`. A mask was considered as an
+orthogonal parameter and declined; see below.
 
 On the names. CF's Discrete Sampling Geometries chapter reserves *ragged* for the contiguous and
 indexed ragged array representations, which pack variable-length profiles into a 1-D array with a
@@ -110,64 +108,49 @@ Two knock-ons, neither large but both real:
   plain apportionment of `num_obs` over stratum capacity. The overlap apportionment reads that
   function, but overlap raises under `padded`, so nothing else depends on the change.
 
-## The mask
+## The mask: declined
 
-`mask_fraction` excludes a fraction of the cells on a subset of dimensions, the same exclusion in
-every stratum. Generate it by thresholding a smoothed random field over those dimensions, seeded
-from `seed`, which gives blob-like shapes rather than rectangles. The field is defined over the
-masked dimensions only, so it costs `prod(masked dims)` rather than the grid, and every worker
-derives the same mask from the seed.
+A mask would exclude a fraction of the cells, the same exclusion in every stratum, with
+blob-like shapes from a thresholded smoothed field. It is not being built. The measurements are
+why.
 
-**`density` is measured against the unmasked cells.** Within a level GLORYS fills every wet cell:
-`zos` and `thetao` at level 0 both read 69.71%, so it reads as `density=1.0,
-mask_fraction=0.303`. Under the other reading the caller has to keep `density` in step with the
-mask by hand, and any `density` above `1 - mask_fraction` becomes impossible rather than merely
-unusual. Global density is `density x (1 - mask_fraction)`, which is deterministic, and the report
-prints both because they have different denominators.
+Same grid, same occupancy of 0.149, same number of occupied cells:
 
-**Overlap stays free under a mask**, unlike padded. The mask removes cells from play but leaves
-the choice of which remaining cells each variable takes. What `mask_fraction` fixes is the
-achievable range: with `A = (1 - mask_fraction) x prod(shape)` cells available, F1 is bounded
-below by `max(0, (n_0 + n_i - A) / n_0)` and above by `min(1, n_i / n_0)`. That lower bound is the
-forced-overlap term the placement code already computes per stratum as
-`lo = max(0, n_here - free_cells)`.
+```
+arrangement    occupancy   nc zlib   parquet   smaller
+scattered          0.149     1.15M     1.00M   parquet
+blobs r=3          0.149     0.92M     0.97M    netCDF
+blobs r=10         0.149     0.77M     0.93M    netCDF
+blobs r=40         0.149     0.67M     0.90M    netCDF
+padded             0.148     0.54M     0.83M    netCDF
+one band           0.149     0.51M     0.84M    netCDF
+```
 
-**Coverage applies to reachable coordinates.** A coordinate is reachable if the mask leaves it at
-least one cell. The rule becomes *every reachable coordinate is used*, which is the existing rule
-wherever there is no mask.
+Blobs land between 0.67 and 0.92, bracketed by `scattered` at 1.15 and `padded` at 0.54, and the
+patch scale is the dial that slides them along. So a mask is an interpolation between two
+arrangements the package already produces, not a third regime. Every figure it could give is
+reachable from the two endpoints.
 
-A mask can make a coordinate unreachable by emptying its whole row, and GLORYS does: 38 of its
-2041 latitudes hold no ocean at the surface and 44 hold none at 2225 m, at the Antarctic and polar
-ends of the range. Those do not fill in on another day the way the empty deepest level does --
-an interior Antarctic latitude is land in every file.
+Against that: it needs a fraction *and* a scale, since the fraction fixes how much is empty and
+the scale fixes how compressible that emptiness is. `GenerateData` already takes twenty
+parameters. It also drags in the density denominator question -- whether `density` means the
+unmasked cells or the whole grid, which would give `density` a third meaning after the
+full-grid convention for reduced-dimension variables -- and a change to the premise in
+`docs/explainer.md`, because 38 of GLORYS's 2041 latitudes hold no ocean at all and a mask that
+strands a coordinate contradicts a definition stated there.
 
-GLORYS is right to keep them. Its grid is defined by its 1/12 degree spacing, not by where the
-water is, and dropping those latitudes would make the axis irregular. That is a case
-`docs/explainer.md` does not cover: its argument for requiring every coordinate to be used is that
-an unused coordinate could be dropped for a smaller grid, which holds for an irregular grid and
-fails for a regular one where the spacing is the thing being represented. **The explainer needs a
-sentence for this**, and it is a change to its premise rather than to the code, so it should be
-made deliberately.
+**What would justify revisiting.** The one thing a mask does that `padded` cannot is reproduce a
+geometry: land is two-dimensional blobs, a profile file is one-dimensional runs, and handing a
+downstream tool something land-shaped needs the former even where the latter brackets its
+compressed size. That is a different purpose from the occupancy sweep. If the question becomes
+"does this reader handle a land mask", build it; if it stays "how does occupancy change the
+array-versus-tabular answer", the two implemented layouts bracket it.
 
-So: `allow_unused_coordinates=False` by default, rejecting a mask that strands a coordinate.
-Set it and such a mask is accepted, those coordinates count as unreachable, and the report names
-them. Nothing other than a mask can produce one, since the LHS covers the rest.
-
-**The LHS draws from unmasked cells**, whether or not the opt-in is set, or it would place
-observations on land while trying to cover coordinates. Its target is the reachable coordinates,
-and it can always reach them: a coordinate is reachable exactly when it has a cell the LHS may
-use.
-
-**The minimum density is computed over unmasked cells**, and its coverage term counts reachable
-coordinates rather than all of them. Covering an axis needs one observation per reachable
-coordinate, and a masked cell cannot host one, so the bound rises where the mask thins an axis and
-falls where the opt-in lets it strand one.
-
-**What a constant mask does not reproduce** is GLORYS's depth gradient: its wet fraction falls
-from 69.71% at the surface to 54.22% at 2225 m, because the empty set is bathymetry rather than a
-land mask. A mask that varies with the stratum would need a profile of fractions and nested masks,
-since a cell excluded at one depth stays excluded deeper. Recorded as an extension. The blockiness
-is what the compression and read-time measurements respond to, and a constant mask has that.
+**A measurement that did not settle anything**, recorded so it is not repeated: the real GLORYS
+land mask on a 2000x500 window gave 3.11 MB against 3.31 MB for scattered occupancy, 6% apart.
+That window is 93% ocean, and at that occupancy there is too little emptiness for its shape to
+matter. The effect needs sparse data, so the synthetic rows above are the evidence and the real
+mask is not.
 
 ## What must not change
 
@@ -175,7 +158,7 @@ is what the compression and read-time measurements respond to, and a constant ma
 * every coordinate of every axis stays used, except ones a mask strands under
   `allow_unused_coordinates`
 * a stratum still depends only on `(seed, stratum)`, so serial equals parallel
-* overlap keeps working under `scattered`, with or without a mask
+* overlap keeps working under `scattered`
 
 The golden digests will move for any case that asks for a non-default layout, and must not move
 for any case that does not.
@@ -185,11 +168,7 @@ for any case that does not.
 * the achieved layout, as a measurable: the fraction of occupied cells whose neighbour along the
   padded axis is also occupied. Scattered and padded separate sharply on this, so it confirms the
   parameter did what was asked.
-* occupancy against the full grid alongside the requested density, whenever a mask is in play,
-  since the two have different denominators there.
-* the achieved mask fraction against the requested one.
-* the coordinates a mask left unreachable, named rather than counted, so the relaxation is
-  visible instead of silent.
+* occupancy against the full grid alongside the requested density.
 * achieved F1 under padded, which is derived rather than requested.
 
 ## Stages
@@ -198,11 +177,9 @@ for any case that does not.
    variants of `compute_min_density` and `stratum_counts`, the split-dimension conflict, and the
    `overlap` refusal.
 2. The report rows.
-3. `mask_fraction`, the density denominator, the reachable-coordinate coverage rule and
-   `allow_unused_coordinates`. Composes with either layout. Needs the sentence in
-   `docs/explainer.md` first, since it changes a definition there.
-4. Optional: a mask that varies with the stratum, and a `layout` per variable rather than one for
-   the dataset.
+3. **Declined.** The mask, for the reasons above. `docs/explainer.md` needs no change as a
+   result, since nothing else can strand a coordinate.
+4. Optional: a `layout` per variable rather than one for the dataset.
 
 ## Open questions
 
