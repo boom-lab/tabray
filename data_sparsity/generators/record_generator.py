@@ -36,7 +36,7 @@ class RecordGenerator:
     def assign_observations(
         record: np.ndarray,
         multi_indices: Tuple,
-        observations: np.ndarray
+        observations: np.ndarray,
     ) -> None:
         """Assign observation values to record at specified indices.
 
@@ -53,7 +53,7 @@ class RecordGenerator:
     def generate_lhs_indices(
         shape: List[int],
         n_s: int,
-        rng: np.random.Generator
+        rng: np.random.Generator,
     ) -> Tuple[np.ndarray, ...]:
         """Generate Latin Hypercube Sample indices for base coverage.
 
@@ -112,8 +112,7 @@ class RecordGenerator:
                 # Tile permutations and truncate: the first block uses every
                 # coordinate once, the rest spreads the surplus evenly. The
                 # shuffle keeps the pairing with other axes random.
-                blocks = [rng.permutation(dim_size)
-                          for _ in range(-(-n_s // dim_size))]
+                blocks = [rng.permutation(dim_size) for _ in range(-(-n_s // dim_size))]
                 tiled = np.concatenate(blocks)[:n_s]
                 rng.shuffle(tiled)
                 indices.append(tiled)
@@ -124,7 +123,7 @@ class RecordGenerator:
     def generate_hybrid_indices(
         shape: List[int],
         num_obs: int,
-        rng: np.random.Generator
+        rng: np.random.Generator,
     ) -> Tuple[np.ndarray, ...]:
         """Generate indices using hybrid LHS + random sampling.
 
@@ -177,8 +176,8 @@ class RecordGenerator:
                 f"coordinate of every axis must be used at least once, which "
                 f"needs at least max(shape) observations."
             )
-        n_s = max_dim_size               # LHS base coverage: the whole longest axis
-        n_random = num_obs - n_s         # Additional random points
+        n_s = max_dim_size  # LHS base coverage: the whole longest axis
+        n_random = num_obs - n_s  # Additional random points
 
         # Stage 1: LHS for base coverage (first n_s observations)
         lhs_indices = RecordGenerator.generate_lhs_indices(shape, n_s, rng)
@@ -196,7 +195,9 @@ class RecordGenerator:
         lhs_set = set(lhs_flat)
 
         # Create list of available positions (excluding LHS positions)
-        available_positions = np.array([i for i in range(total_points) if i not in lhs_set])
+        available_positions = np.array(
+            [i for i in range(total_points) if i not in lhs_set]
+        )
 
         # Sample from available positions
         if len(available_positions) >= n_random:
@@ -205,10 +206,16 @@ class RecordGenerator:
         else:
             # Not enough positions: use all available, then sample remaining with replacement
             # This can happen when num_obs approaches or exceeds total_points
-            random_flat = np.concatenate([
-                available_positions,
-                rng.choice(total_points, size=n_random - len(available_positions), replace=True)
-            ])
+            random_flat = np.concatenate(
+                [
+                    available_positions,
+                    rng.choice(
+                        total_points,
+                        size=n_random - len(available_positions),
+                        replace=True,
+                    ),
+                ]
+            )
 
         random_indices = np.unravel_index(random_flat, shape)
 
@@ -301,8 +308,11 @@ class RecordGenerator:
         lhs_split = np.asarray(lhs[split_dim], dtype=np.int64)
         if hyper_shape:
             lhs_local = np.ravel_multi_index(
-                tuple(np.asarray(lhs[dim], dtype=np.int64)
-                      for dim in range(num_dims) if dim != split_dim),
+                tuple(
+                    np.asarray(lhs[dim], dtype=np.int64)
+                    for dim in range(num_dims)
+                    if dim != split_dim
+                ),
                 hyper_shape,
             )
         else:
@@ -328,10 +338,13 @@ class RecordGenerator:
 
             if n_fill > 0:
                 ranks = rng.choice(
-                    stratum_sites - lhs_here.size, size=n_fill, replace=False
+                    stratum_sites - lhs_here.size,
+                    size=n_fill,
+                    replace=False,
                 )
                 fill_local = RecordGenerator._ranks_to_local(
-                    ranks, np.sort(lhs_here)
+                    ranks,
+                    np.sort(lhs_here),
                 )
             else:
                 fill_local = np.empty(0, dtype=np.int64)

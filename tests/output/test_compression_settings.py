@@ -120,10 +120,18 @@ class TestCompressionReachesBothFiles:
         (out / "nc").mkdir(parents=True)
         (out / "pq").mkdir(parents=True)
         with contextlib.redirect_stdout(io.StringIO()):
-            gen = GenerateData(num_obs=2000, num_dims=2, ratio_dims=(1, 1),
-                               density=0.2, seed=3, compression=codec)
-            gen.generate(netcdf_filepath=str(out / "nc" / "d.nc"),
-                         parquet_filepath=str(out / "pq" / "d.parquet"))
+            gen = GenerateData(
+                num_obs=2000,
+                num_dims=2,
+                ratio_dims=(1, 1),
+                density=0.2,
+                seed=3,
+                compression=codec,
+            )
+            gen.generate(
+                netcdf_filepath=str(out / "nc" / "d.nc"),
+                parquet_filepath=str(out / "pq" / "d.parquet"),
+            )
         return out
 
     @staticmethod
@@ -160,8 +168,10 @@ class TestCompressionReachesBothFiles:
         import pandas as pd
 
         plain, gzipped = (self.generate(tmp_path, c) for c in (None, "gzip"))
-        with xr.open_dataset(plain / "nc" / "d.nc") as a, \
-                xr.open_dataset(gzipped / "nc" / "d.nc") as b:
+        with (
+            xr.open_dataset(plain / "nc" / "d.nc") as a,
+            xr.open_dataset(gzipped / "nc" / "d.nc") as b,
+        ):
             xr.testing.assert_identical(a, b)
         pd.testing.assert_frame_equal(
             pd.read_parquet(plain / "pq", engine="pyarrow"),

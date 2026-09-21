@@ -67,9 +67,9 @@ class TestStreamsAreDistinct:
             for depth in range(3):
                 for index in itertools.product(range(4), repeat=depth):
                     draws = first_draws(stream(42, tag, *index))
-                    assert draws not in seen, (
-                        f"(tag={tag}, index={index}) collides with {seen[draws]}"
-                    )
+                    assert (
+                        draws not in seen
+                    ), f"(tag={tag}, index={index}) collides with {seen[draws]}"
                     seen[draws] = (tag, index)
 
 

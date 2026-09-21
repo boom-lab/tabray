@@ -17,7 +17,7 @@ class MultiVarOverlapConfig:
 
     @staticmethod
     def validate_overlap_value(
-        overlap: Union[float, str, List[float]]
+        overlap: Union[float, str, List[float]],
     ) -> Union[float, str, List[float]]:
         """Validate overlap parameter value.
 
@@ -34,17 +34,14 @@ class MultiVarOverlapConfig:
         if isinstance(overlap, (float, int)):
             overlap = float(overlap)
             if not 0.0 <= overlap <= 1.0:
-                raise ValueError(
-                    f"overlap must be between 0 and 1, got {overlap}"
-                )
+                raise ValueError(f"overlap must be between 0 and 1, got {overlap}")
             return overlap
         elif isinstance(overlap, (list, tuple, np.ndarray)):
             validated_overlap = []
             for value in overlap:
                 if not isinstance(value, (float, int)):
                     raise TypeError(
-                        "overlap list values must be numeric, "
-                        f"got {type(value)}"
+                        "overlap list values must be numeric, " f"got {type(value)}"
                     )
                 value = float(value)
                 if not 0.0 <= value <= 1.0:
@@ -54,20 +51,16 @@ class MultiVarOverlapConfig:
                 validated_overlap.append(value)
             return validated_overlap
         elif isinstance(overlap, str):
-            if overlap != 'random':
-                raise ValueError(
-                    f"overlap string must be 'random', got '{overlap}'"
-                )
+            if overlap != "random":
+                raise ValueError(f"overlap string must be 'random', got '{overlap}'")
             return overlap
         else:
-            raise TypeError(
-                f"overlap must be float or 'random', got {type(overlap)}"
-            )
+            raise TypeError(f"overlap must be float or 'random', got {type(overlap)}")
 
     @staticmethod
     def validate_fixed_overlap_value(
         fixed_overlap: Union[bool, List[bool]],
-        num_vars: int
+        num_vars: int,
     ) -> List[bool]:
         """Validate and normalize fixed-overlap control.
 
@@ -188,7 +181,7 @@ class MultiVarOverlapConfig:
     def validate_overlap_feasibility(
         overlap: Union[float, str],
         min_overlap: float,
-        num_vars: int
+        num_vars: int,
     ) -> None:
         """Validate that requested overlap is feasible.
 
@@ -216,7 +209,7 @@ class MultiVarOverlapConfig:
         shape: List[int],
         var_num_obs: np.ndarray,
         var_dims_indices: List[List[int]],
-        overlap: Union[float, str, List[float]]
+        overlap: Union[float, str, List[float]],
     ) -> np.ndarray:
         """Adjust observation counts to fit within available grid space.
 
@@ -269,9 +262,14 @@ class MultiVarOverlapConfig:
                         # Even overlap target exceeds grid space
                         max_feasible_obs = var_grid_points
                         actual_overlap = max_feasible_obs / refvar_num_obs
-                        overlap_display = overlap_target if isinstance(
-                            overlap_target, (int, float)
-                        ) else "list"
+                        overlap_display = (
+                            overlap_target
+                            if isinstance(
+                                overlap_target,
+                                (int, float),
+                            )
+                            else "list"
+                        )
 
                         print(
                             f"WARNING: Variable {var_idx} requested {var_obs} observations "
@@ -318,7 +316,7 @@ class MultiVarOverlapConfig:
         num_vars: int,
         shape: List[int],
         var_num_obs: np.ndarray,
-        var_dims_indices: List[List[int]]
+        var_dims_indices: List[List[int]],
     ) -> tuple[Union[float, str, List[float]], np.ndarray, List[bool]]:
         """Setup overlap configuration from parameter.
 
@@ -343,7 +341,8 @@ class MultiVarOverlapConfig:
         """
         overlap = MultiVarOverlapConfig.validate_overlap_value(overlap)
         fixed_overlap = MultiVarOverlapConfig.validate_fixed_overlap_value(
-            fixed_overlap, num_vars
+            fixed_overlap,
+            num_vars,
         )
 
         if isinstance(overlap, list) and num_vars > 1:
@@ -354,9 +353,7 @@ class MultiVarOverlapConfig:
                     f"for var1..var{num_vars - 1}, got {len(overlap)}"
                 )
         elif isinstance(overlap, list) and num_vars == 1 and len(overlap) != 0:
-            raise ValueError(
-                "overlap list must be empty when num_vars == 1"
-            )
+            raise ValueError("overlap list must be empty when num_vars == 1")
 
         adjusted_obs = var_num_obs.copy()
 
@@ -365,21 +362,27 @@ class MultiVarOverlapConfig:
 
             # Adjust observation counts to fit within grid space
             adjusted_obs = MultiVarOverlapConfig.adjust_observations_to_grid_space(
-                shape, var_num_obs, var_dims_indices, overlap
+                shape,
+                var_num_obs,
+                var_dims_indices,
+                overlap,
             )
 
             if isinstance(overlap, float):
                 # Compute and validate minimum overlap with adjusted observations
                 total_grid_points = int(np.prod(shape))
                 min_overlap = MultiVarOverlapConfig.compute_min_overlap(
-                    total_grid_points, adjusted_obs
+                    total_grid_points,
+                    adjusted_obs,
                 )
                 print(
                     f"Minimum feasible overlap given grid points and observations: "
                     f"{min_overlap}"
                 )
                 MultiVarOverlapConfig.validate_overlap_feasibility(
-                    overlap, min_overlap, num_vars
+                    overlap,
+                    min_overlap,
+                    num_vars,
                 )
 
         return overlap, adjusted_obs, fixed_overlap

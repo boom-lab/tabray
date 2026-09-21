@@ -24,7 +24,7 @@ class MultiVarRecordGenerator:
     def _compute_var_shapes(
         shape: List[int],
         var_constant_dims: List[List[int]],
-        num_vars: int
+        num_vars: int,
     ) -> Dict[int, List[int]]:
         """Compute reduced shapes for each variable.
 
@@ -51,7 +51,7 @@ class MultiVarRecordGenerator:
         shape: List[int],
         var_constant_dims: List[List[int]],
         var_constant_coord_indices: Dict,
-        num_vars: int
+        num_vars: int,
     ) -> Dict[int, Dict[int, int]]:
         """Select actual coordinate values for constant dimensions.
 
@@ -87,7 +87,7 @@ class MultiVarRecordGenerator:
     def _expand_to_full_coords(
         multi_indices: Tuple,
         var_constant_coords: Dict[int, int],
-        num_obs: int
+        num_obs: int,
     ) -> Tuple:
         """Expand reduced-space indices to full-space coordinates.
 
@@ -108,7 +108,7 @@ class MultiVarRecordGenerator:
     def _reduced_indices_from_full_coords(
         full_indices: Tuple,
         var_constant_dims: List[int],
-        num_obs: int
+        num_obs: int,
     ) -> Tuple:
         """Convert full-space coordinates to reduced-space coordinates."""
         reduced_coords = []
@@ -134,7 +134,7 @@ class MultiVarRecordGenerator:
         lhs_rng: Optional[np.random.Generator] = None,
         lhs_shape: Optional[List[int]] = None,
         num_obs_global: Optional[int] = None,
-        div_points: Optional[List[int]] = None
+        div_points: Optional[List[int]] = None,
     ) -> Dict[str, np.ndarray]:
         """Generate multi-variable records without overlap constraints.
 
@@ -160,10 +160,15 @@ class MultiVarRecordGenerator:
             Dictionary of filled record arrays
         """
         var_shapes = MultiVarRecordGenerator._compute_var_shapes(
-            shape, var_constant_dims, num_vars
+            shape,
+            var_constant_dims,
+            num_vars,
         )
         var_constant_coords = MultiVarRecordGenerator._select_constant_coords(
-            shape, var_constant_dims, var_constant_coord_indices, num_vars
+            shape,
+            var_constant_dims,
+            var_constant_coord_indices,
+            num_vars,
         )
 
         for var_idx in range(num_vars):
@@ -220,21 +225,26 @@ class MultiVarRecordGenerator:
                 multi_indices = RecordGenerator.generate_hybrid_indices(
                     shape=var_shape,
                     num_obs=num_obs,
-                    rng=obs_rng
+                    rng=obs_rng,
                 )
                 num_obs_actual = num_obs
                 observations = ObservationGenerator.generate_observations(
-                    num_obs_actual, obs_rng
+                    num_obs_actual,
+                    obs_rng,
                 )
 
             # Expand to FULL space by filling constant dims with a single coordinate value
             full_multi_indices = MultiVarRecordGenerator._expand_to_full_coords(
-                multi_indices, var_constant_coords[var_idx], num_obs_actual
+                multi_indices,
+                var_constant_coords[var_idx],
+                num_obs_actual,
             )
 
             # Assign observations to the full-space coordinates
             RecordGenerator.assign_observations(
-                records[var_name], full_multi_indices, observations
+                records[var_name],
+                full_multi_indices,
+                observations,
             )
 
         return records
@@ -256,7 +266,7 @@ class MultiVarRecordGenerator:
         lhs_shape: Optional[List[int]] = None,
         num_obs_global: Optional[int] = None,
         div_points: Optional[List[int]] = None,
-        fixed_overlap: Union[bool, List[bool]] = False
+        fixed_overlap: Union[bool, List[bool]] = False,
     ) -> Dict[str, np.ndarray]:
         """Generate multi-variable records with controlled overlap.
 
@@ -285,12 +295,17 @@ class MultiVarRecordGenerator:
         ### Phase 1: Setup
         # Pre-compute variable shapes: varying dims use full size, constant dims use size 1
         var_shapes = MultiVarRecordGenerator._compute_var_shapes(
-            shape, var_constant_dims, num_vars
+            shape,
+            var_constant_dims,
+            num_vars,
         )
 
         # Store selected constant coordinate values
         var_constant_coords = MultiVarRecordGenerator._select_constant_coords(
-            shape, var_constant_dims, var_constant_coord_indices, num_vars
+            shape,
+            var_constant_dims,
+            var_constant_coord_indices,
+            num_vars,
         )
 
         # Create shared RNG for selecting coordinates of overlapping sites/points
@@ -325,13 +340,15 @@ class MultiVarRecordGenerator:
         refvar_flat_indices = shared_rng.choice(
             int(np.prod(refvar_shape)),
             size=refvar_num_obs,
-            replace=False
+            replace=False,
         )
         refvar_multi = np.unravel_index(refvar_flat_indices, refvar_shape)
 
         # Fill constant dims
         refvar_full_multi = MultiVarRecordGenerator._expand_to_full_coords(
-            refvar_multi, var_constant_coords[refvar_idx], refvar_num_obs
+            refvar_multi,
+            var_constant_coords[refvar_idx],
+            refvar_num_obs,
         )
 
         # Generate observation values using VAR_RNG
@@ -349,9 +366,7 @@ class MultiVarRecordGenerator:
         else:
             fixed_overlap_flags = list(fixed_overlap)
             if len(fixed_overlap_flags) != num_vars - 1:
-                raise ValueError(
-                    f"fixed_overlap must contain {num_vars - 1} values"
-                )
+                raise ValueError(f"fixed_overlap must contain {num_vars - 1} values")
 
         shared_ref_order = shared_rng.permutation(refvar_num_obs)
 
@@ -376,16 +391,19 @@ class MultiVarRecordGenerator:
                 if len(compatible_ref_indices) > 0:
                     if var_fixed_overlap:
                         compatible_ref_set = set(compatible_ref_indices)
-                        selected_ref_indices = np.array([
-                            ref_idx
-                            for ref_idx in shared_ref_order
-                            if ref_idx in compatible_ref_set
-                        ], dtype=np.int64)[:num_overlap]
+                        selected_ref_indices = np.array(
+                            [
+                                ref_idx
+                                for ref_idx in shared_ref_order
+                                if ref_idx in compatible_ref_set
+                            ],
+                            dtype=np.int64,
+                        )[:num_overlap]
                     else:
                         selected_ref_indices = var_rngs[var_idx].choice(
                             compatible_ref_indices,
                             size=min(num_overlap, len(compatible_ref_indices)),
-                            replace=False
+                            replace=False,
                         )
 
                     if selected_ref_indices.size > 0:
@@ -394,34 +412,49 @@ class MultiVarRecordGenerator:
                             for dim_values in refvar_full_multi
                         )
                         overlap_obs = var_rngs[var_idx].uniform(
-                            0, 1, size=selected_ref_indices.size
+                            0,
+                            1,
+                            size=selected_ref_indices.size,
                         )
                         records[var_name][overlap_full_multi] = overlap_obs
                         overlap_full_count = selected_ref_indices.size
 
-                        overlap_reduced_multi = MultiVarRecordGenerator._reduced_indices_from_full_coords(
-                            overlap_full_multi, var_constant_dims[var_idx], overlap_full_count
+                        overlap_reduced_multi = (
+                            MultiVarRecordGenerator._reduced_indices_from_full_coords(
+                                overlap_full_multi,
+                                var_constant_dims[var_idx],
+                                overlap_full_count,
+                            )
                         )
                         overlap_target_flat = np.ravel_multi_index(
-                            overlap_reduced_multi, var_shape
+                            overlap_reduced_multi,
+                            var_shape,
                         )
 
             num_separate = var_obs_count - overlap_full_count
 
             # Generate separate (non-overlapping) observations in reduced space
             if num_separate > 0:
-                used_flat = set(overlap_target_flat) if overlap_full_count > 0 else set()
-                available_flat = np.array([
-                    i for i in range(var_total_points) if i not in used_flat
-                ])
+                used_flat = (
+                    set(overlap_target_flat) if overlap_full_count > 0 else set()
+                )
+                available_flat = np.array(
+                    [i for i in range(var_total_points) if i not in used_flat]
+                )
 
                 if len(available_flat) >= num_separate:
                     separate_flat = var_rngs[var_idx].choice(
-                        available_flat, size=num_separate, replace=False
+                        available_flat,
+                        size=num_separate,
+                        replace=False,
                     )
                     separate_multi = np.unravel_index(separate_flat, var_shape)
-                    separate_full_multi = MultiVarRecordGenerator._expand_to_full_coords(
-                        separate_multi, var_constant_coords[var_idx], num_separate
+                    separate_full_multi = (
+                        MultiVarRecordGenerator._expand_to_full_coords(
+                            separate_multi,
+                            var_constant_coords[var_idx],
+                            num_separate,
+                        )
                     )
                     separate_obs = var_rngs[var_idx].uniform(0, 1, size=num_separate)
                     records[var_name][separate_full_multi] = separate_obs
@@ -446,7 +479,7 @@ class MultiVarRecordGenerator:
         lhs_shape: Optional[List[int]] = None,
         num_obs_global: Optional[int] = None,
         div_points: Optional[List[int]] = None,
-        fixed_overlap: Union[bool, List[bool]] = False
+        fixed_overlap: Union[bool, List[bool]] = False,
     ) -> tuple[Dict[str, np.ndarray], float]:
         """Generate multi-variable records with overlap control.
 
@@ -484,9 +517,12 @@ class MultiVarRecordGenerator:
             # and peak memory is one hyperplane (D4, D5, A3).
             global_shape = list(lhs_shape) if lhs_shape is not None else list(shape)
             var_constant_coords = MultiVarRecordGenerator._select_constant_coords(
-                global_shape, var_constant_dims, var_constant_coord_indices, num_vars
+                global_shape,
+                var_constant_dims,
+                var_constant_coord_indices,
+                num_vars,
             )
-            if overlap == 'random':
+            if overlap == "random":
                 targets = [None] * (num_vars - 1)
             elif isinstance(overlap, (list, tuple, np.ndarray)):
                 targets = [float(value) for value in overlap]
@@ -528,32 +564,64 @@ class MultiVarRecordGenerator:
                 records[var_name][indices] = values
 
             report = OverlapCalculator.compute_overlap_report(
-                records, num_vars, num_dims, var_dims_indices
+                records,
+                num_vars,
+                num_dims,
+                var_dims_indices,
             )
             if chunk_id is None:
                 OverlapCalculator.print_overlap_report(report, targets)
             return records, report["f1"]
 
-        if overlap == 'random' or num_vars == 1:
+        if overlap == "random" or num_vars == 1:
             records = MultiVarRecordGenerator.generate_without_overlap(
-                shape, records, num_vars, var_num_obs, var_constant_dims,
-                var_constant_coord_indices, seed, chunk_id, max_dim_size,
-                dim_split, lhs_rng, lhs_shape, num_obs_global, div_points
+                shape,
+                records,
+                num_vars,
+                var_num_obs,
+                var_constant_dims,
+                var_constant_coord_indices,
+                seed,
+                chunk_id,
+                max_dim_size,
+                dim_split,
+                lhs_rng,
+                lhs_shape,
+                num_obs_global,
+                div_points,
             )
             overlap_actual = OverlapCalculator.compute_overlap_report(
-                records, num_vars, num_dims, var_dims_indices
+                records,
+                num_vars,
+                num_dims,
+                var_dims_indices,
             )["f1"]
         else:
             records = MultiVarRecordGenerator.generate_with_overlap(
-                shape, records, overlap, num_vars, var_num_obs,
-                var_constant_dims, var_constant_coord_indices, seed,
-                chunk_id, max_dim_size, dim_split, lhs_rng, lhs_shape,
-                num_obs_global, div_points, fixed_overlap
+                shape,
+                records,
+                overlap,
+                num_vars,
+                var_num_obs,
+                var_constant_dims,
+                var_constant_coord_indices,
+                seed,
+                chunk_id,
+                max_dim_size,
+                dim_split,
+                lhs_rng,
+                lhs_shape,
+                num_obs_global,
+                div_points,
+                fixed_overlap,
             )
             # One metric regardless of how the target was expressed: a scalar
             # and a one-element list describe the same request.
             overlap_actual = OverlapCalculator.compute_overlap_report(
-                records, num_vars, num_dims, var_dims_indices
+                records,
+                num_vars,
+                num_dims,
+                var_dims_indices,
             )["f1"]
 
         return records, overlap_actual
@@ -625,14 +693,16 @@ class MultiVarRecordGenerator:
         ref_split = ref_indices[split_dim]
 
         # --- per-variable geometry and per-stratum counts --------------------
-        wanted_strata = list(range(num_strata)) if strata is None else [int(j) for j in strata]
+        wanted_strata = (
+            list(range(num_strata)) if strata is None else [int(j) for j in strata]
+        )
         plane, shared, home, counts = {}, {}, {}, {}
         for var_idx in range(1, num_vars):
             dims = [d for d in var_dims_indices[var_idx] if d != split_dim]
             shared[var_idx] = dims
             plane[var_idx] = int(np.prod([shape[d] for d in dims])) if dims else 1
             if split_dim in var_dims_indices[var_idx]:
-                home[var_idx] = None                      # lives in every stratum
+                home[var_idx] = None  # lives in every stratum
                 weights = np.full(num_strata, plane[var_idx], dtype=np.int64)
             else:
                 # constant on the split dimension: the variable exists in ONE
@@ -641,7 +711,9 @@ class MultiVarRecordGenerator:
                 weights = np.zeros(num_strata, dtype=np.int64)
                 weights[home[var_idx]] = plane[var_idx]
             counts[var_idx] = ChunkUtils.apportion(
-                int(var_num_obs[var_idx]), weights, weights
+                int(var_num_obs[var_idx]),
+                weights,
+                weights,
             )
 
         # --- per stratum ------------------------------------------------------
@@ -649,7 +721,9 @@ class MultiVarRecordGenerator:
         clipped: Dict[int, list] = {}
         for stratum in wanted_strata:
             here = ref_split == stratum
-            if not here.any() and all(counts[v][stratum] == 0 for v in range(1, num_vars)):
+            if not here.any() and all(
+                counts[v][stratum] == 0 for v in range(1, num_vars)
+            ):
                 continue
             ref_here = tuple(axis[here] for axis in ref_indices)
             shared_rng = stream(seed, Stream.SHARED_OVERLAP, stratum)
@@ -665,20 +739,26 @@ class MultiVarRecordGenerator:
 
                 # proj_j(S_0): reference cells seen through this variable's dims
                 if dims and ref_here[0].size:
-                    proj = np.unique(np.ravel_multi_index(
-                        tuple(ref_here[d] for d in dims), sizes
-                    ))
+                    proj = np.unique(
+                        np.ravel_multi_index(
+                            tuple(ref_here[d] for d in dims),
+                            sizes,
+                        )
+                    )
                 else:
-                    proj = np.zeros(1, dtype=np.int64) if ref_here[0].size else \
-                           np.empty(0, dtype=np.int64)
+                    proj = (
+                        np.zeros(1, dtype=np.int64)
+                        if ref_here[0].size
+                        else np.empty(0, dtype=np.int64)
+                    )
 
                 # How many of this variable's cells must, may, and ideally do
                 # land on the reference footprint.
                 free_cells = plane[var_idx] - proj.size
-                lo = max(0, n_here - free_cells)   # forced: nowhere else to go
-                hi = min(n_here, proj.size)        # cannot exceed either set
+                lo = max(0, n_here - free_cells)  # forced: nowhere else to go
+                hi = min(n_here, proj.size)  # cannot exceed either set
                 target = overlap_targets[var_idx - 1]
-                if target is None:                 # overlap='random': no control
+                if target is None:  # overlap='random': no control
                     n_overlap = None
                 else:
                     ideal = int(np.round(target * proj.size))
@@ -722,18 +802,24 @@ class MultiVarRecordGenerator:
                     if dim == split_dim:
                         axes[dim].append(np.full(cells.size, stratum, dtype=np.int64))
                     elif dim in dims:
-                        axes[dim].append(unravelled[axis]); axis += 1
+                        axes[dim].append(unravelled[axis])
+                        axis += 1
                     else:
-                        axes[dim].append(np.full(
-                            cells.size, var_constant_coords[var_idx][dim], dtype=np.int64
-                        ))
+                        axes[dim].append(
+                            np.full(
+                                cells.size,
+                                var_constant_coords[var_idx][dim],
+                                dtype=np.int64,
+                            )
+                        )
                 values.append(rng.uniform(0, 1, size=cells.size))
 
         for var_idx in range(1, num_vars):
             axes, values = per_var[var_idx]
             if values:
                 out[f"var{var_idx}"] = (
-                    tuple(np.concatenate(a) for a in axes), np.concatenate(values)
+                    tuple(np.concatenate(a) for a in axes),
+                    np.concatenate(values),
                 )
             else:
                 out[f"var{var_idx}"] = (

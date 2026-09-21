@@ -15,7 +15,7 @@ class ObservationGenerator:
     @staticmethod
     def generate_observations(
         num_obs: int,
-        rng: np.random.Generator
+        rng: np.random.Generator,
     ) -> np.ndarray:
         """Generate random observation values.
 

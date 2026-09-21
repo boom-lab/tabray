@@ -6,8 +6,8 @@ from data_sparsity.output.path_manager import PathManager
 from data_sparsity.output.compression_settings import CompressionSettings
 
 __all__ = [
-    'NetCDFBuilder',
-    'ParquetBuilder',
-    'PathManager',
-    'CompressionSettings',
+    "NetCDFBuilder",
+    "ParquetBuilder",
+    "PathManager",
+    "CompressionSettings",
 ]

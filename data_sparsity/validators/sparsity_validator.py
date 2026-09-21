@@ -40,7 +40,7 @@ class SparsityValidator:
     @staticmethod
     def validate_density_bounds(
         density: float,
-        density_min: float
+        density_min: float,
     ) -> float:
         """Validate density is within allowable bounds.
 
@@ -64,10 +64,7 @@ class SparsityValidator:
 
         # Special case: density=0 means "use minimum"
         if density == 0.0:
-            print(
-                f"Input density is zero, imposing minimum value: "
-                f"{density_min}"
-            )
+            print(f"Input density is zero, imposing minimum value: " f"{density_min}")
             return density_min
 
         # Validate non-zero density is above minimum
@@ -84,7 +81,7 @@ class SparsityValidator:
     def validate_num_obs_consistency(
         num_obs: int,
         density: float,
-        nb_coords_per_dim: np.ndarray
+        nb_coords_per_dim: np.ndarray,
     ) -> tuple[int, float]:
         """Validate and adjust num_obs to be consistent with density and dimensions.
 
@@ -123,8 +120,7 @@ class SparsityValidator:
             density_min = SparsityValidator.compute_min_density(nb_coords_per_dim)
             if density < density_min or density > 1:
                 raise ValueError(
-                    f"Density value {density} out of bounds "
-                    f"[{density_min}, 1]"
+                    f"Density value {density} out of bounds " f"[{density_min}, 1]"
                 )
 
         return num_obs, density

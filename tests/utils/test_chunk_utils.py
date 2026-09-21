@@ -22,7 +22,11 @@ class TestGetObservationsPerChunk:
         sparsity = 0.1
 
         mp_obs, sparsity_new, per_chunk_obs = ChunkUtils.get_observations_per_chunk(
-            total_obs, shape, max_dim_size, section_sizes, sparsity
+            total_obs,
+            shape,
+            max_dim_size,
+            section_sizes,
+            sparsity,
         )
 
         # Each chunk should have roughly equal observations
@@ -41,7 +45,11 @@ class TestGetObservationsPerChunk:
         sparsity = 0.1
 
         mp_obs, sparsity_new, per_chunk_obs = ChunkUtils.get_observations_per_chunk(
-            total_obs, shape, max_dim_size, section_sizes, sparsity
+            total_obs,
+            shape,
+            max_dim_size,
+            section_sizes,
+            sparsity,
         )
 
         # Observations should be proportional to chunk size
@@ -58,7 +66,11 @@ class TestGetObservationsPerChunk:
         sparsity = 0.1
 
         mp_obs, sparsity_new, per_chunk_obs = ChunkUtils.get_observations_per_chunk(
-            total_obs, shape, max_dim_size, section_sizes, sparsity
+            total_obs,
+            shape,
+            max_dim_size,
+            section_sizes,
+            sparsity,
         )
 
         # New sparsity should be based on actual total observations
@@ -75,7 +87,11 @@ class TestGetObservationsPerChunk:
         sparsity = 0.1
 
         mp_obs, sparsity_new, per_chunk_obs = ChunkUtils.get_observations_per_chunk(
-            total_obs, shape, max_dim_size, section_sizes, sparsity
+            total_obs,
+            shape,
+            max_dim_size,
+            section_sizes,
+            sparsity,
         )
 
         # All values should be integers
@@ -91,7 +107,11 @@ class TestGetObservationsPerChunk:
         sparsity = 0.01
 
         mp_obs, sparsity_new, per_chunk_obs = ChunkUtils.get_observations_per_chunk(
-            total_obs, shape, max_dim_size, section_sizes, sparsity
+            total_obs,
+            shape,
+            max_dim_size,
+            section_sizes,
+            sparsity,
         )
 
         # Should handle small chunks without errors
@@ -108,7 +128,11 @@ class TestGetObservationsPerChunk:
         sparsity = 0.01
 
         mp_obs, sparsity_new, per_chunk_obs = ChunkUtils.get_observations_per_chunk(
-            total_obs, shape, max_dim_size, section_sizes, sparsity
+            total_obs,
+            shape,
+            max_dim_size,
+            section_sizes,
+            sparsity,
         )
 
         # Should handle large values without overflow
@@ -124,7 +148,11 @@ class TestGetObservationsPerChunk:
         sparsity = 0.9  # Very high sparsity
 
         mp_obs, sparsity_new, per_chunk_obs = ChunkUtils.get_observations_per_chunk(
-            total_obs, shape, max_dim_size, section_sizes, sparsity
+            total_obs,
+            shape,
+            max_dim_size,
+            section_sizes,
+            sparsity,
         )
 
         # No chunk should have more observations than available points
@@ -142,7 +170,11 @@ class TestGetObservationsPerChunk:
         sparsity = 0.15
 
         mp_obs, sparsity_new, per_chunk_obs = ChunkUtils.get_observations_per_chunk(
-            total_obs, shape, max_dim_size, section_sizes, sparsity
+            total_obs,
+            shape,
+            max_dim_size,
+            section_sizes,
+            sparsity,
         )
 
         # Sum should equal total
@@ -275,41 +307,40 @@ class TestGenerateRngs:
         """Should generate RNGs for serial mode (no chunk_id)."""
         seed = 42
         num_dims = 3
-        
+
         rngs = ChunkUtils.generate_rngs(seed, num_dims)
-        
+
         # Should return dict with RNG for each dimension
         assert isinstance(rngs, dict)
         assert len(rngs) == num_dims
         assert all(dim_idx in rngs for dim_idx in range(num_dims))
         assert all(isinstance(rng, np.random.Generator) for rng in rngs.values())
-    
+
     def test_serial_mode_deterministic_seeding(self):
         """Should use deterministic seed offsets per dimension."""
         seed = 42
         num_dims = 3
-        
+
         rngs1 = ChunkUtils.generate_rngs(seed, num_dims)
         rngs2 = ChunkUtils.generate_rngs(seed, num_dims)
-        
+
         # Same seed should produce RNGs that generate same values
         for dim_idx in range(num_dims):
             val1 = rngs1[dim_idx].uniform(0, 1, 5)
             val2 = rngs2[dim_idx].uniform(0, 1, 5)
             np.testing.assert_array_equal(val1, val2)
-    
+
     def test_dimension_seed_offsets(self):
         """Should use 1000-step seed offsets between dimensions."""
         seed = 42
         num_dims = 3
-        
+
         rngs = ChunkUtils.generate_rngs(seed, num_dims)
-        
+
         # Each dimension should produce different sequences
         vals = [rngs[i].uniform(0, 1, 5) for i in range(num_dims)]
-        
+
         # All dimensions should produce different values
         for i in range(num_dims):
-            for j in range(i+1, num_dims):
+            for j in range(i + 1, num_dims):
                 assert not np.array_equal(vals[i], vals[j])
-    

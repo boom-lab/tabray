@@ -20,7 +20,7 @@ class DimensionValidator:
         num_obs: int,
         density: float,
         ratio_dims_prod: float,
-        num_dims: int
+        num_dims: int,
     ) -> float:
         """Compute number of coordinates in first dimension.
 
@@ -69,7 +69,7 @@ class DimensionValidator:
     @staticmethod
     def compute_nb_coords_per_dim(
         ratio_dims: np.ndarray,
-        nb_coords_dim1: int
+        nb_coords_dim1: int,
     ) -> np.ndarray:
         """Compute number of coordinates per dimension.
 
@@ -147,7 +147,7 @@ class DimensionValidator:
 
     @staticmethod
     def compute_shape_and_grid_points(
-        nb_coords_per_dim: np.ndarray
+        nb_coords_per_dim: np.ndarray,
     ) -> Tuple[List[int], int]:
         """Compute shape and total grid points.
 

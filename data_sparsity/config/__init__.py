@@ -5,7 +5,7 @@ from data_sparsity.config.multi_var_dimensions import MultiVarDimensionsConfig
 from data_sparsity.config.multi_var_overlap import MultiVarOverlapConfig
 
 __all__ = [
-    'MultiVarSparsityConfig',
-    'MultiVarDimensionsConfig',
-    'MultiVarOverlapConfig',
+    "MultiVarSparsityConfig",
+    "MultiVarDimensionsConfig",
+    "MultiVarOverlapConfig",
 ]

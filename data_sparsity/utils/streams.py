@@ -24,6 +24,8 @@ class Stream:
     moving to this registry did not disturb them.
     """
 
+    # The comments are aligned on purpose, so the column reads as a table.
+    # fmt: off
     COORDINATE = 0      # one coordinate axis, indexed by dimension
     LHS = 1             # the global Latin hypercube stage
     STRATUM = 2         # per-stratum fill and values, indexed by stratum
@@ -32,6 +34,7 @@ class Stream:
     CONST_COORD = 5     # choosing a variable's coordinate on a constant dim
     VAR = 10            # per-variable placement, indexed by variable, stratum
     SHARED_OVERLAP = 11 # the shared ordering behind fixed_overlap
+    # fmt: on
 
 
 def stream(seed: int, tag: int, *index: Union[int, np.integer]) -> np.random.Generator:

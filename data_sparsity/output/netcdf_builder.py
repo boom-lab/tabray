@@ -23,7 +23,7 @@ class NetCDFBuilder:
         num_dims: int,
         ratio_dims: np.ndarray,
         density: float,
-        seed: int
+        seed: int,
     ) -> Dict:
         """Create default attributes dictionary.
 
@@ -41,9 +41,13 @@ class NetCDFBuilder:
             "description": "Sparse observation data",
             "num_obs": num_obs,
             "num_dims": num_dims,
-            "ratio_dims": ratio_dims.tolist() if isinstance(ratio_dims, np.ndarray) else ratio_dims,
+            "ratio_dims": (
+                ratio_dims.tolist()
+                if isinstance(ratio_dims, np.ndarray)
+                else ratio_dims
+            ),
             "density": float(density),
-            "seed": seed
+            "seed": seed,
         }
 
     # Which convention the `overlap_target` attribute uses. Written into every
@@ -82,6 +86,7 @@ class NetCDFBuilder:
         Returns:
             Dictionary of attributes to merge into the base set
         """
+
         def as_list(value):
             if value is None:
                 return []
@@ -95,8 +100,11 @@ class NetCDFBuilder:
             "num_vars": num_vars,
             "var_densities": as_list(var_densities),
             "var_num_obs": as_list(var_num_obs),
-            "overlap_target": as_list(overlap_target)
-            if not isinstance(overlap_target, str) else overlap_target,
+            "overlap_target": (
+                as_list(overlap_target)
+                if not isinstance(overlap_target, str)
+                else overlap_target
+            ),
             "overlap_convention": NetCDFBuilder.OVERLAP_CONVENTION,
             "fixed_overlap": [int(bool(flag)) for flag in as_list(fixed_overlap)],
         }
@@ -111,7 +119,7 @@ class NetCDFBuilder:
         record: np.ndarray,
         coordinates: Dict[str, np.ndarray],
         var_name: str = "record",
-        attrs: Optional[Dict] = None
+        attrs: Optional[Dict] = None,
     ) -> xr.DataArray:
         """Build xarray DataArray from record and coordinates.
 
@@ -129,7 +137,7 @@ class NetCDFBuilder:
             coords=coordinates,
             dims=list(coordinates.keys()),
             name=var_name,
-            attrs=attrs or {}
+            attrs=attrs or {},
         )
         return dataarray
 
@@ -160,13 +168,14 @@ class NetCDFBuilder:
             data_vars[var_name] = xr.DataArray(
                 record,
                 coords=coordinates,
-                dims=list(coordinates.keys())
+                dims=list(coordinates.keys()),
             )
 
         dataset = xr.Dataset(data_vars, attrs=attrs or {})
         if squeeze_constant_dims and var_constant_dims:
             dataset = NetCDFBuilder.squeeze_constant_dims(
-                dataset, var_constant_dims
+                dataset,
+                var_constant_dims,
             )
         return dataset
 
@@ -210,7 +219,7 @@ class NetCDFBuilder:
         data: xr.DataArray | xr.Dataset,
         filepath: str,
         overwrite: bool = False,
-        compression: CompressionSettings = None
+        compression: CompressionSettings = None,
     ) -> None:
         """Save DataArray or Dataset to NetCDF file.
 

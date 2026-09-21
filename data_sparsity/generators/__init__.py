@@ -7,9 +7,9 @@ from data_sparsity.generators.multi_var_record_generator import MultiVarRecordGe
 from data_sparsity.generators.overlap_calculator import OverlapCalculator
 
 __all__ = [
-    'CoordinateGenerator',
-    'ObservationGenerator',
-    'RecordGenerator',
-    'MultiVarRecordGenerator',
-    'OverlapCalculator',
+    "CoordinateGenerator",
+    "ObservationGenerator",
+    "RecordGenerator",
+    "MultiVarRecordGenerator",
+    "OverlapCalculator",
 ]
