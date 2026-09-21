@@ -32,6 +32,7 @@ from data_sparsity.generators import (
     MultiVarRecordGenerator,
 )
 from data_sparsity.output import (
+    GenerationReport,
     VariableEncoding,
     NetCDFBuilder,
     ParquetBuilder,
@@ -110,6 +111,19 @@ class GenerateData:
             TypeError: If arguments are not of expected types
             ValueError: If arguments fail validation checks
         """
+        # What the caller asked for, before validation rewrites any of it.
+        # The report compares against this, so corrections stay visible.
+        self._requested = {
+            "num_obs": num_obs,
+            "num_dims": num_dims,
+            "ratio_dims": ratio_dims,
+            "density": density,
+            "sparsity": sparsity,
+            "overlap": overlap,
+            "num_vars": num_vars,
+            "var_dims": var_dims,
+        }
+
         # Store parameters as instance variables
         self.num_obs = num_obs
         self.num_dims = num_dims
@@ -745,6 +759,9 @@ class GenerateData:
             )
             self.save_to_netcdf(nc_path, dataarray=dataarray)
             self.save_to_parquet(pq_path, dataframe=dataframe)
+
+            self.report = GenerationReport.from_arrays(self, dataarray, dataframe)
+            print(self.report.render())
 
             return dataarray, dataframe
 
