@@ -8,6 +8,9 @@ from typing import Iterable, List, Optional, Tuple
 import numpy as np
 
 from data_sparsity.utils.chunk_utils import ChunkUtils
+from data_sparsity.generators.observation_generator import (
+    ObservationGenerator,
+)
 from data_sparsity.utils.streams import Stream, stream
 
 
@@ -119,106 +122,6 @@ class RecordGenerator:
                 indices.append(tiled)
 
         return tuple(indices)
-
-    @staticmethod
-    def generate_hybrid_indices(
-        shape: List[int],
-        num_obs: int,
-        rng: np.random.Generator
-    ) -> Tuple[np.ndarray, ...]:
-        """Generate indices using hybrid LHS + random sampling.
-        
-        This method implements a two-stage approach that guarantees all
-        coordinates are used while maintaining randomness for additional
-        observations:
-        
-        Stage 1 (LHS base): First n_s observations use Latin Hypercube
-                            Sampling to ensure each coordinate in each
-                            dimension is used at least once.
-        
-        Stage 2 (Random fill): Remaining observations (if any) use standard
-                               random sampling without replacement, ensuring
-                               no duplicates across LHS and random samples.
-        
-        This hybrid approach works at ALL density levels:
-        - At minimum density (num_obs = min(shape)): Pure LHS
-        - Above minimum: LHS base + random fill
-        
-        Args:
-            shape: Grid shape [n0, n1, ..., nk]
-            num_obs: Total number of observations to generate
-            rng: Random number generator
-            
-        Returns:
-            Tuple of index arrays, one per dimension, each of length num_obs
-            
-        Example:
-            >>> rng = np.random.default_rng(42)
-            >>> shape = [5, 5]
-            >>> # Minimum density: pure LHS
-            >>> indices_min = RecordGenerator.generate_hybrid_indices(shape, 5, rng)
-            >>> len(indices_min[0])
-            5
-            >>> # Above minimum: LHS + random
-            >>> rng = np.random.default_rng(42)
-            >>> indices_high = RecordGenerator.generate_hybrid_indices(shape, 10, rng)
-            >>> len(indices_high[0])
-            10
-            >>> # All coordinates guaranteed to be used
-            >>> len(set(indices_high[0]))
-            5
-        """
-        # One coordinate per axis per point, so the LHS is sized by the
-        # LONGEST axis -- see docs/explainer.md on minimum density.
-        max_dim_size = max(shape)
-        if num_obs < max_dim_size:
-            raise ValueError(
-                f"num_obs {num_obs} < max(shape) {max_dim_size}: every "
-                f"coordinate of every axis must be used at least once, which "
-                f"needs at least max(shape) observations."
-            )
-        n_s = max_dim_size               # LHS base coverage: the whole longest axis
-        n_random = num_obs - n_s         # Additional random points
-        
-        # Stage 1: LHS for base coverage (first n_s observations)
-        lhs_indices = RecordGenerator.generate_lhs_indices(shape, n_s, rng)
-        
-        if n_random == 0:
-            # At minimum density, pure LHS is sufficient
-            return lhs_indices
-        
-        # Stage 2: Random sampling for additional observations
-        # We need to avoid duplicating LHS positions
-        total_points = int(np.prod(shape))
-        
-        # Convert LHS indices to flat indices to identify used positions
-        lhs_flat = np.ravel_multi_index(lhs_indices, shape)
-        lhs_set = set(lhs_flat)
-        
-        # Create list of available positions (excluding LHS positions)
-        available_positions = np.array([i for i in range(total_points) if i not in lhs_set])
-        
-        # Sample from available positions
-        if len(available_positions) >= n_random:
-            # Enough positions available: sample without replacement
-            random_flat = rng.choice(available_positions, size=n_random, replace=False)
-        else:
-            # Not enough positions: use all available, then sample remaining with replacement
-            # This can happen when num_obs approaches or exceeds total_points
-            random_flat = np.concatenate([
-                available_positions,
-                rng.choice(total_points, size=n_random - len(available_positions), replace=True)
-            ])
-        
-        random_indices = np.unravel_index(random_flat, shape)
-        
-        # Combine LHS and random indices
-        combined_indices = tuple(
-            np.concatenate([lhs_indices[i], random_indices[i]])
-            for i in range(len(shape))
-        )
-        
-        return combined_indices
 
     @staticmethod
     def _ranks_to_local(ranks: np.ndarray, excluded_sorted: np.ndarray) -> np.ndarray:
@@ -389,7 +292,9 @@ class RecordGenerator:
 
             # values share the stratum stream, drawn after the sites so that
             # site i and value i stay paired however the strata are grouped
-            values.append(rng.uniform(0, 1, size=local.size))
+            values.append(
+                ObservationGenerator.generate_observations(local.size, rng)
+            )
 
             hyper_idx = np.unravel_index(local, hyper_shape) if hyper_shape else ()
             axis = 0

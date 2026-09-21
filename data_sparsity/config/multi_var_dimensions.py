@@ -214,7 +214,6 @@ class MultiVarDimensionsConfig:
     @staticmethod
     def preselect_constant_coord_indices(
         var_constant_dims: List[List[int]],
-        shape: List[int],
         seed: int
     ) -> Dict[int, Dict[int, np.random.Generator]]:
         """Pre-select RNGs for constant coordinate indices.
@@ -224,7 +223,6 @@ class MultiVarDimensionsConfig:
         
         Args:
             var_constant_dims: Constant dimension indices per variable
-            shape: Shape of full coordinate space
             seed: Base random seed
             
         Returns:
@@ -252,7 +250,6 @@ class MultiVarDimensionsConfig:
         var_dims: Union[int, List, Tuple],
         num_vars: int,
         num_dims: int,
-        shape: List[int],
         seed: int
     ) -> Tuple[List[List[int]], List[List[int]], Dict[int, Dict[int, np.random.Generator]]]:
         """Setup multi-variable dimension configuration from parameter.
@@ -264,7 +261,6 @@ class MultiVarDimensionsConfig:
             var_dims: Dimension specification (int or list)
             num_vars: Number of variables
             num_dims: Total number of dimensions
-            shape: Shape of full coordinate space
             seed: Base random seed
             
         Returns:
@@ -290,7 +286,7 @@ class MultiVarDimensionsConfig:
             var_dims_indices, num_dims
         )
         var_constant_coord_indices = MultiVarDimensionsConfig.preselect_constant_coord_indices(
-            var_constant_dims, shape, seed
+            var_constant_dims, seed
         )
         
         return var_dims_indices, var_constant_dims, var_constant_coord_indices

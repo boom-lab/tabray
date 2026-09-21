@@ -105,21 +105,6 @@ class MultiVarRecordGenerator:
         return tuple(full_coords)
 
     @staticmethod
-    def _reduced_indices_from_full_coords(
-        full_indices: Tuple,
-        var_constant_dims: List[int],
-        num_obs: int
-    ) -> Tuple:
-        """Convert full-space coordinates to reduced-space coordinates."""
-        reduced_coords = []
-        for dim_idx, dim_values in enumerate(full_indices):
-            if dim_idx in var_constant_dims:
-                reduced_coords.append(np.zeros(num_obs, dtype=int))
-            else:
-                reduced_coords.append(np.asarray(dim_values))
-        return tuple(reduced_coords)
-
-    @staticmethod
     def generate_without_overlap(
         shape: List[int],
         records: Dict[str, np.ndarray],
@@ -129,9 +114,7 @@ class MultiVarRecordGenerator:
         var_constant_coord_indices: Dict,
         seed: int,
         chunk_id: Optional[int] = None,
-        max_dim_size: Optional[int] = None,
         dim_split: Optional[int] = None,
-        lhs_rng: Optional[np.random.Generator] = None,
         lhs_shape: Optional[List[int]] = None,
         num_obs_global: Optional[int] = None,
         div_points: Optional[List[int]] = None
@@ -149,9 +132,7 @@ class MultiVarRecordGenerator:
             var_constant_coord_indices: Pre-seeded RNGs for constant dims
             seed: Random seed
             chunk_id: Identifier for this chunk (if parallel workflow)
-            max_dim_size: Size of largest dimension (if parallel workflow)
             dim_split: Dimension along which to split dataset (if parallel workflow)
-            lhs_rng: Pre-advanced LHS RNG for parallel mode
             lhs_shape: Global shape for LHS generation in parallel mode
             num_obs_global: Global observation count for validation
             div_points: Division points for chunk filtering in parallel mode
@@ -179,53 +160,35 @@ class MultiVarRecordGenerator:
                     f"observations (requested {var_num_obs[var_idx]})"
                 )
             
-            # Determine index generation approach
-            if num_vars == 1 and dim_split is not None:
-                # Stratified placement. Serial asks for every stratum, a worker
-                # asks for the ones in its chunk, and both get byte-identical
-                # slices because a stratum depends only on (seed, stratum).
-                # Peak memory is one hyperplane, not the whole grid.
-                global_shape = list(lhs_shape) if lhs_shape is not None else list(shape)
-                total_obs = num_obs_global if num_obs_global is not None else num_obs
-                if chunk_id is not None and div_points is not None:
-                    stratum_start = int(div_points[chunk_id])
-                    wanted = range(stratum_start, int(div_points[chunk_id + 1]))
-                else:
-                    stratum_start = 0
-                    wanted = None
-
-                multi_indices, observations = (
-                    RecordGenerator.generate_stratified_indices(
-                        global_shape=global_shape,
-                        num_obs=total_obs,
-                        seed=seed,
-                        split_dim=dim_split,
-                        strata=wanted,
-                    )
-                )
-                # The record array is chunk-shaped, so rebase the split axis.
-                if stratum_start:
-                    multi_indices = tuple(
-                        values - stratum_start if dim == dim_split else values
-                        for dim, values in enumerate(multi_indices)
-                    )
-                num_obs_actual = len(multi_indices[0])
+            # Stratified placement. Serial asks for every stratum, a worker
+            # asks for the ones in its chunk, and both get byte-identical
+            # slices because a stratum depends only on (seed, stratum).
+            # Peak memory is one hyperplane, not the whole grid.
+            global_shape = list(lhs_shape) if lhs_shape is not None else list(shape)
+            total_obs = num_obs_global if num_obs_global is not None else num_obs
+            if chunk_id is not None and div_points is not None:
+                stratum_start = int(div_points[chunk_id])
+                wanted = range(stratum_start, int(div_points[chunk_id + 1]))
             else:
-                # Multi-variable: chunk-local hybrid LHS (see D4; stage C).
-                obs_rng = (
-                    stream(seed, Stream.VAR, var_idx)
-                    if chunk_id is None
-                    else stream(seed, Stream.VAR, var_idx, chunk_id)
+                stratum_start = 0
+                wanted = None
+
+            multi_indices, observations = (
+                RecordGenerator.generate_stratified_indices(
+                    global_shape=global_shape,
+                    num_obs=total_obs,
+                    seed=seed,
+                    split_dim=dim_split,
+                    strata=wanted,
                 )
-                multi_indices = RecordGenerator.generate_hybrid_indices(
-                    shape=var_shape,
-                    num_obs=num_obs,
-                    rng=obs_rng
+            )
+            # The record array is chunk-shaped, so rebase the split axis.
+            if stratum_start:
+                multi_indices = tuple(
+                    values - stratum_start if dim == dim_split else values
+                    for dim, values in enumerate(multi_indices)
                 )
-                num_obs_actual = num_obs
-                observations = ObservationGenerator.generate_observations(
-                    num_obs_actual, obs_rng
-                )
+            num_obs_actual = len(multi_indices[0])
 
             # Expand to FULL space by filling constant dims with a single coordinate value
             full_multi_indices = MultiVarRecordGenerator._expand_to_full_coords(
@@ -236,195 +199,6 @@ class MultiVarRecordGenerator:
             RecordGenerator.assign_observations(
                 records[var_name], full_multi_indices, observations
             )
-        
-        return records
-
-    @staticmethod
-    def generate_with_overlap(
-        shape: List[int],
-        records: Dict[str, np.ndarray],
-        overlap_target: Union[float, List[float]],
-        num_vars: int,
-        var_num_obs: np.ndarray,
-        var_constant_dims: List[List[int]],
-        var_constant_coord_indices: Dict,
-        seed: int,
-        chunk_id: Optional[int],
-        max_dim_size: Optional[int],
-        dim_split: Optional[int],
-        lhs_rng: Optional[np.random.Generator] = None,
-        lhs_shape: Optional[List[int]] = None,
-        num_obs_global: Optional[int] = None,
-        div_points: Optional[List[int]] = None,
-        fixed_overlap: Union[bool, List[bool]] = False
-    ) -> Dict[str, np.ndarray]:
-        """Generate multi-variable records with controlled overlap.
-        
-        Uses a shared RNG for coordinates of overlapping observations and separate
-        RNGs for non-overlapping observations to achieve the target overlap level.
-        All variables exist in full num_dims space with constant dimensions held at
-        randomly selected coordinate values.
-
-        Args:
-            shape: Full grid shape
-            records: Pre-initialized empty record arrays
-            overlap_target: Target overlap fraction (0-1) or list of targets
-                for var1..varN-1
-            fixed_overlap: Whether each non-reference variable should share the
-                same overlap sequence as other fixed variables
-            num_vars: Number of variables
-            var_num_obs: Observation counts per variable
-            var_constant_dims: Constant dimensions per variable
-            var_constant_coord_indices: Pre-seeded RNGs for constant dims
-            seed: Random seed
-            
-        Returns:
-            Dictionary of filled record arrays
-        """
-
-        ### Phase 1: Setup
-        # Pre-compute variable shapes: varying dims use full size, constant dims use size 1
-        var_shapes = MultiVarRecordGenerator._compute_var_shapes(
-            shape, var_constant_dims, num_vars
-        )
-
-        # Store selected constant coordinate values
-        var_constant_coords = MultiVarRecordGenerator._select_constant_coords(
-            shape, var_constant_dims, var_constant_coord_indices, num_vars
-        )
-        
-        # Create shared RNG for selecting coordinates of overlapping sites/points
-        # This ensures overlapping observations are at the same spatial locations
-        chunk_index = () if chunk_id is None else (chunk_id,)
-        shared_rng = stream(seed, Stream.SHARED_OVERLAP, *chunk_index)
-        var_rngs = [
-            stream(seed, Stream.VAR, var_idx, *chunk_index)
-            for var_idx in range(num_vars)
-        ]
-
-        ### Phase 2: Reference Variable
-        # Sort variables by observation count (largest is always the first, refvar)
-        # Generate reference (largest) variable first using SHARED_RNG (for positions)
-        refvar_idx = 0
-        refvar_name = f"var{refvar_idx}"
-        refvar_shape = var_shapes[refvar_idx]
-
-        # Scale down number of points if we are in a chunk of the whole
-        # variable
-        # if chunk_id is not None:
-        #     chunk_fraction = shape[dim_split] / max_dim_size
-        # else:
-        chunk_fraction = 1
-        chunk_var_num_obs = [
-            int(np.rint(var_num_obs[var_idx] * chunk_fraction))
-            for var_idx in range(num_vars)
-        ]
-        refvar_num_obs = chunk_var_num_obs[refvar_idx]
-
-        # Pick random positions
-        refvar_flat_indices = shared_rng.choice(
-            int(np.prod(refvar_shape)),
-            size=refvar_num_obs,
-            replace=False
-        )
-        refvar_multi = np.unravel_index(refvar_flat_indices, refvar_shape)
-
-        # Fill constant dims
-        refvar_full_multi = MultiVarRecordGenerator._expand_to_full_coords(
-            refvar_multi, var_constant_coords[refvar_idx], refvar_num_obs
-        )
-
-        # Generate observation values using VAR_RNG
-        refvar_observations = var_rngs[refvar_idx].uniform(0, 1, size=refvar_num_obs)
-        records[refvar_name][refvar_full_multi] = refvar_observations
-        
-        ### Phase 3: Generate other variables with overlap
-        if isinstance(overlap_target, (list, tuple, np.ndarray)):
-            overlap_targets = list(overlap_target)
-        else:
-            overlap_targets = [float(overlap_target)] * (num_vars - 1)
-
-        if isinstance(fixed_overlap, bool):
-            fixed_overlap_flags = [fixed_overlap] * (num_vars - 1)
-        else:
-            fixed_overlap_flags = list(fixed_overlap)
-            if len(fixed_overlap_flags) != num_vars - 1:
-                raise ValueError(
-                    f"fixed_overlap must contain {num_vars - 1} values"
-                )
-
-        shared_ref_order = shared_rng.permutation(refvar_num_obs)
-
-        for var_idx in range(1, num_vars):
-            var_name = f"var{var_idx}"
-            var_shape = var_shapes[var_idx]
-            var_total_points = int(np.prod(var_shape))
-            var_obs_count = chunk_var_num_obs[var_idx]
-            var_fixed_overlap = fixed_overlap_flags[var_idx - 1]
-
-            num_overlap = int(np.round(overlap_targets[var_idx - 1] * var_obs_count))
-
-            overlap_full_multi = None
-            overlap_full_count = 0
-            overlap_target_flat = np.array([], dtype=np.int64)
-            if num_overlap > 0:
-                compatible_mask = np.ones(refvar_num_obs, dtype=bool)
-                for const_dim, const_val in var_constant_coords[var_idx].items():
-                    compatible_mask &= refvar_full_multi[const_dim] == const_val
-
-                compatible_ref_indices = np.flatnonzero(compatible_mask)
-                if len(compatible_ref_indices) > 0:
-                    if var_fixed_overlap:
-                        compatible_ref_set = set(compatible_ref_indices)
-                        selected_ref_indices = np.array([
-                            ref_idx
-                            for ref_idx in shared_ref_order
-                            if ref_idx in compatible_ref_set
-                        ], dtype=np.int64)[:num_overlap]
-                    else:
-                        selected_ref_indices = var_rngs[var_idx].choice(
-                            compatible_ref_indices,
-                            size=min(num_overlap, len(compatible_ref_indices)),
-                            replace=False
-                        )
-
-                    if selected_ref_indices.size > 0:
-                        overlap_full_multi = tuple(
-                            dim_values[selected_ref_indices]
-                            for dim_values in refvar_full_multi
-                        )
-                        overlap_obs = var_rngs[var_idx].uniform(
-                            0, 1, size=selected_ref_indices.size
-                        )
-                        records[var_name][overlap_full_multi] = overlap_obs
-                        overlap_full_count = selected_ref_indices.size
-
-                        overlap_reduced_multi = MultiVarRecordGenerator._reduced_indices_from_full_coords(
-                            overlap_full_multi, var_constant_dims[var_idx], overlap_full_count
-                        )
-                        overlap_target_flat = np.ravel_multi_index(
-                            overlap_reduced_multi, var_shape
-                        )
-
-            num_separate = var_obs_count - overlap_full_count
-
-            # Generate separate (non-overlapping) observations in reduced space
-            if num_separate > 0:
-                used_flat = set(overlap_target_flat) if overlap_full_count > 0 else set()
-                available_flat = np.array([
-                    i for i in range(var_total_points) if i not in used_flat
-                ])
-
-                if len(available_flat) >= num_separate:
-                    separate_flat = var_rngs[var_idx].choice(
-                        available_flat, size=num_separate, replace=False
-                    )
-                    separate_multi = np.unravel_index(separate_flat, var_shape)
-                    separate_full_multi = MultiVarRecordGenerator._expand_to_full_coords(
-                        separate_multi, var_constant_coords[var_idx], num_separate
-                    )
-                    separate_obs = var_rngs[var_idx].uniform(0, 1, size=num_separate)
-                    records[var_name][separate_full_multi] = separate_obs
         
         return records
 
@@ -440,9 +214,7 @@ class MultiVarRecordGenerator:
         num_dims: int,
         seed: int,
         chunk_id: Optional[int] = None,
-        max_dim_size: Optional[int] = None,
         dim_split: Optional[int] = None,
-        lhs_rng: Optional[np.random.Generator] = None,
         lhs_shape: Optional[List[int]] = None,
         num_obs_global: Optional[int] = None,
         div_points: Optional[List[int]] = None,
@@ -463,9 +235,7 @@ class MultiVarRecordGenerator:
             num_dims: Total number of dimensions
             seed: Random seed
             chunk_id: Chunk ID for parallel mode
-            max_dim_size: Maximum dimension size for parallel mode
             dim_split: Split dimension for parallel mode
-            lhs_rng: Pre-advanced LHS RNG for parallel mode
             lhs_shape: Global shape for LHS generation in parallel mode
             num_obs_global: Global observation count for validation
             div_points: Division points for chunk filtering in parallel mode
@@ -534,28 +304,16 @@ class MultiVarRecordGenerator:
                 OverlapCalculator.print_overlap_report(report, targets)
             return records, report["f1"]
 
-        if overlap == 'random' or num_vars == 1:
-            records = MultiVarRecordGenerator.generate_without_overlap(
-                shape, records, num_vars, var_num_obs, var_constant_dims,
-                var_constant_coord_indices, seed, chunk_id, max_dim_size,
-                dim_split, lhs_rng, lhs_shape, num_obs_global, div_points
-            )
-            overlap_actual = OverlapCalculator.compute_overlap_report(
-                records, num_vars, num_dims, var_dims_indices
-            )["f1"]
-        else:
-            records = MultiVarRecordGenerator.generate_with_overlap(
-                shape, records, overlap, num_vars, var_num_obs,
-                var_constant_dims, var_constant_coord_indices, seed,
-                chunk_id, max_dim_size, dim_split, lhs_rng, lhs_shape, 
-                num_obs_global, div_points, fixed_overlap
-            )
-            # One metric regardless of how the target was expressed: a scalar
-            # and a one-element list describe the same request.
-            overlap_actual = OverlapCalculator.compute_overlap_report(
-                records, num_vars, num_dims, var_dims_indices
-            )["f1"]
-        
+        # Only a single variable reaches here: the branch above returns for
+        # every multi-variable case, and dim_split is always set.
+        records = MultiVarRecordGenerator.generate_without_overlap(
+            shape, records, num_vars, var_num_obs, var_constant_dims,
+            var_constant_coord_indices, seed, chunk_id,
+            dim_split, lhs_shape, num_obs_global, div_points
+        )
+        overlap_actual = OverlapCalculator.compute_overlap_report(
+            records, num_vars, num_dims, var_dims_indices
+        )["f1"]
         return records, overlap_actual
 
     @staticmethod

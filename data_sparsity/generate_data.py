@@ -324,7 +324,7 @@ class GenerateData:
 
         # Configure multi-variable settings
         if self.num_vars > 1:
-            self._configure_multi_var(density_for_grid)
+            self._configure_multi_var()
         else:
             self._configure_single_var(density_for_grid)
 
@@ -383,12 +383,8 @@ class GenerateData:
         self.overlap_actual = None
         self.overlap_actual_f2 = None
 
-    def _configure_multi_var(self, density_for_grid: float) -> None:
-        """Configure for multiple variables case.
-
-        Args:
-            density_for_grid: Representative density value
-        """
+    def _configure_multi_var(self) -> None:
+        """Configure for multiple variables case."""
         # Setup density values for each variable
         self.var_densities, self.var_num_obs = MultiVarSparsityConfig.setup_from_parameter(
             self.density, self.num_vars, self.num_obs, self.density_zero, self._rng
@@ -400,7 +396,7 @@ class GenerateData:
         (self.var_dims_indices,
          self.var_constant_dims,
          self.var_constant_coord_indices) = MultiVarDimensionsConfig.setup_from_parameter(
-            self.var_dims, self.num_vars, self.num_dims, self.shape, self.seed
+            self.var_dims, self.num_vars, self.num_dims, self.seed
         )
 
         # Setup overlap configuration and adjust observations if needed
@@ -892,7 +888,6 @@ class GenerateData:
                     'overlap_target': self.overlap_target if self.num_vars > 1 else 0.0,
                     'fixed_overlap': self.fixed_overlap if self.num_vars > 1 else False,
                     'dim_split': self.dim_split,
-                    'max_dim_size': self.max_dim_size,
                     'div_points': self.div_points,
                     'section_sizes': self.section_sizes,
                     'netcdf_filepath': self.netcdf_filepath,
@@ -936,7 +931,6 @@ class GenerateData:
                     'overlap_target': self.overlap_target,
                     'fixed_overlap': self.fixed_overlap,
                     'dim_split': self.dim_split,
-                    'max_dim_size': self.max_dim_size,
                     'div_points': self.div_points,
                     'section_sizes': self.section_sizes,
                     'netcdf_filepath': self.netcdf_filepath,

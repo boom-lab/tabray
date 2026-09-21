@@ -76,7 +76,6 @@ def generate_chunk(
     var_constant_coord_indices: Optional[Dict[int, Dict[int, int]]],
     overlap_target: Union[float, str, List[float]],
     dim_split: int,
-    max_dim_size: int,
     div_points: List[int],
     section_sizes: List[int],
     netcdf_filepath: str,
@@ -116,7 +115,6 @@ def generate_chunk(
         fixed_overlap: Whether overlapping sites should be shared across
             variables that opt in
         dim_split: Dimension along which to split chunks
-        max_dim_size: Maximum size of the split dimension
         div_points: Division points for chunks along split dimension
         section_sizes: Size of each chunk along split dimension
         netcdf_filepath: Base path for NetCDF output
@@ -193,7 +191,6 @@ def generate_chunk(
             num_dims=num_dims,
             seed=seed,
             chunk_id=chunk_id,
-            max_dim_size=max_dim_size,
             dim_split=dim_split,
             lhs_shape=list(shape),  # Pass global shape for LHS
             num_obs_global=num_obs_global,  # Pass global observation count
@@ -262,7 +259,6 @@ def generate_chunk(
             var_dims_indices, var_constant_dims,
             var_constant_coord_indices, num_dims, seed,
             chunk_id=chunk_id,
-            max_dim_size=max_dim_size,
             dim_split=dim_split,
             lhs_shape=list(shape),        # GLOBAL shape
             div_points=div_points,        # which strata belong to this chunk

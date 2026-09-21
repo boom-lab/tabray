@@ -31,7 +31,7 @@ plus the coverage fix (A5).
 parquet rows and attributes -- verified across single- and multi-variable, 2D to 6D, minimum
 density, reduced-dimension variables, `overlap='random'` and `fixed_overlap`.
 
-Still open: **S6**, and **A4, A7**. Sections describing a closed item record the behaviour *before* the change.
+Still open: **S6** and **A4**. Sections describing a closed item record the behaviour *before* the change.
 
 ## Question
 
@@ -696,7 +696,7 @@ the `density` parameter, and in CLAUDE.md.
 
 
 
-### A7 — per-variable dtype is not a parameter (suggested, not implemented)
+### [done] A7 — per-variable dtype is not a parameter
 
 Everything is float64: the record arrays, the observation values and the coordinate axes. Real
 data is not. GLORYS12 and most CMEMS products are float32, and many are packed `int16` with
@@ -984,27 +984,25 @@ along other axes inflated by a factor `1 + 1/H` where `H` is the sites per strat
 counts, which removes a nuisance variable from read benchmarks but means per-stratum counts can
 no longer be treated as a random variable.
 
-### 5. Coordinate values and site placement are not drawn from independent streams
+### 5. [fixed] Coordinate values and site placement are not drawn from independent streams
 
-`generate_without_overlap` seeds placement with `seed + var_idx + 1000`, which for `var0` is
-exactly the dim-1 coordinate seed `seed + 1*1000`; `generate_lhs_rng` uses `seed + 1000` as
-well (A2). The x1 axis and the placement indices are therefore deterministic functions of the
-same PCG64 stream. They consume it differently (doubles versus permutations), so the values are
-not equal, but independence is not guaranteed by construction. No bias has been measured; this
-is recorded as a structural defect, not a demonstrated one.
+The additive seed offsets made the x1 axis and the placement indices functions of one PCG64
+stream. A2 replaced them with `stream(seed, tag, *index)`, so the two are independent by
+construction.
 
-### 6. Silent duplicate fallback at extreme density
+### 6. [removed] Silent duplicate fallback at extreme density
 
-If the complement is smaller than the number of points stage 2 needs, the code takes all
-available positions and draws the remainder **with replacement**. Duplicate indices then collapse
-in `record[multi_indices] = observations`, so the realised count of distinct occupied sites is
-lower than `num_obs`, with no warning.
+`generate_hybrid_indices` drew the remainder **with replacement** when the complement ran short,
+and the duplicates collapsed on assignment, so fewer distinct sites were occupied than `num_obs`
+asked for, with no warning. It was unreachable -- `dim_split` is always set, so placement went
+through `generate_stratified_indices` -- and the function has been deleted.
 
-### 7. Multi-variable only
+### 7. [fixed] Multi-variable only
 
-- Achieved overlap exceeds the target, in both serial and parallel (A3).
-- Parallel re-randomises placement per chunk (D4) and, where a variable's constant dimension is
-  the split dimension, places it at `NTASKS` distinct coordinates instead of one (D5).
+Achieved overlap exceeding the target (A3), placement re-randomised per chunk (D4), and a
+variable constant on the split dimension landing at `NTASKS` coordinates instead of one (D5) are
+all closed. What remains is the granularity in A9: a reduced-dimension variable keeps per-stratum
+rounding, and no grid can express a target finer than one cell of the reference footprint.
 
 ### Computing coverage probabilities
 

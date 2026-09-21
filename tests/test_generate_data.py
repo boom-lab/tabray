@@ -1741,14 +1741,35 @@ class TestHybridLHSSampling:
         with pytest.raises(ValueError, match=r"n_s .* < max\(shape\)"):
             RecordGenerator.generate_lhs_indices([5, 7, 3], 5, rng)
 
+    @pytest.mark.parametrize("shape,num_obs,split_dim", [
+        ([5, 5], 5, 0),            # the sparsest grid the definition allows
+        ([5, 5], 13, 0),           # above it
+        ([5, 5], 24, 0),           # one site short of full
+        ([3, 10, 5, 7], 10, 1),    # non-uniform axes, split on the longest
+    ])
+    def test_stratified_uses_every_coordinate(self, shape, num_obs, split_dim):
+        """Placement must put every coordinate of every axis to use.
+
+        An unused coordinate is stored without describing a data point, which
+        docs/explainer.md excludes from the definition of a grid. This is the
+        property the removed hybrid sampler was tested for; the stratified
+        placement replaced it and carries the same guarantee.
+        """
+        from data_sparsity.generators.record_generator import RecordGenerator
+
+        indices, values = RecordGenerator.generate_stratified_indices(
+            global_shape=shape, num_obs=num_obs, seed=42, split_dim=split_dim
+        )
+        assert all(len(axis) == num_obs for axis in indices)
+        assert len(values) == num_obs
+        for dim, size in enumerate(shape):
+            assert set(np.asarray(indices[dim]).tolist()) == set(range(size)), \
+                f"axis {dim} of size {size} left coordinates unused"
+
     def test_hybrid_rejects_too_few_observations(self):
         """Fewer observations than the longest axis cannot cover it."""
         from data_sparsity.generators.record_generator import RecordGenerator
 
-        with pytest.raises(ValueError, match=r"num_obs .* < max\(shape\)"):
-            RecordGenerator.generate_hybrid_indices(
-                [4, 7, 10], 5, np.random.default_rng(42)
-            )
         with pytest.raises(ValueError, match=r"num_obs .* < max\(shape\)"):
             RecordGenerator.generate_stratified_indices([4, 7, 10], 5, 1, 2)
     
@@ -1790,108 +1811,6 @@ class TestHybridLHSSampling:
                 assert set(lhs_indices[dim].tolist()) == set(range(dim_size)), \
                     f"shape {shape}: dimension {dim} has an unused coordinate"
     
-    def test_hybrid_at_minimum_sparsity(self):
-        """Hybrid should equal pure LHS at minimum sparsity."""
-        from data_sparsity.generators.record_generator import RecordGenerator
-        
-        rng = np.random.default_rng(42)
-        shape = [5, 5]
-        num_obs = 5  # Minimum sparsity for this shape
-        
-        hybrid_indices = RecordGenerator.generate_hybrid_indices(shape, num_obs, rng)
-        
-        # Check 1: Correct total number of observations
-        assert all(len(idx) == num_obs for idx in hybrid_indices), \
-            f"Should have {num_obs} observations per dimension"
-        
-        # Check 2: All coordinates used exactly once (pure LHS behavior)
-        for dim_idx in range(len(shape)):
-            unique_coords = set(hybrid_indices[dim_idx])
-            assert len(unique_coords) == shape[dim_idx], \
-                f"At minimum sparsity, all {shape[dim_idx]} coordinates " \
-                f"in dimension {dim_idx} should be used"
-            assert unique_coords == set(range(shape[dim_idx])), \
-                f"Should use coordinates 0 through {shape[dim_idx]-1}"
-    
-    def test_hybrid_above_minimum_sparsity(self):
-        """Hybrid should use LHS base + random fill above minimum."""
-        from data_sparsity.generators.record_generator import RecordGenerator
-        
-        rng = np.random.default_rng(42)
-        shape = [5, 5]
-        num_obs = 10  # Above minimum (0.4 vs 0.2 minimum sparsity)
-        
-        hybrid_indices = RecordGenerator.generate_hybrid_indices(shape, num_obs, rng)
-        
-        # Check 1: Correct total number of observations
-        assert all(len(idx) == num_obs for idx in hybrid_indices), \
-            f"Should have {num_obs} observations per dimension"
-        
-        # Check 2: All coordinates used (guaranteed by LHS base)
-        for dim_idx in range(len(shape)):
-            unique_coords = set(hybrid_indices[dim_idx])
-            assert len(unique_coords) == shape[dim_idx], \
-                f"Hybrid approach should ensure all {shape[dim_idx]} " \
-                f"coordinates in dimension {dim_idx} are used"
-        
-        # Check 3: Some coordinates used multiple times (from random fill)
-        for dim_idx in range(len(shape)):
-            coords = hybrid_indices[dim_idx]
-            counts = {}
-            for coord in coords:
-                counts[coord] = counts.get(coord, 0) + 1
-            
-            # With 10 obs and 5 coords, at least one must be used twice
-            assert any(count > 1 for count in counts.values()), \
-                f"Above minimum sparsity, some coordinates in dimension " \
-                f"{dim_idx} should be used multiple times"
-    
-    def test_hybrid_high_sparsity(self):
-        """Hybrid should guarantee coverage even at high sparsity."""
-        from data_sparsity.generators.record_generator import RecordGenerator
-        
-        rng = np.random.default_rng(42)
-        shape = [5, 5]
-        num_obs = 20  # High sparsity (0.8)
-        
-        hybrid_indices = RecordGenerator.generate_hybrid_indices(shape, num_obs, rng)
-        
-        # Check: All coordinates still used
-        for dim_idx in range(len(shape)):
-            unique_coords = set(hybrid_indices[dim_idx])
-            assert len(unique_coords) == shape[dim_idx], \
-                f"Even at high sparsity, all {shape[dim_idx]} coordinates " \
-                f"in dimension {dim_idx} should be used"
-    
-    def test_hybrid_nonuniform_dimensions(self):
-        """Hybrid should work with non-uniform dimension sizes."""
-        from data_sparsity.generators.record_generator import RecordGenerator
-        
-        rng = np.random.default_rng(42)
-        shape = [3, 10, 5, 7]
-        num_obs = 10  # Above min(shape) = 3
-        n_s = min(shape)  # = 3
-        
-        hybrid_indices = RecordGenerator.generate_hybrid_indices(shape, num_obs, rng)
-        
-        # Check: Minimum dimension coordinates all used
-        min_dim_indices = [i for i, size in enumerate(shape) if size == n_s]
-        for dim_idx in min_dim_indices:
-            unique_coords = set(hybrid_indices[dim_idx])
-            assert len(unique_coords) == shape[dim_idx], \
-                f"Minimum dimension {dim_idx} (size {shape[dim_idx]}) " \
-                f"should have all coordinates used"
-        
-        # Check: Larger dimensions have at least n_s unique coordinates
-        for dim_idx, dim_size in enumerate(shape):
-            if dim_size > n_s:
-                unique_coords = set(hybrid_indices[dim_idx])
-                # LHS base ensures n_s unique coords, random may add more
-                assert len(unique_coords) >= n_s, \
-                    f"Dimension {dim_idx} (size {dim_size}) should have " \
-                    f"at least {n_s} unique coordinates, found {len(unique_coords)}"
-
-
 class TestHybridLHSIntegration:
     """Integration tests for hybrid LHS with GenerateData."""
     

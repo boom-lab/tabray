@@ -247,7 +247,7 @@ class TestGenerateWithoutOverlap:
         
         result = MultiVarRecordGenerator.generate_without_overlap(
             shape, records, 2, var_num_obs, var_constant_dims,
-            var_constant_coord_indices, 42
+            var_constant_coord_indices, 42, dim_split=0
         )
         
         assert 'var0' in result
@@ -268,7 +268,7 @@ class TestGenerateWithoutOverlap:
 
         result = MultiVarRecordGenerator.generate_without_overlap(
             shape, records, 2, var_num_obs, var_constant_dims,
-            var_constant_coord_indices, 42
+            var_constant_coord_indices, 42, dim_split=0
         )
 
         count0 = np.count_nonzero(~np.isnan(result['var0']))
@@ -292,7 +292,7 @@ class TestGenerateWithoutOverlap:
         
         result = MultiVarRecordGenerator.generate_without_overlap(
             shape, records, 3, var_num_obs, var_constant_dims,
-            var_constant_coord_indices, 42
+            var_constant_coord_indices, 42, dim_split=0
         )
         
         for var_idx in range(3):
@@ -311,7 +311,7 @@ class TestGenerateWithoutOverlap:
         }
         result1 = MultiVarRecordGenerator.generate_without_overlap(
             shape, records1, 2, var_num_obs, var_constant_dims,
-            var_constant_coord_indices, 42
+            var_constant_coord_indices, 42, dim_split=0
         )
         
         records2 = {
@@ -320,7 +320,7 @@ class TestGenerateWithoutOverlap:
         }
         result2 = MultiVarRecordGenerator.generate_without_overlap(
             shape, records2, 2, var_num_obs, var_constant_dims,
-            var_constant_coord_indices, 42
+            var_constant_coord_indices, 42, dim_split=0
         )
         
         np.testing.assert_array_equal(
@@ -348,7 +348,8 @@ class TestGenerate:
         
         records, overlap_actual = MultiVarRecordGenerator.generate(
             shape, overlap, num_vars, var_num_obs, var_dims_indices,
-            var_constant_dims, var_constant_coord_indices, num_dims, 42
+            var_constant_dims, var_constant_coord_indices, num_dims, 42,
+            dim_split=0
         )
         
         assert isinstance(records, dict)
@@ -375,7 +376,8 @@ class TestGenerate:
         
         records, overlap_actual = MultiVarRecordGenerator.generate(
             shape, overlap, num_vars, var_num_obs, var_dims_indices,
-            var_constant_dims, var_constant_coord_indices, num_dims, 42
+            var_constant_dims, var_constant_coord_indices, num_dims, 42,
+            dim_split=0
         )
         
         # Should complete without error
@@ -383,27 +385,29 @@ class TestGenerate:
         assert 'var0' in records
         assert 'var1' in records
     
-    def test_numeric_overlap_calls_with_overlap(self):
-        """Should use with_overlap for numeric overlap."""
+    def test_numeric_overlap_uses_the_stratified_path(self):
+        """A numeric target goes through the stratified placement.
+
+        num_obs must reach max(shape): the placement refuses a count that
+        cannot put every coordinate of the longest axis to use.
+        """
         shape = [15, 15]
         records = {
             'var0': np.full(shape, np.nan),
             'var1': np.full(shape, np.nan)
         }
-        var_num_obs = np.array([10, 10])
-        var_dims_indices = [ [1], [1] ]
-        var_constant_dims = [[0], [0]]
-        var_constant_coord_indices = {
-            0: {0: np.random.default_rng(42)},
-            1: {0: np.random.default_rng(43)}
-        }
+        var_num_obs = np.array([15, 15])
+        var_dims_indices = [ [0, 1], [0, 1] ]
+        var_constant_dims = [[], []]
+        var_constant_coord_indices = {0: {}, 1: {}}
         num_vars = 2
         num_dims = 2
         overlap = 0.5
         
         records, overlap_actual = MultiVarRecordGenerator.generate(
             shape, overlap, num_vars, var_num_obs, var_dims_indices,
-            var_constant_dims, var_constant_coord_indices, num_dims, 42
+            var_constant_dims, var_constant_coord_indices, num_dims, 42,
+            dim_split=0
         )
         
         # Should complete without error
@@ -428,7 +432,8 @@ class TestGenerate:
             var_constant_dims=var_constant_dims,
             var_constant_coord_indices=var_constant_coord_indices,
             num_dims=2,
-            seed=42
+            seed=42,
+            dim_split=0
         )
 
         assert isinstance(overlap_actual, np.ndarray)
@@ -515,7 +520,8 @@ class TestGenerate:
         
         records, overlap_actual = MultiVarRecordGenerator.generate(
             shape, overlap, num_vars, var_num_obs, var_dims_indices,
-            var_constant_dims, var_constant_coord_indices, num_dims, 42
+            var_constant_dims, var_constant_coord_indices, num_dims, 42,
+            dim_split=0
         )
         
         assert 'var0' in records
@@ -540,7 +546,8 @@ class TestSingleVariableCase:
             var_constant_dims=[[]],
             var_constant_coord_indices={},
             num_dims=2,
-            seed=42
+            seed=42,
+            dim_split=0
         )
         
         assert len(records) == 1
@@ -562,7 +569,8 @@ class TestSingleVariableCase:
             var_constant_dims=[[]],
             var_constant_coord_indices={},
             num_dims=3,
-            seed=123
+            seed=123,
+            dim_split=0
         )
         
         assert records['var0'].shape == tuple(shape)
@@ -584,7 +592,7 @@ class TestSingleVariableCase:
             var_dims_indices=[list(range(2))],
             var_constant_dims=[[]],
             var_constant_coord_indices={},
-            num_dims=2, seed=42
+            num_dims=2, seed=42, dim_split=0
         )
         
         records2, _ = MultiVarRecordGenerator.generate(
@@ -593,7 +601,7 @@ class TestSingleVariableCase:
             var_dims_indices=[list(range(2))],
             var_constant_dims=[[]],
             var_constant_coord_indices={},
-            num_dims=2, seed=42
+            num_dims=2, seed=42, dim_split=0
         )
         
         np.testing.assert_array_equal(records1['var0'], records2['var0'])
@@ -610,7 +618,7 @@ class TestSingleVariableCase:
             var_dims_indices=[list(range(2))],
             var_constant_dims=[[]],
             var_constant_coord_indices={},
-            num_dims=2, seed=999
+            num_dims=2, seed=999, dim_split=0
         )
         
         records2, overlap2 = MultiVarRecordGenerator.generate(
@@ -619,7 +627,7 @@ class TestSingleVariableCase:
             var_dims_indices=[list(range(2))],
             var_constant_dims=[[]],
             var_constant_coord_indices={},
-            num_dims=2, seed=999
+            num_dims=2, seed=999, dim_split=0
         )
         
         # Both should use 'random' path due to num_vars==1

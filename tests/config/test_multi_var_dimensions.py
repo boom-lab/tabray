@@ -237,9 +237,8 @@ class TestPreselectConstantCoordIndices:
     def test_creates_rng_for_each_constant_dim(self):
         """Should create RNG for each constant dim."""
         var_constant_dims = [[1, 2], [0]]
-        shape = (10, 10, 30)
         result = MultiVarDimensionsConfig.preselect_constant_coord_indices(
-            var_constant_dims, shape, 42
+            var_constant_dims, 42
         )
         assert 0 in result
         assert 1 in result[0]
@@ -249,9 +248,8 @@ class TestPreselectConstantCoordIndices:
     def test_empty_dict_for_no_constant_dims(self):
         """No constant dims should give empty inner dicts."""
         var_constant_dims = [[], []]
-        shape = (10, 10, 30)
         result = MultiVarDimensionsConfig.preselect_constant_coord_indices(
-            var_constant_dims, shape, 42
+            var_constant_dims, 42
         )
         assert result[0] == {}
         assert result[1] == {}
@@ -259,9 +257,8 @@ class TestPreselectConstantCoordIndices:
     def test_correct_structure_returned(self):
         """Should return correct nested dict structure."""
         var_constant_dims = [[1]]
-        shape = (10, 10, 30)
         result = MultiVarDimensionsConfig.preselect_constant_coord_indices(
-            var_constant_dims, shape, 42
+            var_constant_dims, 42
         )
         assert isinstance(result, dict)
         assert isinstance(result[0], dict)
