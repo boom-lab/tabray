@@ -126,6 +126,111 @@ class TestValidateNumDims:
             ParameterValidator.validate_num_dims(None)
 
 
+class TestValidateDensityRefvarDoesNotMutate:
+    """The density argument must not be written through."""
+
+    def test_list_argument_is_not_mutated(self):
+        """A list used to be assigned, not copied, then written at index 0."""
+        density = [0.5, 0.3]
+
+        result = ParameterValidator.validate_density_refvar(density)
+
+        assert result == [0.5, 0.3]
+        assert density == [0.5, 0.3], "the caller's list must be left alone"
+
+    def test_tuple_argument_returns_a_list(self):
+        density = (0.6, 0.2)
+
+        result = ParameterValidator.validate_density_refvar(density)
+
+        assert result == [0.6, 0.2]
+        assert density == (0.6, 0.2)
+
+    def test_reference_not_largest_raises(self):
+        """It used to overwrite density[0] with the maximum.
+
+        For a two-element list, read downstream as a [max, min] range, that
+        collapsed the range and gave every variable the same density, silently.
+        """
+        with pytest.raises(ValueError, match="must have the largest density"):
+            ParameterValidator.validate_density_refvar([0.3, 0.5])
+
+    def test_reference_already_largest_is_untouched(self):
+        density = [0.5, 0.3, 0.2]
+
+        result = ParameterValidator.validate_density_refvar(density)
+
+        assert result == [0.5, 0.3, 0.2]
+        assert density == [0.5, 0.3, 0.2]
+
+    def test_scalar_passes_through(self):
+        assert ParameterValidator.validate_density_refvar(0.4) == 0.4
+
+
+class TestValidateVarDimsExplicitIndices:
+    """var_dims given as explicit dimension indices, one list per variable."""
+
+    def test_list_of_lists_is_accepted(self):
+        """The form MultiVarDimensionsConfig supports, and the README uses.
+
+        This used to raise TypeError: the reference check compared num_dims to
+        var_dims[0] as a number, and var_dims[0] was a list.
+        """
+        result = ParameterValidator.validate_var_dims(
+            [[0, 1, 2], [1, 2, 3], [0, 2, 3]], num_vars=3, num_dims=4
+        )
+        # var0 must occupy every dimension, so its entry is completed
+        assert result[0] == [0, 1, 2, 3]
+        assert result[1] == [1, 2, 3]
+        assert result[2] == [0, 2, 3]
+
+    def test_complete_reference_is_left_alone(self):
+        """A reference already covering every dimension is untouched."""
+        result = ParameterValidator.validate_var_dims(
+            [[0, 1], [1]], num_vars=2, num_dims=2
+        )
+        assert result == [[0, 1], [1]]
+
+    def test_caller_list_is_not_mutated(self):
+        """Completing the reference must not write through to the argument.
+
+        var_dims_update was bound to the caller's list and then assigned at
+        index 0, so the caller's object changed underneath them: passing
+        [2, 2] left the caller holding [3, 2].
+
+        Uses the integer form deliberately. The list-of-lists form raised
+        TypeError before reaching that assignment, so it cannot distinguish
+        the mutation from the crash.
+        """
+        var_dims = [2, 2]
+
+        result = ParameterValidator.validate_var_dims(var_dims, num_vars=2, num_dims=3)
+
+        assert result == [3, 2], "reference variable should be given every dimension"
+        assert var_dims == [2, 2], "the caller's list must be left alone"
+
+    def test_caller_list_of_lists_is_not_mutated(self):
+        """Same guarantee for the explicit-indices form."""
+        var_dims = [[0, 1, 2], [1, 2]]
+
+        result = ParameterValidator.validate_var_dims(var_dims, num_vars=2, num_dims=4)
+
+        assert result[0] == [0, 1, 2, 3]
+        assert var_dims == [[0, 1, 2], [1, 2]]
+
+    def test_empty_sequence_raises(self):
+        with pytest.raises(ValueError, match="one entry per variable"):
+            ParameterValidator.validate_var_dims([], num_vars=2, num_dims=3)
+
+    def test_bad_entry_type_raises(self):
+        with pytest.raises(TypeError, match="int .* or a list/tuple"):
+            ParameterValidator.validate_var_dims(["x", 2], num_vars=2, num_dims=3)
+
+    def test_integer_entries_still_work(self):
+        """The int-per-variable form is unchanged."""
+        assert ParameterValidator.validate_var_dims([2, 2], num_vars=2, num_dims=3) == [3, 2]
+
+
 class TestValidateRatioDims:
     """Tests for validate_ratio_dims method."""
     

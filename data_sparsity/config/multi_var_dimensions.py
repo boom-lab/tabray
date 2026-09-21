@@ -7,6 +7,8 @@ which dimensions vary for each variable and which are held constant.
 from typing import Dict, List, Tuple, Union
 import numpy as np
 
+from data_sparsity.utils.streams import Stream, stream
+
 
 class MultiVarDimensionsConfig:
     """Configuration manager for multi-variable dimensions.
@@ -33,19 +35,21 @@ class MultiVarDimensionsConfig:
     def select_random_dims(
         num_dims: int,
         var_dims: int,
-        seed: int
+        seed: int,
+        var_idx: int
     ) -> List[int]:
         """Select random varying dimensions for a variable.
         
         Args:
             num_dims: Total number of dimensions
             var_dims: Number of varying dimensions to select
-            seed: Random seed for selection
-            
+            seed: Base random seed
+            var_idx: Which variable this is, so each gets its own stream
+
         Returns:
             Sorted list of dimension indices
         """
-        var_rng = np.random.default_rng(seed)
+        var_rng = stream(seed, Stream.VAR_DIMS, var_idx)
         dims = sorted(
             var_rng.choice(num_dims, size=var_dims, replace=False).tolist()
         )
@@ -86,7 +90,7 @@ class MultiVarDimensionsConfig:
         var_dims_indices = []
         for var_idx in range(num_vars):
             dims = MultiVarDimensionsConfig.select_random_dims(
-                num_dims, var_dims, seed + 5000 + var_idx
+                num_dims, var_dims, seed, var_idx
             )
             var_dims_indices.append(dims)
         
@@ -124,7 +128,7 @@ class MultiVarDimensionsConfig:
                 return list(range(num_dims))
             else:
                 return MultiVarDimensionsConfig.select_random_dims(
-                    num_dims, var_dims_elem, seed + 5000 + var_idx
+                    num_dims, var_dims_elem, seed, var_idx
                 )
         elif isinstance(var_dims_elem, (list, tuple)):
             dims = list(var_dims_elem)
@@ -210,7 +214,6 @@ class MultiVarDimensionsConfig:
     @staticmethod
     def preselect_constant_coord_indices(
         var_constant_dims: List[List[int]],
-        shape: List[int],
         seed: int
     ) -> Dict[int, Dict[int, np.random.Generator]]:
         """Pre-select RNGs for constant coordinate indices.
@@ -220,7 +223,6 @@ class MultiVarDimensionsConfig:
         
         Args:
             var_constant_dims: Constant dimension indices per variable
-            shape: Shape of full coordinate space
             seed: Base random seed
             
         Returns:
@@ -232,8 +234,10 @@ class MultiVarDimensionsConfig:
             if const_dims:
                 const_rng_dict = {}
                 for const_dim in const_dims:
-                    const_rng_dict[const_dim] = np.random.default_rng(
-                        seed + 6000 + var_idx
+                    # Indexed by the dimension too, or a variable constant on
+                    # two dimensions picks the same index on both.
+                    const_rng_dict[const_dim] = stream(
+                        seed, Stream.CONST_COORD, var_idx, const_dim
                     )
                 var_constant_coord_indices[var_idx] = const_rng_dict
             else:
@@ -246,7 +250,6 @@ class MultiVarDimensionsConfig:
         var_dims: Union[int, List, Tuple],
         num_vars: int,
         num_dims: int,
-        shape: List[int],
         seed: int
     ) -> Tuple[List[List[int]], List[List[int]], Dict[int, Dict[int, np.random.Generator]]]:
         """Setup multi-variable dimension configuration from parameter.
@@ -258,7 +261,6 @@ class MultiVarDimensionsConfig:
             var_dims: Dimension specification (int or list)
             num_vars: Number of variables
             num_dims: Total number of dimensions
-            shape: Shape of full coordinate space
             seed: Base random seed
             
         Returns:
@@ -284,7 +286,7 @@ class MultiVarDimensionsConfig:
             var_dims_indices, num_dims
         )
         var_constant_coord_indices = MultiVarDimensionsConfig.preselect_constant_coord_indices(
-            var_constant_dims, shape, seed
+            var_constant_dims, seed
         )
         
         return var_dims_indices, var_constant_dims, var_constant_coord_indices

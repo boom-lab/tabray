@@ -26,11 +26,38 @@ Unambiguously, when all sites are occupied (e.g. TD ADD FIGURE) density = 1 and 
 
 Sparsity = 1 (density = 0) also unambiguosly identifies the case where all sites are vacant, but it's pretty useless in practice (I want to investigate different storage techniques, and I need data to store).
 
-The most interesting largest sparsity (smallest density) value is the one such that all available coordinates are used once and only once. For example: 3 points on a 3x3 grid, such that no two points share the same coordinates [TD ADD FIGURE]. P1 is located at (lon1,lat1); P2 at (lon3,lat2); P3 at (lon2,lat3). In this case sparsity = 6/9 = 2/3 (density = 1/3). Note that this is the largest sparsity possible for this 3x3 grid: adding any point would lower it (e.g. TD ADD PANEL TO FIGURE), and removing any point would make 2 coordinates pointless^2 (e.g. TD ADD PANEL TO FIGURE), because their knowledge does not add anything, and I don't want to store data that is not required to describe my data points.
+The most interesting largest sparsity (smallest density) value is the one such that all available coordinates are used at least once (on a square grid like the one below this works out to once and only once; see 'Minimum density, on any grid' further down for why the general condition has to be 'at least'). For example: 3 points on a 3x3 grid, such that no two points share the same coordinates [TD ADD FIGURE]. P1 is located at (lon1,lat1); P2 at (lon3,lat2); P3 at (lon2,lat3). In this case sparsity = 6/9 = 2/3 (density = 1/3). Note that this is the largest sparsity possible for this 3x3 grid: adding any point would lower it (e.g. TD ADD PANEL TO FIGURE), and removing any point would make 2 coordinates pointless^2 (e.g. TD ADD PANEL TO FIGURE), because their knowledge does not add anything, and I don't want to store data that is not required to describe my data points.
 
 This is why I only consider cases where all coordinates are occupied at least once^3. I try to refer to cases like [TD ADD FIGURE] as 'least dense' or 'most sparse', but I might accidentally call them 'purely irregular' or 'irregular', as they are the most irregular I consider in this work.
 
-Note that the value of largest sparsity depends on the grid (number of dimensions and their sizes). [TD ADD FORMULA].
+#### Minimum density, on any grid
+
+On the 3x3 grid above, 'all coordinates used at least once' and 'all coordinates used once and only once' happen to describe the same 3 points. They come apart as soon as the axes have different lengths. On a 4x7x10 grid, 'once and only once' has no solution at all: a set of points that uses each of the 10 coordinates of the third axis exactly once has 10 points, and those 10 points cannot use each of the 4 coordinates of the first axis exactly once. **At least once** is the condition I actually require, and it is the one that generalises.
+
+So: how few data points can use every coordinate at least once? Each data point sits at one site, and so supplies exactly one coordinate on each axis. Covering an axis with L coordinates therefore needs at least L data points, and the longest axis sets the floor:
+
+```
+    min number of data points  =  max(shape)
+
+    min density  =  max(shape) / prod(shape)
+```
+
+where `shape` is the list of axis lengths, `max(shape)` the longest axis, and `prod(shape)` the total number of sites.
+
+That floor is reachable, not just a lower limit. Walk the longest axis in order, one data point per coordinate, and for each shorter axis repeat its coordinates as many times as needed to fill the same number of points. Every axis is then covered by `max(shape)` points. On the 4x7x10 grid this gives 10 data points, using the third axis once per coordinate, the second axis with 3 coordinates repeated, and the first with 2 coordinates repeated.
+
+The cubic case is the special case where all axes are equal, and there the formula reduces to the familiar `1/n^(d-1)` for a grid of `d` dimensions each of size `n`, since `n^d / n^(d-1) = n`:
+
+```
+    grid          min data points   min density
+    3x3                         3        1/3
+    10x10x10                   10       1/100
+    4x7x10                     10       10/280
+    2x3x5x7                     7        7/210
+    50x10x1x1                  50       50/500
+```
+
+Two things follow that are easy to get wrong. The bound is set by the **longest** axis, not the shortest — intuition tends to reach for the shortest. And an axis of length 1 costs nothing: it contributes one coordinate, which any single data point already covers, so `50x10x1x1` needs the same 50 points as `50x10`.
 
 ^2 pun intended
 

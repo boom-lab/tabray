@@ -39,75 +39,76 @@ class TestFromScalar:
 
 
 class TestFromTwoElementList:
-    """Tests for from_two_element_list method."""
-    
-    def test_two_variables_random_assignment(self, fixed_rng):
-        """Two variables should get min and max."""
-        result = MultiVarSparsityConfig.from_two_element_list([0.2, 0.8], 2, fixed_rng)
-        assert len(result) == 2
-        assert 0.2 in result
-        assert 0.8 in result
-    
-    def test_three_variables_includes_min_max_random(self, fixed_rng):
-        """Three variables should include min, max, and random value."""
-        result = MultiVarSparsityConfig.from_two_element_list([0.1, 0.9], 3, fixed_rng)
-        assert len(result) == 3
-        assert min(result) >= 0.1
-        assert max(result) <= 0.9
-        assert 0.1 in result or 0.9 in result
-    
-    def test_many_variables_distribution_correct(self, fixed_rng):
-        """Many variables should have values in [min, max]."""
-        result = MultiVarSparsityConfig.from_two_element_list([0.2, 0.8], 10, fixed_rng)
-        assert len(result) == 10
-        assert all(0.2 <= v <= 0.8 for v in result)
-    
-    def test_all_elements_in_range(self, fixed_rng):
-        """All elements should be in [min, max]."""
-        min_val, max_val = 0.3, 0.7
-        result = MultiVarSparsityConfig.from_two_element_list([min_val, max_val], 20, fixed_rng)
-        assert np.all(result >= min_val)
-        assert np.all(result <= max_val)
-    
-    def test_contains_exactly_one_min(self, fixed_rng):
-        """Should contain exactly one minimum value."""
-        result = MultiVarSparsityConfig.from_two_element_list([0.1, 0.9], 5, fixed_rng)
-        assert np.sum(result == 0.1) >= 1
-    
-    def test_contains_exactly_one_max(self, fixed_rng):
-        """Should contain exactly one maximum value."""
-        result = MultiVarSparsityConfig.from_two_element_list([0.1, 0.9], 5, fixed_rng)
-        assert np.sum(result == 0.9) >= 1
-    
-    def test_reproducible_with_same_seed(self):
-        """Same seed should give same result."""
-        rng1 = np.random.default_rng(123)
-        rng2 = np.random.default_rng(123)
-        result1 = MultiVarSparsityConfig.from_two_element_list([0.2, 0.8], 5, rng1)
-        result2 = MultiVarSparsityConfig.from_two_element_list([0.2, 0.8], 5, rng2)
-        np.testing.assert_array_equal(result1, result2)
-    
-    def test_different_with_different_seed(self):
-        """Different seed should give different result."""
-        rng1 = np.random.default_rng(123)
-        rng2 = np.random.default_rng(456)
-        result1 = MultiVarSparsityConfig.from_two_element_list([0.2, 0.8], 10, rng1)
-        result2 = MultiVarSparsityConfig.from_two_element_list([0.2, 0.8], 10, rng2)
-        assert not np.array_equal(result1, result2)
-    
-    def test_order_shuffled(self, fixed_rng):
-        """Values should be shuffled, not sorted."""
-        result = MultiVarSparsityConfig.from_two_element_list([0.1, 0.9], 10, fixed_rng)
-        # Check that it's not simply sorted
-        is_sorted = np.all(result[:-1] <= result[1:])
-        is_reverse_sorted = np.all(result[:-1] >= result[1:])
-        assert not (is_sorted or is_reverse_sorted)
-    
+    """Two-element density: [max, min].
+
+    var0 takes the maximum and some other variable takes the minimum, so both
+    prescribed values are used. With two variables the range is exactly the two
+    densities. Any further variables are drawn from [min, max].
+    """
+
+    def test_two_variables_are_exactly_the_two_densities(self, fixed_rng):
+        """With two variables the range is the two prescribed densities."""
+        result = MultiVarSparsityConfig.from_two_element_list([0.8, 0.2], 2, fixed_rng)
+        assert list(result) == [0.8, 0.2]
+
+    def test_minimum_is_always_used_by_some_variable(self):
+        """The lower bound is a density, not just a bound.
+
+        An earlier attempt drew every non-reference variable from the range, so
+        the minimum could go unused entirely.
+        """
+        for num_vars in (2, 3, 5, 10):
+            for seed in range(20):
+                result = MultiVarSparsityConfig.from_two_element_list(
+                    [0.9, 0.1], num_vars, np.random.default_rng(seed)
+                )
+                assert result[0] == 0.9, "var0 takes the maximum"
+                assert 0.1 in result, "some variable takes the minimum"
+
+    def test_reference_is_the_maximum_for_every_seed(self):
+        """No coin flip: var0 must not depend on the seed.
+
+        The old version assigned min and max to the two variables at random, so
+        about half of all seeds produced a var0 that
+        validate_reference_is_largest then rejected.
+        """
+        for seed in range(50):
+            result = MultiVarSparsityConfig.from_two_element_list(
+                [0.9, 0.1], 3, np.random.default_rng(seed)
+            )
+            assert result[0] == 0.9
+
+    def test_all_densities_lie_within_the_range(self, fixed_rng):
+        result = MultiVarSparsityConfig.from_two_element_list([0.9, 0.1], 5, fixed_rng)
+        assert len(result) == 5
+        assert all(0.1 <= value <= 0.9 for value in result)
+
     def test_array_length_matches_num_vars(self, fixed_rng):
-        """Array length should match num_vars."""
-        for num_vars in [2, 5, 10, 20]:
-            result = MultiVarSparsityConfig.from_two_element_list([0.2, 0.8], num_vars, fixed_rng)
+        for num_vars in (2, 3, 10):
+            result = MultiVarSparsityConfig.from_two_element_list(
+                [0.8, 0.2], num_vars, fixed_rng
+            )
             assert len(result) == num_vars
+
+    def test_ascending_input_raises(self, fixed_rng):
+        """[min, max] is rejected: the reference density must be listed first."""
+        with pytest.raises(ValueError, match="not the largest"):
+            MultiVarSparsityConfig.from_two_element_list([0.2, 0.8], 3, fixed_rng)
+
+    def test_reproducible_with_same_seed(self):
+        a = MultiVarSparsityConfig.from_two_element_list(
+            [0.8, 0.2], 5, np.random.default_rng(123))
+        b = MultiVarSparsityConfig.from_two_element_list(
+            [0.8, 0.2], 5, np.random.default_rng(123))
+        np.testing.assert_array_equal(a, b)
+
+    def test_different_with_different_seed(self):
+        a = MultiVarSparsityConfig.from_two_element_list(
+            [0.8, 0.2], 10, np.random.default_rng(123))
+        b = MultiVarSparsityConfig.from_two_element_list(
+            [0.8, 0.2], 10, np.random.default_rng(456))
+        assert not np.array_equal(a, b)
+        assert a[0] == b[0] == 0.8, "only the non-reference densities vary"
 
 
 class TestFromFullList:
@@ -241,9 +242,9 @@ class TestSetupFromParameter:
         assert all(s >= 0.1 for s in sparsities)
     
     def test_list_input(self, fixed_rng):
-        """List input should work."""
+        """List input should work. [max, min]: the reference density leads."""
         sparsities, num_obs = MultiVarSparsityConfig.setup_from_parameter(
-            [0.2, 0.8], 2, 100, 0.1, fixed_rng
+            [0.8, 0.2], 2, 100, 0.1, fixed_rng
         )
         assert len(sparsities) == 2
         assert len(num_obs) == 2

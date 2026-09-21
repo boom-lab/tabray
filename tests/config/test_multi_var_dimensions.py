@@ -10,49 +10,52 @@ class TestSelectRandomDims:
     
     def test_correct_count_returned(self):
         """Should return correct number of dimensions."""
-        result = MultiVarDimensionsConfig.select_random_dims(5, 3, 42)
+        result = MultiVarDimensionsConfig.select_random_dims(5, 3, 42, 0)
         assert len(result) == 3
     
     def test_all_elements_in_valid_range(self):
         """All elements should be in [0, num_dims-1]."""
-        result = MultiVarDimensionsConfig.select_random_dims(5, 3, 42)
+        result = MultiVarDimensionsConfig.select_random_dims(5, 3, 42, 0)
         assert all(0 <= d < 5 for d in result)
     
     def test_no_duplicates(self):
         """Should have no duplicate dimensions."""
-        result = MultiVarDimensionsConfig.select_random_dims(100, 100, 42)
+        result = MultiVarDimensionsConfig.select_random_dims(100, 100, 42, 0)
         assert len(result) == len(set(result))
     
     def test_sorted_output(self):
         """Output should be sorted."""
-        result = MultiVarDimensionsConfig.select_random_dims(10, 9, 42)
+        result = MultiVarDimensionsConfig.select_random_dims(10, 9, 42, 0)
         assert result == sorted(result)
     
     def test_reproducible_with_same_seed(self):
         """Same seed should give same result."""
-        rng1 = np.random.default_rng(123)
-        rng2 = np.random.default_rng(123)
-        result1 = MultiVarDimensionsConfig.select_random_dims(10, 5, rng1)
-        result2 = MultiVarDimensionsConfig.select_random_dims(10, 5, rng2)
+        result1 = MultiVarDimensionsConfig.select_random_dims(10, 5, 123, 0)
+        result2 = MultiVarDimensionsConfig.select_random_dims(10, 5, 123, 0)
         assert result1 == result2
+
+    def test_each_variable_gets_its_own_selection(self):
+        """var_idx indexes the stream, so variables choose independently."""
+        first = MultiVarDimensionsConfig.select_random_dims(10, 5, 123, 0)
+        second = MultiVarDimensionsConfig.select_random_dims(10, 5, 123, 1)
+        assert first != second
     
     def test_different_with_different_seed(self):
         """Different seed should give different result."""
-        rng1 = np.random.default_rng(123)
-        rng2 = np.random.default_rng(456)
-        result1 = MultiVarDimensionsConfig.select_random_dims(8, 5, rng1)
-        result2 = MultiVarDimensionsConfig.select_random_dims(8, 5, rng2)
+        result1 = MultiVarDimensionsConfig.select_random_dims(10, 5, 123, 0)
+        result2 = MultiVarDimensionsConfig.select_random_dims(10, 5, 456, 0)
         assert result1 != result2
-    
+
+
     def test_edge_case_select_one_dim(self):
         """Should work when selecting 1 dimension."""
-        result = MultiVarDimensionsConfig.select_random_dims(1, 1, 42)
+        result = MultiVarDimensionsConfig.select_random_dims(1, 1, 42, 0)
         assert len(result) == 1
         assert 0 <= result[0] < 5
     
     def test_edge_case_select_all_dims(self):
         """Should work when selecting all dimensions."""
-        result = MultiVarDimensionsConfig.select_random_dims(5, 5, 42)
+        result = MultiVarDimensionsConfig.select_random_dims(5, 5, 42, 0)
         assert result == [0, 1, 2, 3, 4]
 
 
@@ -234,9 +237,8 @@ class TestPreselectConstantCoordIndices:
     def test_creates_rng_for_each_constant_dim(self):
         """Should create RNG for each constant dim."""
         var_constant_dims = [[1, 2], [0]]
-        shape = (10, 10, 30)
         result = MultiVarDimensionsConfig.preselect_constant_coord_indices(
-            var_constant_dims, shape, 42
+            var_constant_dims, 42
         )
         assert 0 in result
         assert 1 in result[0]
@@ -246,9 +248,8 @@ class TestPreselectConstantCoordIndices:
     def test_empty_dict_for_no_constant_dims(self):
         """No constant dims should give empty inner dicts."""
         var_constant_dims = [[], []]
-        shape = (10, 10, 30)
         result = MultiVarDimensionsConfig.preselect_constant_coord_indices(
-            var_constant_dims, shape, 42
+            var_constant_dims, 42
         )
         assert result[0] == {}
         assert result[1] == {}
@@ -256,9 +257,8 @@ class TestPreselectConstantCoordIndices:
     def test_correct_structure_returned(self):
         """Should return correct nested dict structure."""
         var_constant_dims = [[1]]
-        shape = (10, 10, 30)
         result = MultiVarDimensionsConfig.preselect_constant_coord_indices(
-            var_constant_dims, shape, 42
+            var_constant_dims, 42
         )
         assert isinstance(result, dict)
         assert isinstance(result[0], dict)

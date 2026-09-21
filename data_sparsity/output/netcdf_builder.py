@@ -7,6 +7,9 @@ from typing import Dict, List, Optional
 import numpy as np
 import xarray as xr
 
+from data_sparsity.output.compression_settings import CompressionSettings
+from data_sparsity.output.variable_encoding import VariableEncoding
+
 
 class NetCDFBuilder:
     """Builder for NetCDF/xarray output formats.
@@ -44,6 +47,66 @@ class NetCDFBuilder:
             "seed": seed
         }
 
+    # Which convention the `overlap_target` attribute uses. Written into every
+    # multi-variable file so a dataset states what its own numbers mean --
+    # F1 and F2 are reciprocally related and either can be assumed by a reader.
+    OVERLAP_CONVENTION = (
+        "F1 = |proj(S0) & proj(Si)| / |proj(S0)|: share of var0's sites that "
+        "also carry the variable, measured on the dimensions the two share"
+    )
+
+    @staticmethod
+    def create_multivar_attrs(
+        num_vars: int,
+        var_densities,
+        var_num_obs,
+        overlap_target,
+        fixed_overlap,
+        overlap_actual_f1=None,
+        overlap_actual_f2=None,
+    ) -> Dict:
+        """Build the multi-variable attributes, identically for both paths.
+
+        A multi-variable dataset has no single density or observation count,
+        so the per-variable arrays are what actually describe it. Both paths
+        must write them, or the two disagree on what the file says.
+
+        Args:
+            num_vars: Number of variables
+            var_densities: Density per variable
+            var_num_obs: Observation count per variable
+            overlap_target: Requested overlap for var1..varN-1
+            fixed_overlap: Per-variable fixed-overlap flags
+            overlap_actual_f1: Achieved overlap, if measured
+            overlap_actual_f2: The reverse ratio, if measured
+
+        Returns:
+            Dictionary of attributes to merge into the base set
+        """
+        def as_list(value):
+            if value is None:
+                return []
+            if isinstance(value, np.ndarray):
+                return value.tolist()
+            if isinstance(value, (list, tuple)):
+                return list(value)
+            return [value]
+
+        attrs = {
+            "num_vars": num_vars,
+            "var_densities": as_list(var_densities),
+            "var_num_obs": as_list(var_num_obs),
+            "overlap_target": as_list(overlap_target)
+            if not isinstance(overlap_target, str) else overlap_target,
+            "overlap_convention": NetCDFBuilder.OVERLAP_CONVENTION,
+            "fixed_overlap": [int(bool(flag)) for flag in as_list(fixed_overlap)],
+        }
+        if overlap_actual_f1 is not None:
+            attrs["overlap_actual_f1"] = as_list(overlap_actual_f1)
+        if overlap_actual_f2 is not None:
+            attrs["overlap_actual_f2"] = as_list(overlap_actual_f2)
+        return attrs
+
     @staticmethod
     def build_dataarray(
         record: np.ndarray,
@@ -77,6 +140,7 @@ class NetCDFBuilder:
         coordinates: Dict[str, np.ndarray],
         attrs: Optional[Dict] = None,
         var_constant_dims: Optional[List[List[int]]] = None,
+        squeeze_constant_dims: bool = True,
     ) -> xr.Dataset:
         """Build xarray Dataset from multiple records.
         
@@ -85,33 +149,109 @@ class NetCDFBuilder:
             coordinates: Dictionary mapping dimension names to coordinate arrays
             attrs: Optional attributes dictionary
             var_constant_dims: Constant dimension indices per variable
+            squeeze_constant_dims: Remove constant dimensions when possible.
+                Disable this for chunk files that must be concatenated with
+                ``xarray.open_mfdataset``.
 
         Returns:
             xarray Dataset
         """
         data_vars = {}
-        for var_id, (var_name, record) in enumerate(records.items()):
-            data_var = xr.DataArray(
+        for var_name, record in records.items():
+            data_vars[var_name] = xr.DataArray(
                 record,
                 coords=coordinates,
                 dims=list(coordinates.keys())
             )
-            if var_constant_dims:
-                for dim_id in var_constant_dims[var_id]:
-                    dim_name = list(coordinates.keys())[dim_id]
-                    data_var = data_var.dropna(dim=dim_name, how="all")
-                    if data_var.sizes.get(dim_name, 0) == 1:
-                        data_var = data_var.squeeze(dim_name, drop=True)
-            data_vars[var_name] = data_var
 
         dataset = xr.Dataset(data_vars, attrs=attrs or {})
+        if squeeze_constant_dims and var_constant_dims:
+            dataset = NetCDFBuilder.squeeze_constant_dims(
+                dataset, var_constant_dims
+            )
         return dataset
+
+    @staticmethod
+    def squeeze_constant_dims(
+        dataset: xr.Dataset,
+        var_constant_dims: List[List[int]],
+    ) -> xr.Dataset:
+        """Drop the dimensions a variable is constant along.
+
+        A variable pinned to one coordinate of a dimension carries no
+        information along it, so storing it as a mostly-NaN slab inflates the
+        array representation -- which is the thing being measured. Chunk files
+        cannot do this (they must concatenate), so the merge step applies it
+        instead.
+
+        Args:
+            dataset: Dataset whose variables may carry constant dimensions
+            var_constant_dims: Constant dimension indices per variable, in the
+                same order as the dataset's variables
+
+        Returns:
+            Dataset with those dimensions squeezed out where possible
+        """
+        dim_names = list(dataset.sizes)
+        data_vars = {}
+        for var_id, var_name in enumerate(dataset.data_vars):
+            data_var = dataset[var_name]
+            for dim_id in var_constant_dims[var_id]:
+                dim_name = dim_names[dim_id]
+                if dim_name not in data_var.dims:
+                    continue
+                data_var = data_var.dropna(dim=dim_name, how="all")
+                if data_var.sizes.get(dim_name, 0) == 1:
+                    data_var = data_var.squeeze(dim_name, drop=True)
+            data_vars[var_name] = data_var
+        return xr.Dataset(data_vars, attrs=dataset.attrs)
+
+    @staticmethod
+    def build_encoding(
+        data,
+        compression: CompressionSettings = None,
+        var_encodings: list = None
+    ) -> dict:
+        """Merge the per-variable dtype choice with the compression settings.
+
+        Variables are matched by name: ``varN`` takes the Nth encoding, and a
+        single-variable DataArray (named ``record``) takes the first.
+
+        Args:
+            data: The DataArray or Dataset about to be written
+            compression: Codec, or None
+            var_encodings: One VariableEncoding per variable, or None
+
+        Returns:
+            Encoding dict keyed by variable name
+        """
+        if isinstance(data, xr.DataArray):
+            names = [data.name] if data.name is not None else []
+        else:
+            names = list(data.data_vars)
+
+        encoding = {}
+        for position, name in enumerate(names):
+            entry = {}
+            if var_encodings:
+                index = (int(name[3:]) if name.startswith("var") and
+                         name[3:].isdigit() else position)
+                if index < len(var_encodings):
+                    entry.update(var_encodings[index].netcdf_encoding())
+            encoding[name] = entry
+
+        if compression:
+            for name, settings in compression.netcdf_encoding(data).items():
+                encoding.setdefault(name, {}).update(settings)
+        return {k: v for k, v in encoding.items() if v}
 
     @staticmethod
     def save_to_file(
         data: xr.DataArray | xr.Dataset,
         filepath: str,
-        overwrite: bool = False
+        overwrite: bool = False,
+        compression: CompressionSettings = None,
+        var_encodings: list = None
     ) -> None:
         """Save DataArray or Dataset to NetCDF file.
         
@@ -119,6 +259,10 @@ class NetCDFBuilder:
             data: xarray DataArray or Dataset
             filepath: Path to save file
             overwrite: Whether to overwrite existing file
+            compression: Codec to apply, shared with the parquet output.
+                None writes uncompressed.
+            var_encodings: One VariableEncoding per variable, or None for
+                plain float64.
             
         Raises:
             FileExistsError: If file exists and overwrite is False
@@ -130,5 +274,6 @@ class NetCDFBuilder:
                 f"File {filepath} already exists. Set overwrite=True to replace."
             )
         
-        data.to_netcdf(filepath)
+        encoding = NetCDFBuilder.build_encoding(data, compression, var_encodings)
+        data.to_netcdf(filepath, encoding=encoding)
         print(f"Saved to {filepath}")

@@ -16,31 +16,25 @@ class SparsityValidator:
     """
     def compute_min_density(nb_coords_per_dim: np.ndarray) -> float:
         """Compute minimum allowable density for given dimensions.
-        
-        The minimum density is 1.0 / (np.power( nmin, (d-1) )), which ensures
-        that all coordinates tuples are used. d is number of dimensions, nmin is
-        the size of the smallest dimension (number of coordinates along it).
-        
-        While density is generally defined as
-        num_observations/total_grid_points ,
-        if minimum were density_min = 1 / total_grid_points, there would be
-        inefficient data storage, e.g. in xarray we would store to disk unused
-        coordinates values
 
-        E.g. a 3x1 grid with 1 record, is more efficiently stored to disk as a
-        1x1 grid (a point) with 1 record; the assumption is to compare dataset
-        that already have all the data necessary
-        
+        The minimum density is max(shape) / prod(shape): the sparsest grid in
+        which every coordinate on every axis is still used at least once, an
+        unused coordinate being stored without describing any data point.
+
+        The LONGEST axis sets it, not the shortest: each observation supplies
+        one coordinate per axis, so covering an axis of length L needs L
+        observations. docs/explainer.md, "Minimum density, on any grid",
+        derives it and shows the floor is reachable.
+
         Args:
             nb_coords_per_dim: Number of coordinates per dimension
-            
+
         Returns:
             Minimum density value
 
         """
-        d = len(nb_coords_per_dim)
-        nmin = min(nb_coords_per_dim)
-        return 1.0 / (np.power( nmin, (d-1) ))
+        shape = np.asarray(nb_coords_per_dim, dtype=np.int64)
+        return float(shape.max()) / float(np.prod(shape, dtype=np.float64))
     def validate_density_bounds(
         density: float,
         density_min: float

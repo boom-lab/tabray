@@ -6,37 +6,70 @@ from data_sparsity.validators import SparsityValidator
 
 
 class TestComputeMinDensity:
-    """Tests for compute_min_density method."""
+    """Tests for compute_min_density method.
+
+    The bound is max(shape)/prod(shape): the fewest observations that can still
+    put every coordinate on every axis to use is the length of the LONGEST
+    axis, because each observation supplies one coordinate per axis.
+    """
 
     def test_uniform_dimensions(self):
-        """Uniform dimensions should return 1/(n^(d-1))."""
+        """On a cubic grid the bound is 1/(n^(d-1)), as derived by hand."""
         nb_coords = np.array([10, 10, 10])
         result = SparsityValidator.compute_min_density(nb_coords)
         assert result == 1 / (10**(3 - 1))
+        assert result == 10 / 1000
 
     def test_non_uniform_dimensions(self):
-        """Non-uniform dimensions should return 1/(n^(d-1))."""
+        """Non-cubic grids are set by the longest axis, not the shortest."""
         nb_coords = np.array([5, 10, 20])
         result = SparsityValidator.compute_min_density(nb_coords)
-        assert result == 1 / (5**(3 - 1))
+        assert result == 20 / 1000
 
     def test_single_dimension(self):
-        """Single dimension should work."""
+        """One dimension of length n needs all n observations."""
         nb_coords = np.array([8])
         result = SparsityValidator.compute_min_density(nb_coords)
         assert result == 1
 
-    def test_returns_one_over_total_grid(self):
-        """Should return 1/(n^(d-1))."""
+    def test_four_dimensions(self):
+        """The longest axis sets the bound at any dimensionality."""
         nb_coords = np.array([3, 7, 5, 9])
         result = SparsityValidator.compute_min_density(nb_coords)
-        assert result == 1 / (3**(4 - 1))
+        assert result == 9 / (3 * 7 * 5 * 9)
 
     def test_large_dimensions(self):
         """Large dimensions should give small density."""
         nb_coords = np.array([1000, 2000])
         result = SparsityValidator.compute_min_density(nb_coords)
-        assert result == 1.0 / 1000
+        assert result == 2000 / 2_000_000
+
+    def test_min_observations_equals_longest_axis(self):
+        """The bound expressed as a count, which is how it is derived."""
+        for shape in ([10, 10, 10], [5, 10, 20], [4, 7, 10], [3, 7, 5, 9]):
+            nb_coords = np.array(shape)
+            min_obs = SparsityValidator.compute_min_density(nb_coords) * np.prod(shape)
+            assert round(min_obs) == max(shape)
+
+    def test_never_stricter_than_the_old_bound(self):
+        """Every configuration accepted before is still accepted.
+
+        The old bound was 1/nmin**(d-1). Relaxing must not reject anything it
+        used to allow, so the new value is never larger.
+        """
+        for shape in ([10, 10, 10], [5, 10, 20], [4, 7, 10], [3, 7, 5, 9],
+                      [1000, 2000], [8], [2, 3, 5, 7], [365, 2041, 4320]):
+            nb_coords = np.array(shape)
+            old = 1.0 / (min(shape) ** (len(shape) - 1))
+            assert SparsityValidator.compute_min_density(nb_coords) <= old
+
+    def test_agrees_with_the_old_bound_on_cubic_grids(self):
+        """The hand-derived formula was exact there, and stays exact."""
+        for n, d in ((10, 3), (7, 2), (4, 5), (32, 2)):
+            nb_coords = np.array([n] * d)
+            assert SparsityValidator.compute_min_density(nb_coords) == pytest.approx(
+                1.0 / (n ** (d - 1))
+            )
 
 
 class TestValidateDensityBounds:
