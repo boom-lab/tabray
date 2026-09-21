@@ -11,7 +11,7 @@ Distribution and import package: `data_sparsity`. Repository and local conda env
 ## Commands
 
 ```bash
-conda env create -f environment.yml -n tabray && conda activate tabray   # the file names it data_sparsity
+conda env create -f environment.yml && conda activate tabray
 pip install -e ".[dev]"          # alternative; dev = pytest, pytest-cov, pylint
 
 pytest                            # full suite, ~85s
@@ -22,6 +22,7 @@ bash tests/run_all_tests.sh       # suite + coverage
 pylint data_sparsity/<module>.py  # every file must score >= 8
 ```
 
+- Run Python through the `tabray` env (`$(conda info --base)/envs/tabray/bin/python`), an editable install of the working tree. A bare `python` can resolve to another interpreter holding a stale installed copy of the package, with no sign in the output.
 - Notebooks run with `notebooks/` as the working directory.
 - `tests/diagnostic_coordinate_identity*.py` are standalone scripts, not collected by pytest.
 
