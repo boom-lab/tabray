@@ -326,7 +326,7 @@ class GenerateData:
 
         # Configure multi-variable settings
         if self.num_vars > 1:
-            self._configure_multi_var(density_for_grid)
+            self._configure_multi_var()
         else:
             self._configure_single_var(density_for_grid)
 
@@ -385,12 +385,8 @@ class GenerateData:
         self.overlap_actual = None
         self.overlap_actual_f2 = None
 
-    def _configure_multi_var(self, density_for_grid: float) -> None:
-        """Configure for multiple variables case.
-
-        Args:
-            density_for_grid: Representative density value
-        """
+    def _configure_multi_var(self) -> None:
+        """Configure for multiple variables case."""
         # Setup density values for each variable
         self.var_densities, self.var_num_obs = (
             MultiVarSparsityConfig.setup_from_parameter(
