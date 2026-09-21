@@ -10,11 +10,15 @@ import numpy as np
 import xarray as xr
 import dask.array as da
 import dask.dataframe as dd
+import pandas as pd
 import tempfile
 import shutil
 import os
 import glob
+import copy
 from data_sparsity.generate_data import GenerateData
+from data_sparsity.utils.chunk_utils import ChunkUtils
+from data_sparsity.workers.parallel_worker import generate_chunk
 
 
 def datasets_are_identical(ds1, ds2, variable='record'):
@@ -187,6 +191,73 @@ def dataframes_coordinate_nan_match(df1, df2, coordinates, variable='record'):
             return False, f"Non-NaN counts differ ({nnan_count1} vs {nnan_count2})"
 
     return True, "Coordinates and NaN status match for all keys"
+
+
+def build_chunked_multivar_args(gen, netcdf_filepath, parquet_tmp):
+    """Build worker arguments for chunked multi-variable generation.
+
+    Mirrors GenerateData._generate_par: the stratified placement apportions the
+    per-variable counts across strata itself, so each worker is handed the
+    GLOBAL counts rather than a pre-chunked slice.
+    """
+    chunk_var_num_obs = ChunkUtils.get_multi_var_observations_per_chunk(
+        gen.var_num_obs,
+        gen.max_dim_size,
+        gen.section_sizes,
+    )
+
+    chunk_args = []
+    for chunk_id, var_obs_chunk in enumerate(chunk_var_num_obs):
+        chunk_args.append({
+            'chunk_id': chunk_id,
+            'obs_in_chunk': int(np.sum(var_obs_chunk)),
+            'seed': gen.seed,
+            'shape': list(gen.shape),
+            'density': gen.density,
+            'num_vars': gen.num_vars,
+            'num_dims': gen.num_dims,
+            'ratio_dims': gen.ratio_dims,
+            'num_obs': int(np.sum(var_obs_chunk)),
+            'var_densities': gen.var_densities,
+            'var_num_obs': gen.var_num_obs,   # GLOBAL: strata apportion
+            'var_dims_indices': gen.var_dims_indices,
+            'var_constant_dims': gen.var_constant_dims,
+            'var_constant_coord_indices': copy.deepcopy(gen.var_constant_coord_indices),
+            'overlap_target': gen.overlap_target,
+            'dim_split': gen.dim_split,
+            'div_points': gen.div_points,
+            'section_sizes': gen.section_sizes,
+            'netcdf_filepath': netcdf_filepath,
+            'parquet_tmp': parquet_tmp,
+            'ntasks': gen.NTASKS,
+            'num_obs_global': gen.num_obs,
+            'fixed_overlap': gen.fixed_overlap,
+        })
+
+    return chunk_args
+
+
+def run_chunked_multivar_serial(gen, netcdf_filepath, parquet_filepath, parquet_tmp):
+    """Run chunked multivariable generation serially via the worker."""
+    gen.netcdf_filepath = netcdf_filepath
+    gen.parquet_filepath = parquet_filepath
+    gen.parquet_tmp = parquet_tmp
+
+    os.makedirs(os.path.dirname(netcdf_filepath), exist_ok=True)
+    os.makedirs(os.path.dirname(parquet_filepath), exist_ok=True)
+    # parquet_tmp is the scratch DIRECTORY, not a path inside one
+    os.makedirs(parquet_tmp, exist_ok=True)
+
+    chunk_args = build_chunked_multivar_args(gen, netcdf_filepath, parquet_tmp)
+    for args in chunk_args:
+        generate_chunk(**args)
+
+    netcdf_files = sorted(glob.glob(f"{netcdf_filepath[:-3]}_*.nc"))
+    data = xr.open_mfdataset(netcdf_files)
+    parquet_pattern = os.path.join(parquet_tmp, "chunk_*.parquet")
+    frame = dd.read_parquet(parquet_pattern).compute()
+
+    return data, frame
 
 
 class TestParallelSerialComparison:
@@ -463,13 +534,101 @@ class TestParallelSerialComparison:
         # Compare datasets
         match, msg = datasets_are_identical(da_serial, da_parallel_full)
         assert match, f"Datasets don't match: {msg}"
-        
-        # Compare dataframes
-        coords = ['x0', 'x1', 'x2']
-        match_df, msg_df = dataframes_coordinate_nan_match(
-            df_serial, df_parallel, coords
+
+    def test_multi_var_overlap_parallel_vs_serial(self, temp_dir):
+        """Multi-var parallel generation should emit chunked, valid outputs."""
+        cfg = dict(
+            num_obs=80,
+            num_dims=3,
+            ratio_dims=1,
+            density=0.15,
+            seed=42,
+            num_vars=2,
+            var_dims=2,
+            overlap=[0.5],
+            fixed_overlap=True,
         )
-        assert match_df, f"Dataframes don't match: {msg_df}"
+
+        gen_serial = GenerateData(**cfg)
+        ds_serial, df_serial = gen_serial.generate()
+
+        nc_dir = os.path.join(temp_dir, "nc_multi")
+        pq_dir = os.path.join(temp_dir, "pq_multi")
+        os.makedirs(nc_dir, exist_ok=True)
+        os.makedirs(pq_dir, exist_ok=True)
+
+        gen_parallel = GenerateData(**cfg, max_obs=20)
+        result = gen_parallel.generate(
+            netcdf_filepath=os.path.join(nc_dir, "test.nc"),
+            parquet_filepath=os.path.join(pq_dir, "test"),
+            parquet_tmp=os.path.join(pq_dir, "tmp"),
+        )
+        assert result == (None, None)
+
+        nc_files = sorted(glob.glob(os.path.join(nc_dir, "test_*.nc")))
+        ds_parallel = xr.open_mfdataset(nc_files)
+        df_parallel = dd.read_parquet(pq_dir).compute()
+
+        nc_files = sorted(glob.glob(os.path.join(nc_dir, "test_*.nc")))
+        assert len(nc_files) > 1
+
+        assert set(ds_parallel.data_vars) == set(ds_serial.data_vars)
+        assert set(df_parallel.columns) == set(df_serial.columns)
+        assert len(df_parallel) > 0
+
+        for var in ds_serial.data_vars:
+            assert ds_parallel[var].dims == tuple(f"x{i}" for i in range(gen_parallel.num_dims))
+            assert ds_parallel[var].shape == tuple(gen_parallel.shape)
+
+    def test_multi_var_chunked_serial_vs_parallel_identity(self, temp_dir):
+        """Chunked multivar generation should be identical in serial and parallel."""
+        cfg = dict(
+            num_obs=80,
+            num_dims=3,
+            ratio_dims=1,
+            density=0.15,
+            seed=42,
+            num_vars=2,
+            var_dims=2,
+            overlap=[0.5],
+            fixed_overlap=True,
+            max_obs=20,
+        )
+
+        gen_serial = GenerateData(**cfg)
+        serial_nc_dir = os.path.join(temp_dir, "nc_serial")
+        serial_pq_dir = os.path.join(temp_dir, "pq_serial")
+        os.makedirs(serial_nc_dir, exist_ok=True)
+        os.makedirs(serial_pq_dir, exist_ok=True)
+        ds_serial, df_serial = run_chunked_multivar_serial(
+            gen_serial,
+            os.path.join(serial_nc_dir, "test.nc"),
+            os.path.join(serial_pq_dir, "test"),
+            os.path.join(serial_pq_dir, "tmp"),
+        )
+
+        gen_parallel = GenerateData(**cfg)
+        parallel_nc_dir = os.path.join(temp_dir, "nc_parallel")
+        parallel_pq_dir = os.path.join(temp_dir, "pq_parallel")
+        os.makedirs(parallel_nc_dir, exist_ok=True)
+        os.makedirs(parallel_pq_dir, exist_ok=True)
+        result = gen_parallel.generate(
+            netcdf_filepath=os.path.join(parallel_nc_dir, "test.nc"),
+            parquet_filepath=os.path.join(parallel_pq_dir, "test"),
+            parquet_tmp=os.path.join(parallel_pq_dir, "tmp"),
+        )
+        assert result == (None, None)
+
+        nc_files = sorted(glob.glob(os.path.join(parallel_nc_dir, "test_*.nc")))
+        ds_parallel = xr.open_mfdataset(nc_files)
+        df_parallel = dd.read_parquet(parallel_pq_dir).compute()
+
+        xr.testing.assert_identical(ds_serial, ds_parallel)
+        pd.testing.assert_frame_equal(
+            df_serial.sort_values(list(df_serial.columns)).reset_index(drop=True),
+            df_parallel.sort_values(list(df_parallel.columns)).reset_index(drop=True),
+            check_like=False,
+        )
 
 
 class TestComparisonUtilities:
@@ -593,3 +752,37 @@ class TestComparisonUtilities:
         
         match, msg = dataframes_coordinate_nan_match(df1, df2, ['x0', 'x1'])
         assert match, f"Should match when x0 differs but x1 matches: {msg}"
+
+    def test_multi_var_chunks_support_standard_readers(self, temp_dir):
+        """Multivariable chunks should load with xarray and Dask directly."""
+        cfg = dict(
+            num_obs=80,
+            num_dims=3,
+            ratio_dims=1,
+            density=0.15,
+            seed=42,
+            num_vars=2,
+            var_dims=2,
+            overlap=[0.5],
+            fixed_overlap=True,
+            max_obs=20,
+        )
+        nc_dir = os.path.join(temp_dir, "nc_standard")
+        pq_dir = os.path.join(temp_dir, "pq_standard")
+        os.makedirs(nc_dir, exist_ok=True)
+        os.makedirs(pq_dir, exist_ok=True)
+
+        gen = GenerateData(**cfg)
+        assert gen.generate(
+            netcdf_filepath=os.path.join(nc_dir, "test.nc"),
+            parquet_filepath=os.path.join(pq_dir, "test"),
+            parquet_tmp=os.path.join(pq_dir, "tmp"),
+        ) == (None, None)
+
+        nc_files = sorted(glob.glob(os.path.join(nc_dir, "test_*.nc")))
+        dataset = xr.open_mfdataset(nc_files)
+        frame = dd.read_parquet(pq_dir).compute()
+
+        assert set(dataset.data_vars) == {"var0", "var1"}
+        assert dataset.sizes[f"x{gen.dim_split}"] == gen.shape[gen.dim_split]
+        assert set(frame.columns) == {"x0", "x1", "x2", "var0", "var1"}

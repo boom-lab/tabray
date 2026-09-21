@@ -9,6 +9,9 @@ import numpy as np
 import pandas as pd
 import dask.dataframe as dd
 
+from data_sparsity.output.compression_settings import CompressionSettings
+from data_sparsity.output.variable_encoding import VariableEncoding
+
 
 class ParquetBuilder:
     """Builder for Parquet/pandas output formats.
@@ -18,117 +21,158 @@ class ParquetBuilder:
     """
 
     @staticmethod
+    def _row_axes(num_dims: int, order_dim: int) -> List[int]:
+        """Axis order that puts ``order_dim`` outermost.
+
+        Rows are emitted with the split dimension slowest-varying so that a
+        chunk's rows are exactly the slice a serial run would produce for the
+        same strata. Concatenating the chunks in order then reproduces the
+        serial row order, without a global sort.
+        """
+        return [order_dim] + [dim for dim in range(num_dims) if dim != order_dim]
+
+    @staticmethod
     def extract_non_nan_points(
         record: np.ndarray,
-        coordinates: Dict[str, np.ndarray]
+        coordinates: Dict[str, np.ndarray],
+        order_dim: int = 0
     ) -> pd.DataFrame:
         """Extract non-NaN points from record as DataFrame.
-        
+
         Args:
             record: Record array with observations
             coordinates: Dictionary mapping dimension names to coordinate arrays
-            
+            order_dim: Dimension to vary slowest in the row order
+
         Returns:
             DataFrame with coordinate columns and record column
         """
-        non_nan_mask = ~np.isnan(record)
-        non_nan_indices = np.where(non_nan_mask)
-        
+        names = list(coordinates)
+        axes = ParquetBuilder._row_axes(len(names), order_dim)
+        non_nan_indices = np.where(~np.isnan(np.moveaxis(record, axes, range(len(axes)))))
+
         data_dict = {}
-        
-        coord_names = list(coordinates.keys())
-        coord_arrays = list(coordinates.values())
-        
-        for i, (name, coords) in enumerate(zip(coord_names, coord_arrays)):
-            data_dict[name] = coords[non_nan_indices[i]]
-        
-        data_dict["record"] = record[non_nan_mask]
-        
+        for position, dim in enumerate(axes):
+            data_dict[names[dim]] = coordinates[names[dim]][non_nan_indices[position]]
+        # restore x0..xN column order
+        data_dict = {name: data_dict[name] for name in names}
+        data_dict["record"] = np.moveaxis(record, axes, range(len(axes)))[non_nan_indices]
+
         return pd.DataFrame(data_dict)
 
     @staticmethod
     def build_single_var_dataframe(
         record: np.ndarray,
-        coordinates: Dict[str, np.ndarray]
+        coordinates: Dict[str, np.ndarray],
+        order_dim: int = 0
     ) -> pd.DataFrame:
         """Build DataFrame for single variable.
-        
+
         Args:
             record: Record array with observations
             coordinates: Dictionary mapping dimension names to coordinate arrays
-            
+            order_dim: Dimension to vary slowest in the row order
+
         Returns:
             DataFrame with one row per observation
         """
-        return ParquetBuilder.extract_non_nan_points(record, coordinates)
+        return ParquetBuilder.extract_non_nan_points(record, coordinates, order_dim)
 
     @staticmethod
     def build_multi_var_dataframe(
         records: Dict[str, np.ndarray],
         coordinates: Dict[str, np.ndarray],
         num_vars: int,
-        num_dims: int
+        num_dims: int,
+        order_dim: int = 0
     ) -> pd.DataFrame:
         """Build DataFrame for multiple variables.
-        
-        Creates a DataFrame where each row is a unique coordinate with
-        separate columns for each variable's observations.
-        
+
+        One row per occupied coordinate, with a column per variable and NaN
+        where a variable has no value there.
+
+        Rows are ordered by coordinate, ``order_dim`` slowest. The previous
+        implementation emitted them in the order coordinates were discovered
+        while looping over variables, which is not a function of the data, so
+        serial and chunked runs produced different orderings of the same rows.
+        It also re-masked the whole record array once per row, costing
+        O(num_obs x grid_points); this is vectorised.
+
         Args:
             records: Dictionary mapping variable names to record arrays
             coordinates: Dictionary mapping dimension names to coordinate arrays
             num_vars: Number of variables
             num_dims: Number of dimensions
-            
+            order_dim: Dimension to vary slowest in the row order
+
         Returns:
             DataFrame with one row per unique coordinate location
         """
-        coord_to_obs = {}
-        
+        names = list(coordinates)
+        axes = ParquetBuilder._row_axes(num_dims, order_dim)
+        reordered_shape = tuple(len(coordinates[names[dim]]) for dim in axes)
+
+        flats, values = [], []
         for var_idx in range(num_vars):
-            var_name = f"var{var_idx}"
-            record = records[var_name]
-            
-            non_nan_mask = ~np.isnan(record)
-            non_nan_indices = np.where(non_nan_mask)
-            
-            for obs_idx in range(len(non_nan_indices[0])):
-                full_coords = []
-                for dim_idx in range(num_dims):
-                    coord_name = f"x{dim_idx}"
-                    coord_val = coordinates[coord_name][
-                        non_nan_indices[dim_idx][obs_idx]
-                    ]
-                    full_coords.append(coord_val)
-                
-                coord_tuple = tuple(full_coords)
-                
-                if coord_tuple not in coord_to_obs:
-                    coord_to_obs[coord_tuple] = {}
-                
-                coord_to_obs[coord_tuple][var_name] = record[non_nan_mask][obs_idx]
-        
-        rows = []
-        for coord_tuple, var_obs in coord_to_obs.items():
-            row = {}
-            for dim_idx in range(num_dims):
-                coord_name = f"x{dim_idx}"
-                row[coord_name] = coord_tuple[dim_idx]
-            
-            for var_idx in range(num_vars):
-                var_name = f"var{var_idx}"
-                row[var_name] = var_obs.get(var_name, pd.NA)
-            
-            rows.append(row)
-        
-        return pd.DataFrame(rows)
+            record = np.moveaxis(records[f"var{var_idx}"], axes, range(num_dims))
+            mask = ~np.isnan(record)
+            indices = np.where(mask)
+            flats.append(np.ravel_multi_index(indices, reordered_shape)
+                         if indices[0].size else np.empty(0, dtype=np.int64))
+            values.append(record[mask])
+
+        occupied = np.unique(np.concatenate(flats)) if flats else np.empty(0, dtype=np.int64)
+        unravelled = np.unravel_index(occupied, reordered_shape)
+
+        columns = {}
+        for position, dim in enumerate(axes):
+            columns[names[dim]] = coordinates[names[dim]][unravelled[position]]
+        columns = {name: columns[name] for name in names}
+
+        for var_idx in range(num_vars):
+            column = np.full(occupied.size, np.nan)
+            if flats[var_idx].size:
+                column[np.searchsorted(occupied, flats[var_idx])] = values[var_idx]
+            columns[f"var{var_idx}"] = column
+
+        return pd.DataFrame(columns)
+
+    @staticmethod
+    def cast_values(dataframe, var_encodings: list = None):
+        """Cast the value columns to the type netCDF stores.
+
+        A variable packed to int16 on the netCDF side is stored decoded here,
+        as float32: packing is a netCDF device for a format without per-column
+        encodings, while parquet's idiom is the natural type. Casting keeps the
+        two formats holding the same numbers, so a size comparison is about the
+        formats rather than about their default precisions.
+
+        Args:
+            dataframe: Frame with columns ``record`` or ``var0..varN``
+            var_encodings: One VariableEncoding per variable, or None
+
+        Returns:
+            The frame, with value columns cast
+        """
+        if not var_encodings:
+            return dataframe
+        for index, encoding in enumerate(var_encodings):
+            for column in (f"var{index}", "record" if index == 0 else None):
+                if column and column in dataframe.columns:
+                    dataframe[column] = dataframe[column].astype(
+                        encoding.pandas_dtype()
+                    )
+        return dataframe
 
     @staticmethod
     def save_to_file(
         dataframe: pd.DataFrame | dd.DataFrame,
         filepath: str,
         overwrite: bool = False,
-        chunk_id: int = None
+        chunk_id: int = None,
+        write_metadata: bool = None,
+        compression: CompressionSettings = None,
+        var_encodings: list = None
     ) -> None:
         """Save DataFrame to Parquet file.
         
@@ -137,12 +181,25 @@ class ParquetBuilder:
             filepath: Path to save file (or directory for dask)
             overwrite: Whether to overwrite existing file
             chunk_id: Optional chunk ID for parallel generation
+            write_metadata: Whether to write the `_metadata` summary files.
+                Defaults to "only when this is not a chunk". Parallel workers
+                pass False explicitly: they write into a shared scratch
+                directory, and several processes writing `_metadata` at once
+                race for the same two filenames.
+            compression: Codec to apply, shared with the netCDF output. None
+                writes uncompressed -- which must be said explicitly, because
+                dask's own default is Snappy.
+            var_encodings: One VariableEncoding per variable. The value
+                columns are cast to match what netCDF stores, so the two
+                formats hold the same numbers in the same precision.
             
         Raises:
             FileExistsError: If file exists and overwrite is False
         """
         import os
         
+        dataframe = ParquetBuilder.cast_values(dataframe, var_encodings)
+
         # Convert pandas to dask if needed
         if isinstance(dataframe, pd.DataFrame):
             ddf = dd.from_pandas(dataframe, npartitions=1)
@@ -195,16 +252,21 @@ class ParquetBuilder:
         
         # For parallel generation, don't write metadata file
         # (will be written when chunks are merged)
-        write_metadata = (chunk_id is None)
+        if write_metadata is None:
+            write_metadata = (chunk_id is None)
         
         # Save to parquet (overwrite=False to avoid deleting other chunks)
+        compression_kwargs = (
+            compression.parquet_kwargs() if compression else {"compression": None}
+        )
         ddf.to_parquet(
             dirpath,
             engine="pyarrow",
             name_function=name_function,
             append=False,
             overwrite=False,  # Never overwrite at dask level for chunks
-            write_metadata_file=write_metadata
+            write_metadata_file=write_metadata,
+            **compression_kwargs
         )
         
         print(f"Saved to {dirpath}/{filename}_*.parquet")

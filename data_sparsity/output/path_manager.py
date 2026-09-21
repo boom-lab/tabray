@@ -148,9 +148,47 @@ class PathManager:
             parquet_filepath, overwrite
         )
 
-        print(f"Setting up temporary parquet paths {parquet_tmp}")
-        parquet_tmp = PathManager.prepare_parquet_path(
-            parquet_tmp, overwrite
-        )
-        
+        # parquet_tmp names the scratch DIRECTORY itself, not a file inside
+        # one -- taking its dirname lands on the real output directory, which
+        # the scratch cleanup then deletes.
+        print(f"Setting up temporary parquet directory {parquet_tmp}")
+        os.makedirs(parquet_tmp, exist_ok=True)
+
         return netcdf_filepath, parquet_filepath, parquet_tmp
+
+    SCRATCH_PATTERNS = ("chunk_", "_metadata", "_common_metadata")
+
+    @staticmethod
+    def remove_scratch_dir(dir_path: str) -> bool:
+        """Delete a scratch directory, but only if it holds nothing else.
+
+        Refuses to remove anything containing a file this run did not write, or
+        a subdirectory. A mistyped path then fails loudly instead of destroying
+        data: the previous code called shutil.rmtree on whatever it was given.
+
+        Args:
+            dir_path: Directory to remove
+
+        Returns:
+            True if it was removed, False if it was kept
+        """
+        import shutil
+
+        if not dir_path or not os.path.isdir(dir_path):
+            return False
+        unexpected = []
+        for entry in os.listdir(dir_path):
+            full = os.path.join(dir_path, entry)
+            if os.path.isdir(full):
+                unexpected.append(entry + "/")
+            elif not entry.startswith(PathManager.SCRATCH_PATTERNS):
+                unexpected.append(entry)
+        if unexpected:
+            print(
+                f"Keeping {dir_path}: it holds files this run did not write "
+                f"({', '.join(sorted(unexpected)[:5])}). Remove it by hand if "
+                "that is what you want."
+            )
+            return False
+        shutil.rmtree(dir_path)
+        return True

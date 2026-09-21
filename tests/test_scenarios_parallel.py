@@ -96,7 +96,7 @@ class TestScenariosParallel:
         result = gen.generate(
             netcdf_filepath=os.path.join(temp_dir, "test_1a_p.nc"),
             parquet_filepath=os.path.join(temp_dir, "test_1a_p.parquet"),
-            parquet_tmp=os.path.join(temp_dir, "tmp_1a_p", "chunk.parquet")
+            parquet_tmp=os.path.join(temp_dir, "tmp_1a_p")
         )
         assert result == (None, None), "Parallel generation should return (None, None)"
         
@@ -145,7 +145,7 @@ class TestScenariosParallel:
         result = gen.generate(
             netcdf_filepath=os.path.join(temp_dir, "test_1b_p.nc"),
             parquet_filepath=os.path.join(temp_dir, "test_1b_p.parquet"),
-            parquet_tmp=os.path.join(temp_dir, "tmp_1b_p", "chunk.parquet")
+            parquet_tmp=os.path.join(temp_dir, "tmp_1b_p")
         )
         assert result == (None, None)
         
@@ -202,7 +202,7 @@ class TestScenariosParallel:
         result = gen.generate(
             netcdf_filepath=os.path.join(temp_dir, "test_1c_p.nc"),
             parquet_filepath=os.path.join(temp_dir, "test_1c_p.parquet"),
-            parquet_tmp=os.path.join(temp_dir, "tmp_1c_p", "chunk.parquet")
+            parquet_tmp=os.path.join(temp_dir, "tmp_1c_p")
         )
         assert result == (None, None)
         
@@ -264,7 +264,7 @@ class TestScenariosParallel:
         result = gen.generate(
             netcdf_filepath=os.path.join(temp_dir, "test_2b_p.nc"),
             parquet_filepath=os.path.join(temp_dir, "test_2b_p.parquet"),
-            parquet_tmp=os.path.join(temp_dir, "tmp_2b_p", "chunk.parquet")
+            parquet_tmp=os.path.join(temp_dir, "tmp_2b_p")
         )
         assert result == (None, None)
         
@@ -318,7 +318,7 @@ class TestScenariosParallel:
         result = gen.generate(
             netcdf_filepath=os.path.join(temp_dir, "test_2c_p.nc"),
             parquet_filepath=os.path.join(temp_dir, "test_2c_p.parquet"),
-            parquet_tmp=os.path.join(temp_dir, "tmp_2c_p", "chunk.parquet")
+            parquet_tmp=os.path.join(temp_dir, "tmp_2c_p")
         )
         assert result == (None, None)
         
@@ -398,7 +398,7 @@ class TestScenariosParallel:
         result = gen.generate(
             netcdf_filepath=os.path.join(temp_dir, "test_3a_p.nc"),
             parquet_filepath=os.path.join(temp_dir, "test_3a_p.parquet"),
-            parquet_tmp=os.path.join(temp_dir, "tmp_3a_p", "chunk.parquet")
+            parquet_tmp=os.path.join(temp_dir, "tmp_3a_p")
         )
         assert result == (None, None)
         
@@ -461,7 +461,7 @@ class TestScenariosParallel:
         result = gen.generate(
             netcdf_filepath=os.path.join(temp_dir, "test_3b_p.nc"),
             parquet_filepath=os.path.join(temp_dir, "test_3b_p.parquet"),
-            parquet_tmp=os.path.join(temp_dir, "tmp_3b_p", "chunk.parquet")
+            parquet_tmp=os.path.join(temp_dir, "tmp_3b_p")
         )
         assert result == (None, None)
         
@@ -521,7 +521,7 @@ class TestScenariosParallel:
         result = gen.generate(
             netcdf_filepath=os.path.join(temp_dir, "test_3c_p.nc"),
             parquet_filepath=os.path.join(temp_dir, "test_3c_p.parquet"),
-            parquet_tmp=os.path.join(temp_dir, "tmp_3c_p", "chunk.parquet")
+            parquet_tmp=os.path.join(temp_dir, "tmp_3c_p")
         )
         assert result == (None, None)
         
@@ -576,3 +576,55 @@ class TestScenariosParallel:
         
         assert len(dataframe['record']) == len(dataframe['record'].unique())
         assert not dataframe.isnull().any().any()
+
+
+class TestMergedNetCDFIsByteReproducible:
+    """The merged netCDF must be identical on disk between identical runs.
+
+    Three variables, because the failure is multi-variable only: writing them
+    in one to_netcdf call lets HDF5 allocate them in completion order.
+    docs/parallel_architecture_change.md, "Writing the merged file".
+    """
+
+    @staticmethod
+    def generate(tmp_path, run):
+        """Run one multi-variable parallel generation with the merge on."""
+        out = tmp_path / f"run{run}"
+        (out / "nc").mkdir(parents=True)
+        (out / "pq").mkdir(parents=True)
+        gen = GenerateData(
+            num_obs=900, num_dims=3, ratio_dims=(1, 1, 1),
+            density=[0.4, 0.3, 0.2], seed=8, num_vars=3,
+            overlap=[0.5, 0.3], max_obs=400,
+        )
+        gen.generate(
+            netcdf_filepath=str(out / "nc" / "d.nc"),
+            parquet_filepath=str(out / "pq" / "d.parquet"),
+            merge_nc=True,
+        )
+        return out / "nc" / "d.nc"
+
+    def test_two_identical_runs_produce_identical_bytes(self, tmp_path):
+        first = self.generate(tmp_path, 0).read_bytes()
+        second = self.generate(tmp_path, 1).read_bytes()
+        assert first == second, (
+            "merged netCDF differs between identical runs; the merge is "
+            "probably writing all variables in one to_netcdf call again"
+        )
+
+    def test_merged_file_holds_every_variable(self, tmp_path):
+        """The mode='w' then mode='a' sequence must not drop a variable."""
+        merged = self.generate(tmp_path, 2)
+        with xr.open_dataset(merged) as ds:
+            assert sorted(ds.data_vars) == ["var0", "var1", "var2"]
+            assert sorted(ds.coords) == ["x0", "x1", "x2"]
+            for name in ds.data_vars:
+                assert np.isfinite(ds[name].values).any(), f"{name} is all NaN"
+
+    def test_merged_file_keeps_dataset_attributes(self, tmp_path):
+        """mode='a' must not drop the attributes written by the first call."""
+        merged = self.generate(tmp_path, 3)
+        with xr.open_dataset(merged) as ds:
+            assert "num_obs" in ds.attrs
+            assert "density" in ds.attrs
+            assert "chunk_id" not in ds.attrs
