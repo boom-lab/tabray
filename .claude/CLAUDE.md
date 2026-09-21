@@ -67,6 +67,17 @@ GenerateData.generate  ->  generators/   CoordinateGenerator, MultiVarRecordGene
   - variable that drops a dim: `round(t_i * p_j)` per stratum, because `p_j` depends on where var0 landed and a worker cannot see other chunks.
 - `fixed_overlap=True`: opted-in variables draw from one shared permutation of reference sites, so they also overlap each other.
 
+### Layout
+
+`layout` (`"scattered"` default, or `"padded"`) and `padded_dim` set where occupied cells sit; `density` sets how many. Reasons and measurements: `docs/layout_plan.md`.
+
+- `padded`: `RecordGenerator.generate_padded_indices`. A line (one combination of the dims other than split and padded) holds positions `0..k-1` of the padded axis.
+- Coverage comes from the construction, not the LHS stage, which `padded` skips: every line holds an observation; one line runs the full length.
+- Minimum density = `(prod(shape)/n_padded + n_padded - 1) / prod(shape)` (`compute_min_density(..., padded_dim)`).
+- `overlap` raises under `padded`: every variable fills a prefix of one axis, so F1 is the ratio of the densities.
+- The padded axis cannot be `dim_split` (`_choose_split_dim` excludes it).
+- Stratum counts: `padded_stratum_counts`, lognormal weights capped per stratum (`ChunkUtils.apportion(..., capacity)`), one stratum raised to carry the full-length line.
+
 ### Per-variable encoding
 
 `dtype`, `pack`, `fill_value`, `value_range` → `VariableEncoding` (`output/variable_encoding.py`). Reasons: `docs/variable_encoding.md`.
@@ -92,6 +103,7 @@ Every RNG comes from `stream(seed, tag, *index)` (`utils/streams.py`); tags live
 | `CONST_COORD` | variable, constant dim | a variable's coordinate on a constant dim |
 | `VAR` | variable, stratum | per-variable placement |
 | `SHARED_OVERLAP` | — | the shared ordering behind `fixed_overlap` |
+| `PADDED` | — | the spread of per-stratum counts under `layout="padded"` |
 
 - No tuple contains a chunk id: serial and workers derive the same generator for the same purpose.
 - Chunks slice the global sorted coordinate axis by index; they never advance a stream.

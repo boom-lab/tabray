@@ -83,6 +83,8 @@ class GenerateData:
         pack: Union[str, List, Tuple, None] = None,
         fill_value: Union[float, List, Tuple, None] = None,
         value_range: Union[List, Tuple, None] = None,
+        layout: str = "scattered",
+        padded_dim: int = None,
     ) -> None:
         """Initialize the data generator with validation.
 
@@ -122,6 +124,8 @@ class GenerateData:
             "overlap": overlap,
             "num_vars": num_vars,
             "var_dims": var_dims,
+            "layout": layout,
+            "padded_dim": padded_dim,
         }
 
         # Store parameters as instance variables
@@ -152,6 +156,37 @@ class GenerateData:
             self.num_vars,
             value_range,
         )
+
+        # How the occupied cells are arranged, which density says nothing
+        # about. docs/layout_plan.md explains why it matters.
+        if layout not in ("scattered", "padded"):
+            raise ValueError(f"Unknown layout {layout!r}. Use 'scattered' or 'padded'.")
+        self.layout = layout
+        if layout == "padded":
+            if num_dims < 2:
+                raise ValueError(
+                    "layout='padded' needs at least two dimensions: one to "
+                    "index the runs, one for them to extend along."
+                )
+            if padded_dim is None:
+                padded_dim = num_dims - 1
+            padded_dim = int(padded_dim)
+            if not 0 <= padded_dim < num_dims:
+                raise ValueError(
+                    f"padded_dim {padded_dim} is not a dimension of a "
+                    f"{num_dims}-dimensional grid."
+                )
+            if overlap is not None and not (
+                isinstance(overlap, str) and overlap == "random"
+            ):
+                raise ValueError(
+                    "overlap cannot be set with layout='padded'. With every "
+                    "variable filling a prefix of the same axis the "
+                    "intersection is min(k_0, k_i), so F1 is the ratio of the "
+                    "densities and no target can be honoured. The achieved "
+                    "value is in the generation report."
+                )
+        self.padded_dim = padded_dim
         self._resolve_density_input()
 
         self._print_input_config()
@@ -324,7 +359,8 @@ class GenerateData:
 
         # Check that density is larger than minimum allowed for this set of parameters
         self.density_zero = SparsityValidator.compute_min_density(
-            self.nb_coords_per_dim
+            self.nb_coords_per_dim,
+            self.padded_dim if self.layout == "padded" else None,
         )
         density_for_grid = SparsityValidator.validate_density_bounds(
             density_for_grid,
@@ -369,6 +405,10 @@ class GenerateData:
         shared = set(range(self.num_dims))
         for varying in self.var_dims_indices:
             shared &= set(varying)
+        # A stratum holds one index of the split dimension, so the padded
+        # axis cannot be it -- a prefix along it would be a single cell.
+        if getattr(self, "layout", "scattered") == "padded":
+            shared -= {self.padded_dim}
         if not shared:
             raise ValueError(
                 "No dimension is shared by every variable, so the grid cannot "
@@ -529,6 +569,8 @@ class GenerateData:
             self.seed,
             self.dim_split,
             fixed_overlap=self.fixed_overlap,
+            layout=self.layout,
+            padded_dim=self.padded_dim,
         )
 
         self._records = records
@@ -856,6 +898,8 @@ class GenerateData:
                     "var_packs": [e.pack for e in self.var_encodings],
                     "var_fill_values": [e.fill_value for e in self.var_encodings],
                     "var_value_ranges": [e.value_range for e in self.var_encodings],
+                    "layout": self.layout,
+                    "padded_dim": self.padded_dim,
                 }
                 chunk_args.append(args)
         else:
@@ -898,6 +942,8 @@ class GenerateData:
                     "var_packs": [e.pack for e in self.var_encodings],
                     "var_fill_values": [e.fill_value for e in self.var_encodings],
                     "var_value_ranges": [e.value_range for e in self.var_encodings],
+                    "layout": self.layout,
+                    "padded_dim": self.padded_dim,
                 }
                 chunk_args.append(args)
 

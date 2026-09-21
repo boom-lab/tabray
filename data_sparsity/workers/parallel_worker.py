@@ -86,6 +86,8 @@ def generate_chunk(
     var_packs: Union[str, List, None] = None,
     var_fill_values: Union[float, List, None] = None,
     var_value_ranges: Union[List, None] = None,
+    layout: str = "scattered",
+    padded_dim: Optional[int] = None,
 ) -> Tuple[int, int, str, dict]:
     """Generate a single chunk of data in parallel.
 
@@ -125,6 +127,8 @@ def generate_chunk(
         var_packs: Integer type to pack each variable into, or one for all
         var_fill_values: Fill value per variable, or one for all
         var_value_ranges: (min, max) per variable, or one for all
+        layout: How the occupied cells are arranged
+        padded_dim: The axis prefixes run along under layout='padded'
 
     Returns:
         Tuple of (chunk_id, total_observations, parquet_chunk_path,
@@ -194,6 +198,8 @@ def generate_chunk(
             lhs_shape=list(shape),  # Pass global shape for LHS
             num_obs_global=num_obs_global,  # Pass global observation count
             div_points=div_points,  # Pass division points for chunk filtering
+            layout=layout,
+            padded_dim=padded_dim,
         )
 
         # Round to what the encoding can store, before either format is
@@ -291,6 +297,8 @@ def generate_chunk(
             div_points=div_points,  # which strata belong to this chunk
             num_obs_global=num_obs_global,
             fixed_overlap=fixed_overlap,
+            layout=layout,
+            padded_dim=padded_dim,
         )
 
         for var_idx, encoding in enumerate(var_encodings):

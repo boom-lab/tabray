@@ -18,6 +18,7 @@ class ChunkUtils:
     def apportion(
         total: int,
         weights: ArrayLike,
+        capacity: ArrayLike = None,
     ) -> np.ndarray:
         """Split an integer total across bins in proportion to weights.
 
@@ -33,12 +34,18 @@ class ChunkUtils:
         one only when that floor is below the exact share. Callers pass the
         free sites per bin and never more observations than sites.
 
+        With weights that are not capacities -- the padded layout's lognormal
+        spread -- pass ``capacity``: units that do not fit a bin go to bins
+        with room, in proportion to that room.
+
         Args:
             total: Integer amount to distribute
             weights: Relative weight of each bin
+            capacity: Optional per-bin upper bound
 
         Returns:
-            Integer array summing to ``total``
+            Integer array summing to ``total``, or to the total capacity if
+            that is smaller
         """
         weights = np.asarray(weights, dtype=float)
         total = int(total)
@@ -51,7 +58,23 @@ class ChunkUtils:
         if deficit > 0:
             for idx in np.argsort(raw - counts)[::-1][:deficit]:
                 counts[idx] += 1
-        return counts
+        if capacity is None:
+            return counts
+
+        cap = np.asarray(capacity, dtype=np.int64)
+        while True:
+            overflow = int(np.maximum(counts - cap, 0).sum())
+            counts = np.minimum(counts, cap)
+            if overflow <= 0:
+                return counts
+            room = cap - counts
+            if room.sum() <= 0:
+                return counts
+            counts = counts + ChunkUtils.apportion(
+                min(overflow, int(room.sum())),
+                room,
+                room,
+            )
 
     @staticmethod
     def get_observations_per_chunk(
