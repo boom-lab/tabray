@@ -10,6 +10,23 @@ The distribution is named `tabray` (`pyproject.toml`); the import package is `da
 
 ## Commands
 
+**One importable copy of `data_sparsity`, always.** The conda env `tabray` is the environment:
+it is an editable install, so it imports the working tree from any directory. Run everything
+through it — `$(conda info --base)/envs/tabray/bin/python -m pytest` — and not through a bare
+`python`, which on this machine resolves to pyenv 3.12.4 and carries two installs that shadow the
+working tree: a non-editable `tabray` copy in its site-packages and a stale editable
+`data_sparsity` pointing at a sibling project. From anywhere but the repo root that interpreter
+imports an August 2026 snapshot with none of `layout`, `compression`, `dtype`, `pack` or
+`value_range`, and nothing in the output says so. `pip uninstall tabray data_sparsity` followed by
+one `pip install -e .` clears it.
+
+The two interpreters also differ in what the libraries can do, so a capability is a property of
+the environment and not of the package: the conda env reports
+`netCDF4.__has_zstandard_support__ = 1` and has no scipy, pyenv reports 0 and has scipy. Anything
+that turns on a codec or reaches for scipy has to check rather than assume, and a measurement
+should say which interpreter produced it. The conda env runs Python 3.14t, the free-threaded
+build.
+
 ```bash
 # environment (conda, installs the package editable via pip)
 conda env create -f environment.yml && conda activate tabray
