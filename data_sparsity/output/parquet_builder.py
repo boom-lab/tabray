@@ -34,7 +34,7 @@ class ParquetBuilder:
     def extract_non_nan_points(
         record: np.ndarray,
         coordinates: Dict[str, np.ndarray],
-        order_dim: int = 0
+        order_dim: int = 0,
     ) -> pd.DataFrame:
         """Extract non-NaN points from record as DataFrame.
 
@@ -48,14 +48,18 @@ class ParquetBuilder:
         """
         names = list(coordinates)
         axes = ParquetBuilder._row_axes(len(names), order_dim)
-        non_nan_indices = np.where(~np.isnan(np.moveaxis(record, axes, range(len(axes)))))
+        non_nan_indices = np.where(
+            ~np.isnan(np.moveaxis(record, axes, range(len(axes))))
+        )
 
         data_dict = {}
         for position, dim in enumerate(axes):
             data_dict[names[dim]] = coordinates[names[dim]][non_nan_indices[position]]
         # restore x0..xN column order
         data_dict = {name: data_dict[name] for name in names}
-        data_dict["record"] = np.moveaxis(record, axes, range(len(axes)))[non_nan_indices]
+        data_dict["record"] = np.moveaxis(record, axes, range(len(axes)))[
+            non_nan_indices
+        ]
 
         return pd.DataFrame(data_dict)
 
@@ -63,7 +67,7 @@ class ParquetBuilder:
     def build_single_var_dataframe(
         record: np.ndarray,
         coordinates: Dict[str, np.ndarray],
-        order_dim: int = 0
+        order_dim: int = 0,
     ) -> pd.DataFrame:
         """Build DataFrame for single variable.
 
@@ -83,7 +87,7 @@ class ParquetBuilder:
         coordinates: Dict[str, np.ndarray],
         num_vars: int,
         num_dims: int,
-        order_dim: int = 0
+        order_dim: int = 0,
     ) -> pd.DataFrame:
         """Build DataFrame for multiple variables.
 
@@ -116,11 +120,16 @@ class ParquetBuilder:
             record = np.moveaxis(records[f"var{var_idx}"], axes, range(num_dims))
             mask = ~np.isnan(record)
             indices = np.where(mask)
-            flats.append(np.ravel_multi_index(indices, reordered_shape)
-                         if indices[0].size else np.empty(0, dtype=np.int64))
+            flats.append(
+                np.ravel_multi_index(indices, reordered_shape)
+                if indices[0].size
+                else np.empty(0, dtype=np.int64)
+            )
             values.append(record[mask])
 
-        occupied = np.unique(np.concatenate(flats)) if flats else np.empty(0, dtype=np.int64)
+        occupied = (
+            np.unique(np.concatenate(flats)) if flats else np.empty(0, dtype=np.int64)
+        )
         unravelled = np.unravel_index(occupied, reordered_shape)
 
         columns = {}
@@ -143,7 +152,7 @@ class ParquetBuilder:
         overwrite: bool = False,
         chunk_id: int = None,
         write_metadata: bool = None,
-        compression: CompressionSettings = None
+        compression: CompressionSettings = None,
     ) -> None:
         """Save DataFrame to Parquet file.
 
@@ -178,14 +187,14 @@ class ParquetBuilder:
 
         # Handle case where filepath has no directory component
         if not dirpath:
-            dirpath = '.'
+            dirpath = "."
 
         # Remove .parquet extension if present for directory-based storage
-        if filename.endswith('.parquet'):
+        if filename.endswith(".parquet"):
             filename = filename[:-8]
 
         if not filename:
-            filename = 'data'
+            filename = "data"
 
         # Add chunk_id to filename if provided
         if chunk_id is not None:
@@ -193,6 +202,7 @@ class ParquetBuilder:
 
         # Create name function for partition files
         nb_digits = len(str(ddf.npartitions))
+
         def name_function(partition_idx: int) -> str:
             """Generate filename for a parquet partition."""
             return f"{filename}_{partition_idx:0{nb_digits}d}.parquet"
@@ -201,8 +211,9 @@ class ParquetBuilder:
         if os.path.exists(dirpath) and not overwrite:
             # Check if any files matching the pattern exist
             existing_files = [
-                f for f in os.listdir(dirpath)
-                if f.startswith(filename) and f.endswith('.parquet')
+                f
+                for f in os.listdir(dirpath)
+                if f.startswith(filename) and f.endswith(".parquet")
             ]
             if existing_files:
                 raise FileExistsError(
@@ -213,13 +224,13 @@ class ParquetBuilder:
         # For parallel generation with chunk_id, delete only files for this chunk
         if chunk_id is not None and overwrite and os.path.exists(dirpath):
             for f in os.listdir(dirpath):
-                if f.startswith(filename) and f.endswith('.parquet'):
+                if f.startswith(filename) and f.endswith(".parquet"):
                     os.remove(os.path.join(dirpath, f))
 
         # For parallel generation, don't write metadata file
         # (will be written when chunks are merged)
         if write_metadata is None:
-            write_metadata = (chunk_id is None)
+            write_metadata = chunk_id is None
 
         # Save to parquet (overwrite=False to avoid deleting other chunks)
         compression_kwargs = (
@@ -232,7 +243,7 @@ class ParquetBuilder:
             append=False,
             overwrite=False,  # Never overwrite at dask level for chunks
             write_metadata_file=write_metadata,
-            **compression_kwargs
+            **compression_kwargs,
         )
 
         print(f"Saved to {dirpath}/{filename}_*.parquet")

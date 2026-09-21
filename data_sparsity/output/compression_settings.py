@@ -36,9 +36,9 @@ class CompressionSettings:
     PARQUET_ONLY = ("snappy", "zstd", "lz4", "brotli")
 
     def __init__(
-            self,
-            codec: Optional[str] = None,
-            level: int = 4,
+        self,
+        codec: Optional[str] = None,
+        level: int = 4,
     ) -> None:
         """Validate and store the codec.
 
@@ -94,9 +94,7 @@ class CompressionSettings:
             names = [data.name] if data.name is not None else []
         else:
             names = list(data.data_vars)
-        return {
-            name: {"zlib": True, "complevel": self.level} for name in names
-        }
+        return {name: {"zlib": True, "complevel": self.level} for name in names}
 
     def parquet_kwargs(self) -> dict:
         """Keyword arguments for ``to_parquet``.
@@ -104,9 +102,10 @@ class CompressionSettings:
         Passing ``compression=None`` explicitly matters: dask's own default is
         Snappy, so leaving it out is what made the two formats incomparable.
         """
-        return {"compression": self.codec, **(
-            {"compression_level": self.level} if self.enabled else {}
-        )}
+        return {
+            "compression": self.codec,
+            **({"compression_level": self.level} if self.enabled else {}),
+        }
 
     def __repr__(self) -> str:
         if not self.enabled:
@@ -117,5 +116,6 @@ class CompressionSettings:
         if not isinstance(other, CompressionSettings):
             return NotImplemented
         return (self.codec, self.enabled and self.level) == (
-            other.codec, other.enabled and other.level
+            other.codec,
+            other.enabled and other.level,
         )

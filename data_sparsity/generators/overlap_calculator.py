@@ -18,7 +18,7 @@ class OverlapCalculator:
     @staticmethod
     def extract_coordinate_set(
         record: np.ndarray,
-        num_dims: int
+        num_dims: int,
     ) -> Set[Tuple[int, ...]]:
         """Extract set of indices of coordinates where observations exist.
 
@@ -34,8 +34,7 @@ class OverlapCalculator:
         coords_set = set()
         for obs_idx in range(len(non_nan_indices[0])):
             coord_tuple = tuple(
-                non_nan_indices[dim_idx][obs_idx]
-                for dim_idx in range(num_dims)
+                non_nan_indices[dim_idx][obs_idx] for dim_idx in range(num_dims)
             )
             coords_set.add(coord_tuple)
 
@@ -44,7 +43,7 @@ class OverlapCalculator:
     @staticmethod
     def project_coordinates(
         coords_set: Set[Tuple[int, ...]],
-        dimensions: List[int]
+        dimensions: List[int],
     ) -> Set[Tuple[int, ...]]:
         """Project coordinates onto specific dimensions.
 
@@ -68,7 +67,7 @@ class OverlapCalculator:
         num_vars: int,
         num_dims: int,
         var_dims_indices: Optional[List[List[int]]] = None,
-        ref_var: str = "var0"
+        ref_var: str = "var0",
     ) -> Dict[str, np.ndarray]:
         """Measure overlap against the reference variable, both conventions.
 
@@ -111,7 +110,8 @@ class OverlapCalculator:
         for var_idx in range(1, num_vars):
             dims = list(var_dims_indices[var_idx])
             var_full = OverlapCalculator.extract_coordinate_set(
-                records[f"var{var_idx}"], num_dims
+                records[f"var{var_idx}"],
+                num_dims,
             )
             proj_ref = OverlapCalculator.project_coordinates(ref_full, dims)
             proj_var = OverlapCalculator.project_coordinates(var_full, dims)
@@ -134,7 +134,7 @@ class OverlapCalculator:
     @staticmethod
     def print_overlap_report(
         report: Dict[str, np.ndarray],
-        targets: Optional[List] = None
+        targets: Optional[List] = None,
     ) -> None:
         """Print achieved overlap in both conventions.
 
@@ -143,12 +143,17 @@ class OverlapCalculator:
         """
         if report["f1"].size == 0:
             return
-        print("Achieved overlap against var0 "
-              "(F1 = share of var0's sites also carrying the variable; "
-              "F2 = the reverse):")
+        print(
+            "Achieved overlap against var0 "
+            "(F1 = share of var0's sites also carrying the variable; "
+            "F2 = the reverse):"
+        )
         for idx in range(report["f1"].size):
-            target = "" if targets is None or targets[idx] is None \
+            target = (
+                ""
+                if targets is None or targets[idx] is None
                 else f"  target F1 {float(targets[idx]):.4f}"
+            )
             print(
                 f"  var{idx + 1}: F1 {report['f1'][idx]:.4f}   "
                 f"F2 {report['f2'][idx]:.4f}   "

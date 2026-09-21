@@ -37,7 +37,7 @@ class MultiVarSparsityConfig:
     def from_two_element_list(
         density_list: List[float],
         num_vars: int,
-        rng: np.random.Generator
+        rng: np.random.Generator,
     ) -> np.ndarray:
         """Create density array from 2-element list.
 
@@ -66,10 +66,12 @@ class MultiVarSparsityConfig:
         # var0 takes the maximum and some other variable takes the minimum, so
         # both prescribed values appear; with two variables they are exactly
         # the two densities. Any further variables are drawn from the range.
-        others = np.concatenate([
-            [min_density],
-            rng.uniform(min_density, reference_density, size=max(0, num_vars - 2)),
-        ])
+        others = np.concatenate(
+            [
+                [min_density],
+                rng.uniform(min_density, reference_density, size=max(0, num_vars - 2)),
+            ]
+        )
         rng.shuffle(others)
         return np.concatenate([[reference_density], others])
 
@@ -97,7 +99,7 @@ class MultiVarSparsityConfig:
     @staticmethod
     def validate_and_clip(
         var_densities: np.ndarray,
-        density_min: float
+        density_min: float,
     ) -> np.ndarray:
         """Validate density values and clip to minimum if needed.
 
@@ -128,7 +130,7 @@ class MultiVarSparsityConfig:
     @staticmethod
     def compute_var_num_obs(
         var_densities: np.ndarray,
-        num_obs: int
+        num_obs: int,
     ) -> np.ndarray:
         """Compute number of observations for each variable.
 
@@ -153,7 +155,7 @@ class MultiVarSparsityConfig:
         num_vars: int,
         num_obs: int,
         density_min: float,
-        rng: np.random.Generator
+        rng: np.random.Generator,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Setup multi-variable density configuration from parameter.
 
@@ -176,17 +178,21 @@ class MultiVarSparsityConfig:
         """
         if isinstance(density, (float, int)):
             var_densities = MultiVarSparsityConfig.from_scalar(
-                float(density), num_vars
+                float(density),
+                num_vars,
             )
         elif isinstance(density, (list, tuple)):
             density_list = list(density)
             if len(density_list) == 2:
                 var_densities = MultiVarSparsityConfig.from_two_element_list(
-                    density_list, num_vars, rng
+                    density_list,
+                    num_vars,
+                    rng,
                 )
             elif len(density_list) == num_vars:
                 var_densities = MultiVarSparsityConfig.from_full_list(
-                    density_list, num_vars
+                    density_list,
+                    num_vars,
                 )
             else:
                 raise ValueError(
@@ -199,10 +205,12 @@ class MultiVarSparsityConfig:
             )
 
         var_densities = MultiVarSparsityConfig.validate_and_clip(
-            var_densities, density_min
+            var_densities,
+            density_min,
         )
         var_num_obs = MultiVarSparsityConfig.compute_var_num_obs(
-            var_densities, num_obs
+            var_densities,
+            num_obs,
         )
 
         return var_densities, var_num_obs

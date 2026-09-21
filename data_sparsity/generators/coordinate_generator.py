@@ -20,7 +20,7 @@ class CoordinateGenerator:
         shape: List[int],
         rng: np.random.Generator,
         dim_ranges: Optional[Dict[int, Tuple[float, float]]] = None,
-        dim_rngs: Optional[Dict[int, np.random.Generator]] = None
+        dim_rngs: Optional[Dict[int, np.random.Generator]] = None,
     ) -> List[np.ndarray]:
         """Generate coordinates for all dimensions.
 

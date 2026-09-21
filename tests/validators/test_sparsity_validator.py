@@ -17,7 +17,7 @@ class TestComputeMinDensity:
         """On a cubic grid the bound is 1/(n^(d-1)), as derived by hand."""
         nb_coords = np.array([10, 10, 10])
         result = SparsityValidator.compute_min_density(nb_coords)
-        assert result == 1 / (10**(3 - 1))
+        assert result == 1 / (10 ** (3 - 1))
         assert result == 10 / 1000
 
     def test_non_uniform_dimensions(self):
@@ -57,8 +57,16 @@ class TestComputeMinDensity:
         The old bound was 1/nmin**(d-1). Relaxing must not reject anything it
         used to allow, so the new value is never larger.
         """
-        for shape in ([10, 10, 10], [5, 10, 20], [4, 7, 10], [3, 7, 5, 9],
-                      [1000, 2000], [8], [2, 3, 5, 7], [365, 2041, 4320]):
+        for shape in (
+            [10, 10, 10],
+            [5, 10, 20],
+            [4, 7, 10],
+            [3, 7, 5, 9],
+            [1000, 2000],
+            [8],
+            [2, 3, 5, 7],
+            [365, 2041, 4320],
+        ):
             nb_coords = np.array(shape)
             old = 1.0 / (min(shape) ** (len(shape) - 1))
             assert SparsityValidator.compute_min_density(nb_coords) <= old
@@ -118,7 +126,9 @@ class TestValidateNumObsConsistency:
         """Matching num_obs should pass unchanged."""
         nb_coords = np.array([10, 10])
         num_obs, density = SparsityValidator.validate_num_obs_consistency(
-            50, 0.5, nb_coords
+            50,
+            0.5,
+            nb_coords,
         )
         assert num_obs == 50
         assert density == 0.5
@@ -127,7 +137,9 @@ class TestValidateNumObsConsistency:
         """Non-matching num_obs should be adjusted."""
         nb_coords = np.array([10, 10])
         num_obs, density = SparsityValidator.validate_num_obs_consistency(
-            51, 0.5, nb_coords
+            51,
+            0.5,
+            nb_coords,
         )
         assert num_obs == 50
         assert density == 0.5
@@ -136,7 +148,9 @@ class TestValidateNumObsConsistency:
         """Should return integer num_obs."""
         nb_coords = np.array([10, 10])
         num_obs, _ = SparsityValidator.validate_num_obs_consistency(
-            50.7, 0.5, nb_coords
+            50.7,
+            0.5,
+            nb_coords,
         )
         assert isinstance(num_obs, int)
 
@@ -144,7 +158,9 @@ class TestValidateNumObsConsistency:
         """Should return adjusted density."""
         nb_coords = np.array([10, 10])
         num_obs, density = SparsityValidator.validate_num_obs_consistency(
-            55, 0.5, nb_coords
+            55,
+            0.5,
+            nb_coords,
         )
         assert density == pytest.approx(0.5, rel=0.1)
 
@@ -152,7 +168,9 @@ class TestValidateNumObsConsistency:
         """Adjusted density should be in valid bounds."""
         nb_coords = np.array([10, 10])
         _, density = SparsityValidator.validate_num_obs_consistency(
-            50, 0.5, nb_coords
+            50,
+            0.5,
+            nb_coords,
         )
         assert 0.0 <= density <= 1.0
 
@@ -160,7 +178,9 @@ class TestValidateNumObsConsistency:
         """Large grid should work."""
         nb_coords = np.array([100, 100, 100])
         num_obs, density = SparsityValidator.validate_num_obs_consistency(
-            100000, 0.1, nb_coords
+            100000,
+            0.1,
+            nb_coords,
         )
         assert num_obs == 100000
         assert density == 0.1
@@ -169,7 +189,9 @@ class TestValidateNumObsConsistency:
         """Small grid should work."""
         nb_coords = np.array([2, 2])
         num_obs, density = SparsityValidator.validate_num_obs_consistency(
-            2, 0.5, nb_coords
+            2,
+            0.5,
+            nb_coords,
         )
         assert num_obs == 2
         assert density == 0.5
@@ -180,14 +202,18 @@ class TestValidateNumObsConsistency:
         nb_coords = np.array([2, 2])
         with pytest.raises(ValueError, match="out of bounds"):
             SparsityValidator.validate_num_obs_consistency(
-                5, 1.5, nb_coords
+                5,
+                1.5,
+                nb_coords,
             )
 
     def test_density_recalculation_correct(self):
         """Density recalculation should be correct."""
         nb_coords = np.array([10, 10])
         num_obs, density = SparsityValidator.validate_num_obs_consistency(
-            30, 0.3, nb_coords
+            30,
+            0.3,
+            nb_coords,
         )
         expected_density = num_obs / np.prod(nb_coords)
         assert density == pytest.approx(expected_density)

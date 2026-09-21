@@ -36,7 +36,7 @@ class MultiVarDimensionsConfig:
         num_dims: int,
         var_dims: int,
         seed: int,
-        var_idx: int
+        var_idx: int,
     ) -> List[int]:
         """Select random varying dimensions for a variable.
 
@@ -50,9 +50,7 @@ class MultiVarDimensionsConfig:
             Sorted list of dimension indices
         """
         var_rng = stream(seed, Stream.VAR_DIMS, var_idx)
-        dims = sorted(
-            var_rng.choice(num_dims, size=var_dims, replace=False).tolist()
-        )
+        dims = sorted(var_rng.choice(num_dims, size=var_dims, replace=False).tolist())
         return dims
 
     @staticmethod
@@ -60,7 +58,7 @@ class MultiVarDimensionsConfig:
         var_dims: int,
         num_vars: int,
         num_dims: int,
-        seed: int
+        seed: int,
     ) -> List[List[int]]:
         """Create dimension indices from integer specification.
 
@@ -80,9 +78,7 @@ class MultiVarDimensionsConfig:
             ValueError: If var_dims exceeds num_dims
         """
         if var_dims > num_dims:
-            raise ValueError(
-                f"var_dims {var_dims} cannot exceed num_dims {num_dims}"
-            )
+            raise ValueError(f"var_dims {var_dims} cannot exceed num_dims {num_dims}")
 
         if var_dims == num_dims:
             return [list(range(num_dims))] * num_vars
@@ -90,7 +86,10 @@ class MultiVarDimensionsConfig:
         var_dims_indices = []
         for var_idx in range(num_vars):
             dims = MultiVarDimensionsConfig.select_random_dims(
-                num_dims, var_dims, seed, var_idx
+                num_dims,
+                var_dims,
+                seed,
+                var_idx,
             )
             var_dims_indices.append(dims)
 
@@ -101,7 +100,7 @@ class MultiVarDimensionsConfig:
         var_dims_elem: Union[int, List, Tuple],
         var_idx: int,
         num_dims: int,
-        seed: int
+        seed: int,
     ) -> List[int]:
         """Process a single element from var_dims list.
 
@@ -128,7 +127,10 @@ class MultiVarDimensionsConfig:
                 return list(range(num_dims))
             else:
                 return MultiVarDimensionsConfig.select_random_dims(
-                    num_dims, var_dims_elem, seed, var_idx
+                    num_dims,
+                    var_dims_elem,
+                    seed,
+                    var_idx,
                 )
         elif isinstance(var_dims_elem, (list, tuple)):
             dims = list(var_dims_elem)
@@ -158,7 +160,7 @@ class MultiVarDimensionsConfig:
         var_dims: Union[List, Tuple],
         num_vars: int,
         num_dims: int,
-        seed: int
+        seed: int,
     ) -> List[List[int]]:
         """Create dimension indices from list specification.
 
@@ -178,14 +180,16 @@ class MultiVarDimensionsConfig:
         """
         if len(var_dims) != num_vars:
             raise ValueError(
-                f"var_dims list must have {num_vars} elements, "
-                f"got {len(var_dims)}"
+                f"var_dims list must have {num_vars} elements, " f"got {len(var_dims)}"
             )
 
         var_dims_indices = []
         for var_idx, var_dims_elem in enumerate(var_dims):
             dims = MultiVarDimensionsConfig.from_list_element(
-                var_dims_elem, var_idx, num_dims, seed
+                var_dims_elem,
+                var_idx,
+                num_dims,
+                seed,
             )
             var_dims_indices.append(dims)
 
@@ -194,7 +198,7 @@ class MultiVarDimensionsConfig:
     @staticmethod
     def compute_constant_dims(
         var_dims_indices: List[List[int]],
-        num_dims: int
+        num_dims: int,
     ) -> List[List[int]]:
         """Compute which dimensions are constant for each variable.
 
@@ -215,7 +219,7 @@ class MultiVarDimensionsConfig:
     def preselect_constant_coord_indices(
         var_constant_dims: List[List[int]],
         shape: List[int],
-        seed: int
+        seed: int,
     ) -> Dict[int, Dict[int, np.random.Generator]]:
         """Pre-select RNGs for constant coordinate indices.
 
@@ -239,7 +243,10 @@ class MultiVarDimensionsConfig:
                     # Indexed by the dimension too, or a variable constant on
                     # two dimensions picks the same index on both.
                     const_rng_dict[const_dim] = stream(
-                        seed, Stream.CONST_COORD, var_idx, const_dim
+                        seed,
+                        Stream.CONST_COORD,
+                        var_idx,
+                        const_dim,
                     )
                 var_constant_coord_indices[var_idx] = const_rng_dict
             else:
@@ -253,8 +260,10 @@ class MultiVarDimensionsConfig:
         num_vars: int,
         num_dims: int,
         shape: List[int],
-        seed: int
-    ) -> Tuple[List[List[int]], List[List[int]], Dict[int, Dict[int, np.random.Generator]]]:
+        seed: int,
+    ) -> Tuple[
+        List[List[int]], List[List[int]], Dict[int, Dict[int, np.random.Generator]]
+    ]:
         """Setup multi-variable dimension configuration from parameter.
 
         Main entry point that processes var_dims parameter and returns
@@ -275,11 +284,17 @@ class MultiVarDimensionsConfig:
         """
         if isinstance(var_dims, int):
             var_dims_indices = MultiVarDimensionsConfig.from_int(
-                var_dims, num_vars, num_dims, seed
+                var_dims,
+                num_vars,
+                num_dims,
+                seed,
             )
         elif isinstance(var_dims, (list, tuple)):
             var_dims_indices = MultiVarDimensionsConfig.from_list(
-                var_dims, num_vars, num_dims, seed
+                var_dims,
+                num_vars,
+                num_dims,
+                seed,
             )
         else:
             raise TypeError(
@@ -287,10 +302,15 @@ class MultiVarDimensionsConfig:
             )
 
         var_constant_dims = MultiVarDimensionsConfig.compute_constant_dims(
-            var_dims_indices, num_dims
+            var_dims_indices,
+            num_dims,
         )
-        var_constant_coord_indices = MultiVarDimensionsConfig.preselect_constant_coord_indices(
-            var_constant_dims, shape, seed
+        var_constant_coord_indices = (
+            MultiVarDimensionsConfig.preselect_constant_coord_indices(
+                var_constant_dims,
+                shape,
+                seed,
+            )
         )
 
         return var_dims_indices, var_constant_dims, var_constant_coord_indices

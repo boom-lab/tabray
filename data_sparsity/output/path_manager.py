@@ -30,9 +30,7 @@ class PathManager:
         """
         if os.path.exists(folder_path):
             if not os.path.isdir(folder_path):
-                raise NotADirectoryError(
-                    f"{folder_path} exists but is not a directory"
-                )
+                raise NotADirectoryError(f"{folder_path} exists but is not a directory")
             if os.listdir(folder_path):
                 if not overwrite:
                     raise ValueError(f"'{folder_path}' exists but is not empty")
@@ -44,18 +42,18 @@ class PathManager:
                     rm_files = [
                         filename
                         for filename in os.listdir(folder_path)
-                        if filename.endswith('.nc') or
-                           filename.endswith('.parquet') or
-                           filename.endswith('_metadata')
+                        if filename.endswith(".nc")
+                        or filename.endswith(".parquet")
+                        or filename.endswith("_metadata")
                     ]
                     for filename in sorted(rm_files):
                         file_path = os.path.join(folder_path, filename)
                         try:
                             if os.path.isfile(file_path) or os.path.islink(file_path):
                                 os.remove(file_path)
-                                print(f'  Deleted file: {file_path}')
+                                print(f"  Deleted file: {file_path}")
                         except OSError as e:
-                            print(f'Failed to delete {file_path}. Reason: {e}')
+                            print(f"Failed to delete {file_path}. Reason: {e}")
         else:
             try:
                 os.makedirs(folder_path, exist_ok=True)
@@ -76,10 +74,10 @@ class PathManager:
         Raises:
             ValueError: If file exists and overwrite=False
         """
-        if not file_path.endswith('.nc'):
-            if file_path.endswith('/'):
-                file_path = file_path + 'test'
-            file_path = file_path + '.nc'
+        if not file_path.endswith(".nc"):
+            if file_path.endswith("/"):
+                file_path = file_path + "test"
+            file_path = file_path + ".nc"
 
         if os.path.isfile(file_path) and not overwrite:
             raise ValueError(
@@ -134,18 +132,20 @@ class PathManager:
         if parquet_filepath is None:
             parquet_filepath = "./test_parquet/"
         if parquet_tmp is None:
-            parquet_dir = os.path.dirname(parquet_filepath) or '.'
-            parquet_base = os.path.basename(parquet_filepath).replace('.parquet', '')
+            parquet_dir = os.path.dirname(parquet_filepath) or "."
+            parquet_base = os.path.basename(parquet_filepath).replace(".parquet", "")
             parquet_tmp = os.path.join(parquet_dir, f"tmp_{parquet_base}")
 
         print(f"Setting up netcdf paths {netcdf_filepath}")
         netcdf_filepath = PathManager.prepare_netcdf_path(
-            netcdf_filepath, overwrite
+            netcdf_filepath,
+            overwrite,
         )
 
         print(f"Setting up parquet paths {parquet_filepath}")
         parquet_filepath = PathManager.prepare_parquet_path(
-            parquet_filepath, overwrite
+            parquet_filepath,
+            overwrite,
         )
 
         # parquet_tmp names the scratch DIRECTORY itself, not a file inside

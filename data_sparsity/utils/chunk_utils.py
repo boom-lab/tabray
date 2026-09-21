@@ -10,14 +10,15 @@ from numpy.typing import ArrayLike
 
 from data_sparsity.utils.streams import Stream, stream
 
+
 class ChunkUtils:
     """Utilities manager for chunked dataset generation"""
 
     @staticmethod
     def apportion(
-            total: int,
-            weights: ArrayLike,
-            capacity: ArrayLike = None,
+        total: int,
+        weights: ArrayLike,
+        capacity: ArrayLike = None,
     ) -> np.ndarray:
         """Split an integer total across bins in proportion to weights.
 
@@ -63,16 +64,18 @@ class ChunkUtils:
             if room.sum() <= 0:
                 return counts
             counts = counts + ChunkUtils.apportion(
-                min(overflow, int(room.sum())), room, room
+                min(overflow, int(room.sum())),
+                room,
+                room,
             )
 
     @staticmethod
     def get_observations_per_chunk(
-            total_obs: int,
-            shape: tuple,
-            max_dim_size: int,
-            section_sizes: list,
-            density: float,
+        total_obs: int,
+        shape: tuple,
+        max_dim_size: int,
+        section_sizes: list,
+        density: float,
     ) -> tuple[int, float, np.ndarray]:
         """Split the global observation count across chunks.
 
@@ -131,9 +134,9 @@ class ChunkUtils:
 
     @staticmethod
     def get_multi_var_observations_per_chunk(
-            var_num_obs: np.ndarray,
-            max_dim_size: int,
-            section_sizes: list,
+        var_num_obs: np.ndarray,
+        max_dim_size: int,
+        section_sizes: list,
     ) -> List[np.ndarray]:
         """Split per-variable observation counts across chunks.
 
@@ -173,12 +176,17 @@ class ChunkUtils:
             per_var_counts.append(chunk_counts.astype(int))
 
         per_chunk_obs = [
-            np.asarray([per_var_counts[var_idx][chunk_idx] for var_idx in range(len(per_var_counts))], dtype=int)
+            np.asarray(
+                [
+                    per_var_counts[var_idx][chunk_idx]
+                    for var_idx in range(len(per_var_counts))
+                ],
+                dtype=int,
+            )
             for chunk_idx in range(len(section_sizes))
         ]
 
         return per_chunk_obs
-
 
     @staticmethod
     def generate_rngs(seed: int, num_dims: int) -> dict:
@@ -204,9 +212,9 @@ class ChunkUtils:
 
     @staticmethod
     def update_chunk_shape(
-            shape: tuple,
-            dim_split: int,
-            task_size: int,
+        shape: tuple,
+        dim_split: int,
+        task_size: int,
     ) -> tuple:
         """Generate chunk shape by reducing its size along the split dimension"""
 
@@ -216,9 +224,7 @@ class ChunkUtils:
         return task_shape
 
     @staticmethod
-    def validate_chunk_points(
-            task_shape: tuple
-    ) -> int:
+    def validate_chunk_points(task_shape: tuple) -> int:
         """Validate that total chunk points are int"""
 
         total_chunk_points = np.prod(task_shape)
@@ -226,4 +232,3 @@ class ChunkUtils:
             raise ValueError("total_chunk_points must be an int")
 
         return int(total_chunk_points)
-

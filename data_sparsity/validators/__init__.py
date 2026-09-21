@@ -5,7 +5,7 @@ from data_sparsity.validators.dimension_validator import DimensionValidator
 from data_sparsity.validators.sparsity_validator import SparsityValidator
 
 __all__ = [
-    'ParameterValidator',
-    'DimensionValidator',
-    'SparsityValidator',
+    "ParameterValidator",
+    "DimensionValidator",
+    "SparsityValidator",
 ]

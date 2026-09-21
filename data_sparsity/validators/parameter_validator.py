@@ -88,7 +88,7 @@ class ParameterValidator:
     def validate_var_dims(
         var_dims: Union[int, List, Tuple],
         num_vars: int,
-        num_dims: int
+        num_dims: int,
     ) -> float:
         """Check that var_dims is valid:
 
@@ -110,7 +110,7 @@ class ParameterValidator:
         """
 
         if isinstance(var_dims, int):
-            var_dims_update = [var_dims]*num_vars
+            var_dims_update = [var_dims] * num_vars
             if num_dims > var_dims:
                 var_dims_update[0] = num_dims
                 print(
@@ -143,7 +143,9 @@ class ParameterValidator:
                         f"var_dims[0]={list(reference)} but num_dims={num_dims}. "
                         f"Assigning {list(range(num_dims))} to reference variable."
                     )
-            elif isinstance(reference, (int, np.integer)) and not isinstance(reference, bool):
+            elif isinstance(reference, (int, np.integer)) and not isinstance(
+                reference, bool
+            ):
                 if num_dims > reference:
                     var_dims_update[0] = num_dims
                     print(
@@ -158,14 +160,16 @@ class ParameterValidator:
                 )
 
         else:
-            raise TypeError(f"var_dims must be an int, list or tuple, got {type(var_dims)}")
+            raise TypeError(
+                f"var_dims must be an int, list or tuple, got {type(var_dims)}"
+            )
 
         return var_dims_update
 
     @staticmethod
     def validate_ratio_dims(
         ratio_dims: Union[int, ArrayLike],
-        num_dims: int
+        num_dims: int,
     ) -> np.ndarray:
         """Validate and convert ratio_dims to numpy array.
 
@@ -217,9 +221,7 @@ class ParameterValidator:
         return ratio_dims
 
     @staticmethod
-    def validate_density_refvar(
-        density: Union[List, Tuple]
-    ) -> List:
+    def validate_density_refvar(density: Union[List, Tuple]) -> List:
         """Validate density value when a list is provided.
 
         The density of the reference value (position 0) must be the largest,
@@ -258,9 +260,7 @@ class ParameterValidator:
         return density
 
     @staticmethod
-    def validate_density_type(
-        density: Union[int, float, List, Tuple]
-    ) -> float:
+    def validate_density_type(density: Union[int, float, List, Tuple]) -> float:
         """Validate density type and return representative value for grid calculations.
 
         The density at the whole grid level is determined as the maximum value

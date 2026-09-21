@@ -35,7 +35,9 @@ def parquet_disk_size(parquet_path: str) -> int:
         path = path.parent
     if path.is_file():
         return path.stat().st_size
-    return sum(file_path.stat().st_size for file_path in path.rglob("*") if file_path.is_file())
+    return sum(
+        file_path.stat().st_size for file_path in path.rglob("*") if file_path.is_file()
+    )
 
 
 def draw_table(ax, cell_text, col_labels, row_labels=None, title=None):
@@ -104,8 +106,13 @@ def draw_storage_schema(ax, ds, df, var):
     tab_ax = ax.inset_axes([0.02, 0.53, 0.96, 0.34])
     arr_ax = ax.inset_axes([0.02, 0.07, 0.96, 0.34])
 
-    tabular_preview = df[[col for col in df.columns if col.startswith("x") or col == var]].head(occupied_sites)
-    tabular_cell_text = [[format_table_value(value) for value in row] for row in tabular_preview.to_numpy()]
+    tabular_preview = df[
+        [col for col in df.columns if col.startswith("x") or col == var]
+    ].head(occupied_sites)
+    tabular_cell_text = [
+        [format_table_value(value) for value in row]
+        for row in tabular_preview.to_numpy()
+    ]
     draw_table(
         tab_ax,
         tabular_cell_text,
@@ -118,10 +125,9 @@ def draw_storage_schema(ax, ds, df, var):
 
     record = data_var.values
     if record.ndim == 1:
-        array_cell_text = [[
-            "NaN" if np.isnan(value) else f"{value:.3f}"
-            for value in record
-        ]]
+        array_cell_text = [
+            ["NaN" if np.isnan(value) else f"{value:.3f}" for value in record]
+        ]
         draw_table(
             arr_ax,
             array_cell_text,
@@ -141,7 +147,9 @@ def draw_storage_schema(ax, ds, df, var):
             arr_ax,
             array_cell_text,
             [format_table_value(value) for value in ds[data_var.dims[1]].values],
-            row_labels=[format_table_value(value) for value in ds[data_var.dims[0]].values],
+            row_labels=[
+                format_table_value(value) for value in ds[data_var.dims[0]].values
+            ],
             title=(
                 f"Array: {array_coord_values} coordinate values + {array_values} grid values\n"
                 f"empty sites stored as NaN: {array_missing}"
