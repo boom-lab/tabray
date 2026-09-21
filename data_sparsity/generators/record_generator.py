@@ -31,8 +31,6 @@ class RecordGenerator:
         return np.full(shape, np.nan)
 
     @staticmethod
-    @staticmethod
-    @staticmethod
     def assign_observations(
         record: np.ndarray,
         multi_indices: Tuple,

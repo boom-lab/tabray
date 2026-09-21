@@ -61,7 +61,6 @@ class OverlapCalculator:
         return projected
 
     @staticmethod
-    @staticmethod
     def compute_overlap_report(
         records: Dict[str, np.ndarray],
         num_vars: int,
