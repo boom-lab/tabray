@@ -5,6 +5,7 @@ from data_sparsity.output.parquet_builder import ParquetBuilder
 from data_sparsity.output.path_manager import PathManager
 from data_sparsity.output.compression_settings import CompressionSettings
 from data_sparsity.output.variable_encoding import VariableEncoding
+from data_sparsity.output.generation_report import GenerationReport
 
 __all__ = [
     'NetCDFBuilder',
@@ -12,4 +13,5 @@ __all__ = [
     'PathManager',
     'CompressionSettings',
     'VariableEncoding',
+    'GenerationReport',
 ]

@@ -33,6 +33,7 @@ from data_sparsity.generators import (
 )
 from data_sparsity.output import (
     CompressionSettings,
+    GenerationReport,
     VariableEncoding,
     NetCDFBuilder,
     ParquetBuilder,
@@ -113,6 +114,15 @@ class GenerateData:
             TypeError: If arguments are not of expected types
             ValueError: If arguments fail validation checks
         """
+        # What the caller asked for, before validation rewrites any of it.
+        # The report compares against this, so corrections stay visible.
+        self._requested = {
+            'num_obs': num_obs, 'num_dims': num_dims,
+            'ratio_dims': ratio_dims, 'density': density,
+            'sparsity': sparsity, 'overlap': overlap,
+            'num_vars': num_vars, 'var_dims': var_dims,
+        }
+
         # Store parameters as instance variables
         self.num_obs = num_obs
         self.num_dims = num_dims
@@ -801,6 +811,9 @@ class GenerateData:
             self.save_to_netcdf(nc_path, dataarray=dataarray)
             self.save_to_parquet(pq_path, dataframe=dataframe)
 
+            self.report = GenerationReport.from_arrays(self, dataarray, dataframe)
+            print(self.report.render())
+
             return dataarray, dataframe
 
         if self.NTASKS > 1:
@@ -954,6 +967,7 @@ class GenerateData:
         )
         print(f"Starting parallel generation with {max_workers} workers for {self.NTASKS} chunks")
 
+        chunk_summaries = []
         ctx = multiprocessing.get_context("spawn")
         with ProcessPoolExecutor(max_workers=max_workers, mp_context=ctx) as executor:
             futures = [executor.submit(generate_chunk, **args) for args in chunk_args]
@@ -961,7 +975,8 @@ class GenerateData:
             tot_completed = 0
             tot_obs = 0
             for future in as_completed(futures):
-                chunk_id, obs_num, chunk_path = future.result()
+                chunk_id, obs_num, chunk_path, measurements = future.result()
+                chunk_summaries.append(measurements)
                 tot_completed += 1
                 tot_obs += obs_num
                 print(
@@ -970,6 +985,10 @@ class GenerateData:
                 )
 
         print(f"Total obs stored to disk: {tot_obs}.")
+        # Workers measured their own chunk; overlap never spans strata, so
+        # the counts add up and nothing has to be read back from disk.
+        self.report = GenerationReport.from_chunks(self, chunk_summaries)
+        print(self.report.render())
 
         # Consolidate parquet files
         self._consolidate_parquet_files()

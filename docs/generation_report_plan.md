@@ -24,8 +24,11 @@ do not, list the candidates rather than choose.
 | `density` per variable | occupied / grid | differs from the request |
 | `overlap` per variable | F1 and F2 from the occupancy masks | differs from the target |
 | coverage | coordinates used per axis | any coordinate unused |
-| `dtype`, `fill_value`, compression | read back from the file | differs from the request |
-| row consistency | parquet rows against occupied cells | the two formats disagree |
+| row consistency | parquet values against occupied cells, per variable | the two formats disagree |
+
+Not covered yet: `dtype`, `fill_value` and compression read back from the file. The row check is
+per variable rather than on the total, because variables on different dimensions occupy different
+numbers of rows and a union of their masks broadcasts the smaller ones across the dropped axes.
 
 ## Status, not a bare number
 
@@ -68,12 +71,13 @@ golden baseline, so it belongs in a later opt-in step rather than as a side effe
 
 ## Stages
 
-1. The report class, the serial path, printing and returning. Nothing written changes, so the
-   golden digests stay put.
-2. Parallel aggregation from worker counts.
-3. The overlap apportionment fix. Stage 1 becomes its test: rows that read `differs` on the
-   tutorial 3 cases should read `match` afterwards.
-4. Optional, opt-in: the report in the file attributes.
+1. **Done.** The report class, the serial path, printing and returning. Nothing written changes.
+2. **Done.** Parallel aggregation: `GenerationReport.measure_chunk` runs in the worker and
+   travels back with the chunk result, `from_chunks` sums them in the parent. Serial and chunked
+   produce the same figures for observations, density, overlap and coverage.
+3. **Done**, ahead of the others -- `1b179c8`, the overlap apportionment.
+4. Not done, and still optional: the report in the file attributes. It would change every output
+   file.
 
 ## Risks
 
