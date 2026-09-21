@@ -39,28 +39,29 @@ def case_paths(case_name: str, base_dir: str = "./tutorial1") -> tuple[str, str,
 
 
 def run_case(
-        case_name,
-        num_obs,
-        density,
-        seed,
-        title,
-        base_dir: str = "./tutorial1",
-        num_vars = None,
-        var_dims = None,
-        overlap = None,
+    case_name,
+    num_obs,
+    density,
+    seed,
+    title,
+    base_dir: str = "./tutorial1",
+    num_vars=None,
+    var_dims=None,
+    overlap=None,
+    fixed_overlap=False,
 ):
     """Generate a tutorial case, print size statistics, and plot the result."""
 
     ncpath, pqpath, pqpathtmp = case_paths(case_name, base_dir=base_dir)
-    if num_vars is None or num_vars==1:
+    if num_vars is None or num_vars == 1:
         gen = GenerateData(
             num_obs=num_obs,
             num_dims=2,
             ratio_dims=1,
             density=density,
             seed=seed,
-        )        
-        
+        )
+
     else:
         gen = GenerateData(
             num_obs=num_obs,
@@ -70,9 +71,10 @@ def run_case(
             seed=seed,
             num_vars=num_vars,
             var_dims=var_dims,
-            overlap=overlap
+            overlap=overlap,
+            fixed_overlap=fixed_overlap,
         )
-    
+
     gen.generate(
         netcdf_filepath=ncpath,
         parquet_filepath=pqpath,

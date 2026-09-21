@@ -7,11 +7,10 @@ This is a refactored version that uses modular validators, configurators,
 generators, and output builders for improved testability and maintainability.
 """
 
-import gc
-import logging
 import os
 import warnings
-from typing import Dict, List, Tuple, Union, Optional
+from typing import List, Tuple, Union, Optional
+import dask
 import dask.dataframe as dd
 import numpy as np
 from numpy.typing import ArrayLike
@@ -21,25 +20,27 @@ import xarray as xr
 from data_sparsity.validators import (
     ParameterValidator,
     DimensionValidator,
-    SparsityValidator
+    SparsityValidator,
 )
 from data_sparsity.config import (
     MultiVarSparsityConfig,
     MultiVarDimensionsConfig,
-    MultiVarOverlapConfig
+    MultiVarOverlapConfig,
 )
 from data_sparsity.generators import (
     CoordinateGenerator,
-    MultiVarRecordGenerator
+    MultiVarRecordGenerator,
 )
 from data_sparsity.output import (
+    CompressionSettings,
     NetCDFBuilder,
     ParquetBuilder,
-    PathManager
+    PathManager,
 )
 from data_sparsity.utils import (
     ChunkUtils,
 )
+from data_sparsity.utils.streams import Stream, stream
 
 
 class GenerateData:
@@ -56,6 +57,7 @@ class GenerateData:
         density: Density of observation (between minimum allowed density and 1.)
         seed: Random seed for reproducibility
         max_obs: Maximum observations per chunk for parallel generation
+        max_workers: Maximum worker processes for parallel generation
         num_vars: Number of variables in the dataset
         var_dims: Dimensions for each variable
         overlap: Overlap between variables (0-1 or 'random')
@@ -70,11 +72,14 @@ class GenerateData:
         sparsity: Union[int, float, List, Tuple, None] = None,
         seed: int = None,
         max_obs: int = None,
+        max_workers: int = None,
         num_vars: int = 1,
         var_dims: Union[int, List, Tuple] = None,
-        overlap: Union[float, str] = 'random',
+        overlap: Union[float, str] = "random",
         fixed_overlap: Union[bool, List[bool]] = False,
         density: Union[int, float, List, Tuple, None] = None,
+        compression: Optional[str] = None,
+        complevel: int = 4,
     ) -> None:
         """Initialize the data generator with validation.
 
@@ -91,6 +96,8 @@ class GenerateData:
                 either density or sparsity, not both.
             seed: Random seed for reproducibility
             max_obs: Maximum observations per chunk for parallel generation
+            max_workers: Maximum worker processes for parallel generation. If
+                omitted, use the available CPU count.
             num_vars: Number of variables in the dataset (default=1)
             var_dims: Number of dimensions for each variable (default=num_dims for all)
             overlap: Overlap between variables (0-1 or 'random', default='random')
@@ -108,16 +115,27 @@ class GenerateData:
         self._input_sparsity = sparsity
         self._input_density = density
         self.seed = seed
+        if max_workers is not None and (
+            isinstance(max_workers, bool)
+            or not isinstance(max_workers, int)
+            or max_workers <= 0
+        ):
+            raise ValueError("max_workers must be a positive integer or None")
+        self.max_workers = max_workers
         self.num_vars = num_vars
         self.var_dims = var_dims if var_dims is not None else num_dims
         self.overlap = overlap
         self.fixed_overlap = fixed_overlap
+        # One codec for both outputs: the comparison this package exists to
+        # make is only meaningful if the two formats are written on the same
+        # terms. Raises here rather than at write time.
+        self.compression = CompressionSettings(compression, complevel)
         self._resolve_density_input()
 
         self._print_input_config()
 
         self.ratio_dims_prod = np.prod(self.ratio_dims)
-        self._rng = np.random.default_rng(seed)
+        self._rng = stream(seed, Stream.DENSITY)
 
         # Initialize attributes set during validation
         self.var_densities = None
@@ -127,6 +145,7 @@ class GenerateData:
         self.var_constant_coord_indices = None
         self.overlap_target = None
         self.overlap_actual = None
+        self.overlap_actual_f2 = None
 
         # Validate and configure
         self._validate_parameters()
@@ -168,7 +187,7 @@ class GenerateData:
 
     @staticmethod
     def _sparsity_to_density(
-        sparsity: Union[int, float, List, Tuple]
+        sparsity: Union[int, float, List, Tuple],
     ) -> Union[float, List[float]]:
         """Convert sparsity input to density."""
         if isinstance(sparsity, (list, tuple)):
@@ -189,6 +208,7 @@ class GenerateData:
         print(f"  Variable dimensions: {self.var_dims}")
         print(f"  Overlap: {self.overlap}")
         print(f"  Fixed overlap: {self.fixed_overlap}")
+        print(f"  Compression: {self.compression}")
 
     def _print_updated_config(self) -> None:
         """Print updated configuration after validation."""
@@ -241,12 +261,15 @@ class GenerateData:
 
         # Validate that reference variable occupies all dimensions
         self.var_dims = ParameterValidator.validate_var_dims(
-            self.var_dims, self.num_vars, self.num_dims
+            self.var_dims,
+            self.num_vars,
+            self.num_dims,
         )
 
         # Validate and convert ratio_dims
         self.ratio_dims = ParameterValidator.validate_ratio_dims(
-            self.ratio_dims, self.num_dims
+            self.ratio_dims,
+            self.num_dims,
         )
 
         # Validate density type and get representative value for grid calculation
@@ -255,31 +278,44 @@ class GenerateData:
 
         # Compute and validate dimensions
         nb_coords_dim1 = DimensionValidator.compute_nb_coords_dim1(
-            self.num_obs, density_for_grid, self.ratio_dims_prod, self.num_dims
+            self.num_obs,
+            density_for_grid,
+            self.ratio_dims_prod,
+            self.num_dims,
         )
         self.nb_coords_dim1 = DimensionValidator.round_to_integer(nb_coords_dim1)
 
         # Check that all dimensions have at least one element
         self.nb_coords_per_dim = DimensionValidator.compute_nb_coords_per_dim(
-            self.ratio_dims, self.nb_coords_dim1
+            self.ratio_dims,
+            self.nb_coords_dim1,
         )
         DimensionValidator.validate_min_elements_per_dim(self.nb_coords_per_dim)
         self.nb_coords_per_dim = DimensionValidator.validate_integer_elements(
             self.nb_coords_per_dim
         )
-        self.shape, self.total_grid_points = DimensionValidator.compute_shape_and_grid_points(
-            self.nb_coords_per_dim
+        self.shape, self.total_grid_points = (
+            DimensionValidator.compute_shape_and_grid_points(self.nb_coords_per_dim)
         )
 
+        # Provisional stratum dimension; narrowed below once the per-variable
+        # dimensions are known (see _choose_split_dim).
+        self.dim_split = int(np.argmax(self.nb_coords_per_dim))
+
         # Check that density is larger than minimum allowed for this set of parameters
-        self.density_zero = SparsityValidator.compute_min_density(self.nb_coords_per_dim)
+        self.density_zero = SparsityValidator.compute_min_density(
+            self.nb_coords_per_dim
+        )
         density_for_grid = SparsityValidator.validate_density_bounds(
-            density_for_grid, self.density_zero
+            density_for_grid,
+            self.density_zero,
         )
 
         # Check that num_obs is consistent with density and dimensions size
         self.num_obs, density_for_grid = SparsityValidator.validate_num_obs_consistency(
-            self.num_obs, density_for_grid, self.nb_coords_per_dim
+            self.num_obs,
+            density_for_grid,
+            self.nb_coords_per_dim,
         )
 
         # Update density if it was a scalar
@@ -291,6 +327,46 @@ class GenerateData:
             self._configure_multi_var(density_for_grid)
         else:
             self._configure_single_var(density_for_grid)
+
+        self.dim_split = self._choose_split_dim()
+
+    def _choose_split_dim(self) -> int:
+        """Pick the dimension the grid is stratified along.
+
+        The largest dimension, restricted to those **every** variable varies
+        along. Overlap is measured on the dimensions two variables share, so if
+        a variable were constant along the split dimension its projection would
+        collapse across strata: the reference footprint seen from one stratum
+        would differ from the global one, and a per-stratum overlap target
+        would not add up to the requested global overlap.
+
+        Excluding such dimensions can mean splitting a shorter axis, which
+        lowers the maximum number of chunks (see S6).
+
+        Returns:
+            Index of the dimension to stratify along
+        """
+        shared = set(range(self.num_dims))
+        for varying in self.var_dims_indices:
+            shared &= set(varying)
+        if not shared:
+            raise ValueError(
+                "No dimension is shared by every variable, so the grid cannot "
+                "be stratified consistently. Give at least one dimension to all "
+                "variables via var_dims."
+            )
+        candidates = sorted(shared)
+        sizes = [self.nb_coords_per_dim[d] for d in candidates]
+        chosen = candidates[int(np.argmax(sizes))]
+        largest = int(np.argmax(self.nb_coords_per_dim))
+        if chosen != largest:
+            print(
+                f"  Stratifying along dimension {chosen} (size "
+                f"{self.nb_coords_per_dim[chosen]}) rather than the largest "
+                f"dimension {largest} (size {self.nb_coords_per_dim[largest]}), "
+                f"which is not shared by every variable."
+            )
+        return int(chosen)
 
     def _configure_single_var(self, density: float) -> None:
         """Configure for single variable case.
@@ -305,6 +381,7 @@ class GenerateData:
         self.var_constant_coord_indices = {0: {}}
         self.overlap_target = None
         self.overlap_actual = None
+        self.overlap_actual_f2 = None
 
     def _configure_multi_var(self, density_for_grid: float) -> None:
         """Configure for multiple variables case.
@@ -313,17 +390,29 @@ class GenerateData:
             density_for_grid: Representative density value
         """
         # Setup density values for each variable
-        self.var_densities, self.var_num_obs = MultiVarSparsityConfig.setup_from_parameter(
-            self.density, self.num_vars, self.num_obs, self.density_zero, self._rng
+        self.var_densities, self.var_num_obs = (
+            MultiVarSparsityConfig.setup_from_parameter(
+                self.density,
+                self.num_vars,
+                self.num_obs,
+                self.density_zero,
+                self._rng,
+            )
         )
 
         # Setup dimensions: the grid is defined over num_dims dimensions, but
         # each variable is measured at var_dims <= num_dims, the other
         # dimensions are set to a constant value
-        (self.var_dims_indices,
-         self.var_constant_dims,
-         self.var_constant_coord_indices) = MultiVarDimensionsConfig.setup_from_parameter(
-            self.var_dims, self.num_vars, self.num_dims, self.shape, self.seed
+        (
+            self.var_dims_indices,
+            self.var_constant_dims,
+            self.var_constant_coord_indices,
+        ) = MultiVarDimensionsConfig.setup_from_parameter(
+            self.var_dims,
+            self.num_vars,
+            self.num_dims,
+            self.shape,
+            self.seed,
         )
 
         # Setup overlap configuration and adjust observations if needed
@@ -337,9 +426,9 @@ class GenerateData:
             self.num_vars,
             self.shape,
             self.var_num_obs,
-            self.var_dims_indices
+            self.var_dims_indices,
         )
-        
+
         # Update observation counts if they were adjusted
         if not np.array_equal(self.var_num_obs, adjusted_obs):
             self.var_num_obs = adjusted_obs
@@ -349,7 +438,7 @@ class GenerateData:
 
         Args:
             max_obs: Maximum observations per chunk
-            
+
         Raises:
             ValueError: If max_obs is incompatible with LHS requirements
         """
@@ -366,142 +455,43 @@ class GenerateData:
             # Note: LHS compatibility is handled via RNG state advancement
             # Each chunk generates its observations independently with properly
             # advanced RNG state to maintain serial/parallel equivalence
-            
+
             self.NTASKS = int(np.ceil(self.num_obs / max_obs))
             self.max_obs = max_obs
-            
-            # Set up dimension splitting for parallel processing
-            # Split along the largest dimension
-            max_dim = np.argmax(self.nb_coords_per_dim)
+
+            # Group the grid's strata into chunks. The split dimension was
+            # already fixed during validation (see self.dim_split).
+            max_dim = self.dim_split
             max_dim_size = self.nb_coords_per_dim[max_dim]
-            
+
             if max_dim_size < self.NTASKS:
                 raise ValueError(
                     f"Dimension has size {max_dim_size} but {self.NTASKS} "
                     f"chunks should be generated?"
                 )
-            
+
             # Divide the largest dimension into chunks
             Neach_section, extras = divmod(max_dim_size, self.NTASKS)
             Neach_section = int(Neach_section)
-            section_sizes = ([0] + extras * [Neach_section + 1] + 
-                           (self.NTASKS - extras) * [Neach_section])
+            section_sizes = (
+                [0]
+                + extras * [Neach_section + 1]
+                + (self.NTASKS - extras) * [Neach_section]
+            )
             div_points = np.array(section_sizes, dtype=int).cumsum()
-            
-            self.dim_split = max_dim
+
             self.max_dim_size = max_dim_size
             self.section_sizes = section_sizes[1:]
             self.div_points = div_points
-            
+
             print(f"Parallel generation: {self.NTASKS} tasks, {max_obs} obs per task")
             print(f"  Dataset split along dimension {self.dim_split}")
             print(f"  Block sizes along it: {self.section_sizes}")
 
-    def _format_var_name(self, var_idx: int) -> str:
-        """Format variable name.
-
-        Args:
-            var_idx: Variable index
-
-        Returns:
-            Formatted variable name
-        """
-        return f"var{var_idx}"
-
-    def _generate_coordinates(
-        self,
-        shape: List[int],
-        rng: np.random.Generator,
-        dim_ranges: Optional[Dict[int, Tuple[float, float]]] = None,
-        dim_rngs: Optional[Dict[int, np.random.Generator]] = None
-    ) -> dict:
-        """Generate coordinates for all dimensions.
-
-        Creates coordinate arrays for each dimension with values sorted
-        in ascending order within specified ranges.
-
-        Args:
-            shape: shape tuple/list
-            rng: random number generator
-            dim_ranges: Optional dict mapping dimension indices to (low, high) tuples
-                       for custom coordinate ranges. If None, uses [0, 1) for all dims.
-            dim_rngs: Optional dict mapping dimension indices to specific RNGs to use.
-                     If provided, these override the default rng for those dimensions.
-
-        Returns:
-            Dictionary mapping dimension names to coordinate arrays
-        """
-
-        coordinates = CoordinateGenerator.generate_all_coords(
-            shape,
-            rng,
-            dim_ranges,
-            dim_rngs
-        )
-        return coordinates
-
-    def _generate_observations(self) -> None:
-        """Generate observation values."""
-        from data_sparsity.generators import ObservationGenerator
-        self._observations = ObservationGenerator.generate_observations(
-            self.num_obs, self._rng
-        )
-
-    def _generate_record(
-        self,
-        shape: list = None,
-        num_obs: int = None,
-        observations: np.ndarray = None,
-        rng: np.random.Generator = None
-    ) -> np.ndarray:
-        """Generate sparse record array with observations.
-        
-        This method now uses MultiVarRecordGenerator with num_vars=1 to
-        maintain consistency with multi-variable generation and eliminate
-        code duplication.
-
-        Args:
-            shape: Shape of the record array. If None, uses self.shape
-            num_obs: Number of observations to place. If None, uses self.num_obs
-            observations: Pre-generated observation values. If None, generates them
-            rng: Random number generator. If None, uses self._rng
-
-        Returns:
-            Multi-dimensional array with sparse observations
-        """
-        if shape is None:
-            shape = self.shape
-        if num_obs is None:
-            num_obs = self.num_obs
-        if rng is None:
-            rng = self._rng
-
-        # Use MultiVarRecordGenerator with num_vars=1 for consistency
-        # For single-var, all dimensions vary (no constant dims)
-        records, overlap_actual = MultiVarRecordGenerator.generate(
-            shape=shape,
-            overlap='random',  # Irrelevant for single variable
-            num_vars=1,
-            var_num_obs=np.array([num_obs]),
-            var_dims_indices=[list(range(len(shape)))],  # All dims vary
-            var_constant_dims=[[]],  # No constant dims
-            var_constant_coord_indices={},  # No constant coords
-            num_dims=len(shape),
-            seed=self.seed
-        )
-
-        # Extract the single record from the dictionary
-        record = records['var0']
-
-        if self.NTASKS == 1:
-            self._record = record
-
-        return record
-
     def _generate_multi_var_records(
         self,
         shape: list = None,
-        rng: np.random.Generator = None
+        rng: np.random.Generator = None,
     ) -> dict:
         """Generate sparse record arrays for multiple variables.
 
@@ -522,15 +512,33 @@ class GenerateData:
             rng = self._rng
 
         records, overlap_actual = MultiVarRecordGenerator.generate(
-            shape, self.overlap_target, self.num_vars, self.var_num_obs,
-            self.var_dims_indices, self.var_constant_dims,
-            self.var_constant_coord_indices, self.num_dims, self.seed,
-            fixed_overlap=self.fixed_overlap
+            shape,
+            self.overlap_target,
+            self.num_vars,
+            self.var_num_obs,
+            self.var_dims_indices,
+            self.var_constant_dims,
+            self.var_constant_coord_indices,
+            self.num_dims,
+            self.seed,
+            dim_split=self.dim_split,
+            fixed_overlap=self.fixed_overlap,
         )
 
         if self.NTASKS == 1:
             self._records = records
             self.overlap_actual = overlap_actual
+            if self.num_vars > 1:
+                from data_sparsity.generators import OverlapCalculator
+
+                report = OverlapCalculator.compute_overlap_report(
+                    records,
+                    self.num_vars,
+                    self.num_dims,
+                    self.var_dims_indices,
+                )
+                self.overlap_actual = report["f1"]
+                self.overlap_actual_f2 = report["f2"]
 
         return records
 
@@ -538,7 +546,7 @@ class GenerateData:
         self,
         record: np.ndarray = None,
         coordinates: dict = None,
-        attrs: dict = None
+        attrs: dict = None,
     ) -> xr.DataArray:
         """Create xarray DataArray from generated data.
 
@@ -553,23 +561,31 @@ class GenerateData:
         if coordinates is None:
             coordinates = self._coordinates
         if record is None:
-            if hasattr(self, '_records') and self._records is not None:
-                record = self._records.get('var0')
+            if hasattr(self, "_records") and self._records is not None:
+                record = self._records.get("var0")
             else:
                 record = self._record
 
         if attrs is None:
             attrs = NetCDFBuilder.create_default_attrs(
-                self.num_obs, self.num_dims, self.ratio_dims,
-                float(self.var_densities[0]), self.seed
+                self.num_obs,
+                self.num_dims,
+                self.ratio_dims,
+                float(self.var_densities[0]),
+                self.seed,
             )
-        attrs.update({
-            "overlap_target": self.overlap_target if self.num_vars > 1 else "random",
-            "fixed_overlap": (
-                [int(value) for value in self.fixed_overlap]
-                if self.num_vars > 1 else []
-            ),
-        })
+        attrs.update(
+            {
+                "overlap_target": (
+                    self.overlap_target if self.num_vars > 1 else "random"
+                ),
+                "fixed_overlap": (
+                    [int(value) for value in self.fixed_overlap]
+                    if self.num_vars > 1
+                    else []
+                ),
+            }
+        )
 
         dataarray = NetCDFBuilder.build_dataarray(record, coordinates, "record", attrs)
 
@@ -601,21 +617,33 @@ class GenerateData:
             records = self._records
         if var_constant_dims is None:
             var_constant_dims = self.var_constant_dims
-            
-        if attrs is None:
-            attrs = NetCDFBuilder.create_default_attrs(
-                self.num_obs, self.num_dims, self.ratio_dims,
-                float(self.var_densities[0]), self.seed
-            )
-        attrs.update({
-            "overlap_target": self.overlap_target if self.num_vars > 1 else "random",
-            "fixed_overlap": (
-                [int(value) for value in self.fixed_overlap]
-                if self.num_vars > 1 else []
-            ),
-        })
 
-        dataset = NetCDFBuilder.build_dataset(records, coordinates, attrs, var_constant_dims)
+        if attrs is None:
+            # num_obs and density describe the reference variable, the same
+            # quantities the chunk files record; the per-variable arrays below
+            # carry everything else.
+            attrs = NetCDFBuilder.create_default_attrs(
+                int(self.var_num_obs[0]),
+                self.num_dims,
+                self.ratio_dims,
+                float(self.var_num_obs[0]) / float(self.total_grid_points),
+                self.seed,
+            )
+        attrs.update(
+            NetCDFBuilder.create_multivar_attrs(
+                num_vars=self.num_vars,
+                var_densities=self.var_densities,
+                var_num_obs=self.var_num_obs,
+                overlap_target=self.overlap_target,
+                fixed_overlap=self.fixed_overlap,
+                overlap_actual_f1=self.overlap_actual,
+                overlap_actual_f2=getattr(self, "overlap_actual_f2", None),
+            )
+        )
+
+        dataset = NetCDFBuilder.build_dataset(
+            records, coordinates, attrs, var_constant_dims
+        )
 
         if self.NTASKS == 1:
             self._dataset = dataset
@@ -639,12 +667,16 @@ class GenerateData:
         if coordinates is None:
             coordinates = self._coordinates
         if record is None:
-            if hasattr(self, '_records') and self._records is not None:
-                record = self._records.get('var0')
+            if hasattr(self, "_records") and self._records is not None:
+                record = self._records.get("var0")
             else:
                 record = self._record
 
-        dataframe = ParquetBuilder.build_single_var_dataframe(record, coordinates)
+        dataframe = ParquetBuilder.build_single_var_dataframe(
+            record,
+            coordinates,
+            order_dim=self.dim_split,
+        )
 
         if self.NTASKS == 1:
             self._dataframe = dataframe
@@ -654,7 +686,7 @@ class GenerateData:
     def _create_multi_var_dataframe(
         self,
         records: dict = None,
-        coordinates: dict = None
+        coordinates: dict = None,
     ) -> pd.DataFrame:
         """Create pandas DataFrame from multiple variable records.
 
@@ -671,7 +703,11 @@ class GenerateData:
             records = self._records
 
         dataframe = ParquetBuilder.build_multi_var_dataframe(
-            records, coordinates, self.num_vars, self.num_dims
+            records,
+            coordinates,
+            self.num_vars,
+            self.num_dims,
+            order_dim=self.dim_split,
         )
 
         if self.NTASKS == 1:
@@ -683,7 +719,7 @@ class GenerateData:
         self,
         filepath: str,
         dataarray: xr.DataArray = None,
-        overwrite: bool = False
+        overwrite: bool = False,
     ) -> None:
         """Save DataArray/Dataset to NetCDF file.
 
@@ -695,14 +731,19 @@ class GenerateData:
         if dataarray is None:
             dataarray = self._dataset if self.num_vars > 1 else self._dataarray
 
-        NetCDFBuilder.save_to_file(dataarray, filepath, overwrite)
+        NetCDFBuilder.save_to_file(
+            dataarray,
+            filepath,
+            overwrite,
+            compression=self.compression,
+        )
 
     def save_to_parquet(
         self,
         filepath: str,
         dataframe: Union[pd.DataFrame, dd.DataFrame] = None,
         overwrite: bool = False,
-        chunk_id: int = None
+        chunk_id: int = None,
     ) -> None:
         """Save DataFrame to Parquet file.
 
@@ -715,13 +756,20 @@ class GenerateData:
         if dataframe is None:
             dataframe = self._dataframe
 
-        ParquetBuilder.save_to_file(dataframe, filepath, overwrite, chunk_id)
+        ParquetBuilder.save_to_file(
+            dataframe,
+            filepath,
+            overwrite,
+            chunk_id,
+            compression=self.compression,
+        )
 
     def generate(
         self,
         netcdf_filepath: str = None,
         parquet_filepath: str = None,
         parquet_tmp: str = None,
+        merge_nc: bool = False,
     ) -> Tuple[Union[xr.DataArray, xr.Dataset], pd.DataFrame]:
         """Generate all data and optionally save to files.
 
@@ -738,6 +786,10 @@ class GenerateData:
             netcdf_filepath: Optional path to save NetCDF file
             parquet_filepath: Optional path to save Parquet file
             parquet_tmp: Optional temporary directory for parallel generation
+            merge_nc: Parallel mode only. If True, concatenate the chunk files
+                into one netCDF and delete them. Off by default: large datasets
+                are routinely served as many files (daily observation files,
+                for instance), and merging doubles the I/O and the peak disk.
 
         Returns:
             Tuple of (DataArray/Dataset, DataFrame) containing the generated data
@@ -749,14 +801,14 @@ class GenerateData:
             # Serial mode: chunk_id=None (no advancement needed)
             dim_rngs = ChunkUtils.generate_rngs(
                 seed=self.seed,
-                num_dims=self.num_dims
+                num_dims=self.num_dims,
             )
-            
+
             self._coordinates = CoordinateGenerator.generate_all_coords(
                 self.shape,
                 rng=None,  # Not used when dim_rngs provided
                 dim_ranges=None,
-                dim_rngs=dim_rngs
+                dim_rngs=dim_rngs,
             )
 
             # Use unified multi-variable workflow for both single and multiple variables
@@ -772,13 +824,11 @@ class GenerateData:
                 dataframe = self._create_multi_var_dataframe()
                 dataarray = dataset
 
-            nc_path, pq_path, pq_path_tmp = (
-                PathManager.setup_output_paths(
-                    netcdf_filepath=netcdf_filepath,
-                    parquet_filepath=parquet_filepath,
-                    parquet_tmp=parquet_tmp,
-                    overwrite=True
-                )
+            nc_path, pq_path, pq_path_tmp = PathManager.setup_output_paths(
+                netcdf_filepath=netcdf_filepath,
+                parquet_filepath=parquet_filepath,
+                parquet_tmp=parquet_tmp,
+                overwrite=True,
             )
             self.save_to_netcdf(nc_path, dataarray=dataarray)
             self.save_to_parquet(pq_path, dataframe=dataframe)
@@ -796,6 +846,8 @@ class GenerateData:
                 )
             )
             self._generate_par()
+            if merge_nc:
+                self._merge_netcdf_files()
             return None, None
 
         raise ValueError(f"NTASKS must be positive, got {self.NTASKS}")
@@ -805,89 +857,139 @@ class GenerateData:
 
         Submit as many dataset generation tasks as number of blocks needed.
         Supports both single-variable and multi-variable datasets.
-        
+
         Uses ProcessPoolExecutor for simpler, more robust parallelization without
         external dependencies.
         """
         from concurrent.futures import ProcessPoolExecutor, as_completed
         import multiprocessing
         from data_sparsity.workers import generate_chunk
-        import shutil
-        
+
         # Ensure output directories exist
         nc_dir = os.path.dirname(self.netcdf_filepath)
         if nc_dir and not os.path.exists(nc_dir):
             os.makedirs(nc_dir, exist_ok=True)
-        
+
         parquet_dir = os.path.dirname(self.parquet_filepath)
         if parquet_dir and not os.path.exists(parquet_dir):
             os.makedirs(parquet_dir, exist_ok=True)
-            
-        tmp_dir = os.path.dirname(self.parquet_tmp)
-        
-        # Remove the entire temporary directory if it exists
-        if os.path.exists(tmp_dir):
-            try:
-                shutil.rmtree(tmp_dir)
-                print(f"Deleted temporary directory: {tmp_dir}")
-            except Exception as e:
-                print(f"Warning: Could not remove {tmp_dir}: {e}")
-        
-        # Recreate the temporary directory
-        if tmp_dir:
-            os.makedirs(tmp_dir, exist_ok=True)
 
-        mp_obs, density_new, per_chunk_obs = ChunkUtils.get_observations_per_chunk(
-            self.num_obs,
-            self.shape,
-            self.max_dim_size,
-            self.section_sizes,
-            self.density
+        # Scratch chunks go in their own directory, not alongside the real
+        # output. Clear any leftovers from an interrupted run, but only if the
+        # directory holds nothing this code did not write.
+        PathManager.remove_scratch_dir(self.parquet_tmp)
+        os.makedirs(self.parquet_tmp, exist_ok=True)
+
+        if self.num_vars == 1:
+            density_for_parallel = (
+                max(self.density)
+                if isinstance(self.density, (list, tuple, np.ndarray))
+                else self.density
+            )
+
+            mp_obs, density_new, per_chunk_obs = ChunkUtils.get_observations_per_chunk(
+                self.num_obs,
+                self.shape,
+                self.max_dim_size,
+                self.section_sizes,
+                density_for_parallel,
+            )
+            self.density = density_new
+            self.num_obs = mp_obs
+
+            # Prepare arguments for all chunks
+            chunk_args = []
+            for chunk_id, chunk_obs in zip(range(self.NTASKS), per_chunk_obs):
+                args = {
+                    "chunk_id": chunk_id,
+                    "obs_in_chunk": chunk_obs,
+                    "seed": self.seed,
+                    "shape": self.shape,
+                    "density": self.density,
+                    "num_vars": self.num_vars,
+                    "num_dims": self.num_dims,
+                    "ratio_dims": self.ratio_dims,
+                    "num_obs": self.num_obs,
+                    "var_densities": self.var_densities if self.num_vars > 1 else None,
+                    "var_num_obs": self.var_num_obs if self.num_vars > 1 else None,
+                    "var_dims_indices": (
+                        self.var_dims_indices if self.num_vars > 1 else None
+                    ),
+                    "var_constant_dims": (
+                        self.var_constant_dims if self.num_vars > 1 else None
+                    ),
+                    "var_constant_coord_indices": (
+                        self.var_constant_coord_indices if self.num_vars > 1 else None
+                    ),
+                    "overlap_target": self.overlap_target if self.num_vars > 1 else 0.0,
+                    "fixed_overlap": self.fixed_overlap if self.num_vars > 1 else False,
+                    "dim_split": self.dim_split,
+                    "max_dim_size": self.max_dim_size,
+                    "div_points": self.div_points,
+                    "section_sizes": self.section_sizes,
+                    "netcdf_filepath": self.netcdf_filepath,
+                    "parquet_tmp": self.parquet_tmp,
+                    "ntasks": self.NTASKS,
+                    "num_obs_global": self.num_obs,
+                    "compression_codec": self.compression.codec,
+                    "compression_level": self.compression.level,
+                }
+                chunk_args.append(args)
+        else:
+            chunk_var_num_obs = ChunkUtils.get_multi_var_observations_per_chunk(
+                self.var_num_obs,
+                self.max_dim_size,
+                self.section_sizes,
+            )
+
+            chunk_args = []
+            for chunk_id, (_chunk_size, var_obs_chunk) in enumerate(
+                zip(self.section_sizes, chunk_var_num_obs)
+            ):
+                args = {
+                    "chunk_id": chunk_id,
+                    "obs_in_chunk": int(np.sum(var_obs_chunk)),
+                    "seed": self.seed,
+                    "shape": self.shape,
+                    "density": self.density,
+                    "num_vars": self.num_vars,
+                    "num_dims": self.num_dims,
+                    "ratio_dims": self.ratio_dims,
+                    "num_obs": int(np.sum(var_obs_chunk)),
+                    "var_densities": self.var_densities,
+                    "var_num_obs": self.var_num_obs,  # GLOBAL: strata apportion
+                    "var_dims_indices": self.var_dims_indices,
+                    "var_constant_dims": self.var_constant_dims,
+                    "var_constant_coord_indices": self.var_constant_coord_indices,
+                    "overlap_target": self.overlap_target,
+                    "fixed_overlap": self.fixed_overlap,
+                    "dim_split": self.dim_split,
+                    "max_dim_size": self.max_dim_size,
+                    "div_points": self.div_points,
+                    "section_sizes": self.section_sizes,
+                    "netcdf_filepath": self.netcdf_filepath,
+                    "parquet_tmp": self.parquet_tmp,
+                    "ntasks": self.NTASKS,
+                    "num_obs_global": self.num_obs,
+                    "compression_codec": self.compression.codec,
+                    "compression_level": self.compression.level,
+                }
+                chunk_args.append(args)
+
+        # Default to available CPUs while allowing callers to cap memory use.
+        available_cpus = os.cpu_count() or 1
+        max_workers = min(
+            self.NTASKS,
+            self.max_workers if self.max_workers is not None else available_cpus,
         )
-        self.density = density_new
-        self.num_obs = mp_obs
-
-        # Prepare arguments for all chunks
-        chunk_args = []
-        for chunk_id, chunk_obs in zip(range(self.NTASKS), per_chunk_obs):
-            args = {
-                'chunk_id': chunk_id,
-                'obs_in_chunk': chunk_obs,
-                'seed': self.seed,
-                'shape': self.shape,
-                'density': self.density,
-                'num_vars': self.num_vars,
-                'num_dims': self.num_dims,
-                'ratio_dims': self.ratio_dims,
-                'num_obs': self.num_obs,
-                'var_densities': self.var_densities if self.num_vars > 1 else None,
-                'var_num_obs': self.var_num_obs if self.num_vars > 1 else None,
-                'var_dims_indices': self.var_dims_indices if self.num_vars > 1 else None,
-                'var_constant_dims': self.var_constant_dims if self.num_vars > 1 else None,
-                'var_constant_coord_indices': (
-                    self.var_constant_coord_indices if self.num_vars > 1 else None
-                ),
-                'overlap_target': self.overlap_target if self.num_vars > 1 else 0.0,
-                'fixed_overlap': self.fixed_overlap if self.num_vars > 1 else False,
-                'dim_split': self.dim_split,
-                'max_dim_size': self.max_dim_size,
-                'div_points': self.div_points,
-                'section_sizes': self.section_sizes,
-                'netcdf_filepath': self.netcdf_filepath,
-                'parquet_tmp': self.parquet_tmp,
-                'ntasks': self.NTASKS,
-                'num_obs_global': self.num_obs,  # For LHS RNG advancement and filtering
-            }
-            chunk_args.append(args)
-
-        # Execute in parallel with limited workers to avoid memory issues
-        max_workers = min(self.NTASKS, 4)
-        print(f"Starting parallel generation with {max_workers} workers for {self.NTASKS} chunks")
+        print(
+            f"Starting parallel generation with {max_workers} workers for {self.NTASKS} chunks"
+        )
 
         ctx = multiprocessing.get_context("spawn")
         with ProcessPoolExecutor(max_workers=max_workers, mp_context=ctx) as executor:
             futures = [executor.submit(generate_chunk, **args) for args in chunk_args]
-            
+
             tot_completed = 0
             tot_obs = 0
             for future in as_completed(futures):
@@ -904,40 +1006,124 @@ class GenerateData:
         # Consolidate parquet files
         self._consolidate_parquet_files()
 
+    def _merge_netcdf_files(self) -> None:
+        """Concatenate the chunk netCDF files into one, then delete them.
+
+        Opened lazily with dask and written one variable at a time, so the
+        merge holds one variable's chunks rather than the whole dataset. It
+        still needs roughly 900 MB of address space per 382 MB of data; for
+        output larger than that, leave merge_nc False and keep the chunk files.
+
+        Chunk files keep every dimension because they have to concatenate; the
+        constant dimensions are squeezed out here, so the merged file matches
+        what a serial run writes.
+        """
+        import glob
+
+        base = self.netcdf_filepath[:-3]
+        chunk_files = sorted(glob.glob(f"{base}_*.nc"))
+        if not chunk_files:
+            raise RuntimeError(f"No netCDF chunk files found matching {base}_*.nc")
+
+        print(f"Merging {len(chunk_files)} netCDF chunk files...")
+        split_dim = f"x{self.dim_split}"
+        merged = xr.open_mfdataset(
+            chunk_files,
+            combine="nested",
+            concat_dim=split_dim,
+            data_vars="minimal",
+            coords="minimal",
+            compat="override",
+        )
+        if self.num_vars > 1:
+            merged = NetCDFBuilder.squeeze_constant_dims(
+                merged,
+                self.var_constant_dims,
+            )
+
+        # Chunk-local bookkeeping does not describe the merged dataset.
+        merged.attrs.pop("chunk_id", None)
+        merged.attrs["description"] = merged.attrs.get(
+            "description",
+            "",
+        ).replace(" (chunk)", "")
+        merged.attrs["num_obs"] = int(self.var_num_obs[0])
+        merged.attrs["density"] = float(self.var_num_obs[0] / self.total_grid_points)
+        if self.num_vars > 1:
+            merged.attrs["var_num_obs"] = [int(n) for n in self.var_num_obs]
+
+        var_names = list(merged.data_vars)
+        if not var_names:
+            raise RuntimeError(
+                f"Merged dataset from {len(chunk_files)} chunk files has no "
+                "data variables"
+            )
+
+        # One variable per call, in this thread: concurrent stores let HDF5
+        # allocate the variables in completion order, and the read and write
+        # sides of this one lock can deadlock. Neither is a memory trade -- the
+        # write still streams. docs/parallel_architecture_change.md explains.
+        encoding = self.compression.netcdf_encoding(merged)
+        with dask.config.set(scheduler="synchronous"):
+            merged[[var_names[0]]].to_netcdf(
+                self.netcdf_filepath,
+                mode="w",
+                encoding={k: v for k, v in encoding.items() if k == var_names[0]},
+            )
+            for var_name in var_names[1:]:
+                merged[[var_name]].to_netcdf(
+                    self.netcdf_filepath,
+                    mode="a",
+                    encoding={k: v for k, v in encoding.items() if k == var_name},
+                )
+        merged.close()
+        for chunk_file in chunk_files:
+            os.remove(chunk_file)
+        print(
+            f"Merged netCDF written to {self.netcdf_filepath}; "
+            f"removed {len(chunk_files)} chunk files"
+        )
+
     def _consolidate_parquet_files(self) -> None:
         """Consolidate temporary parquet files into single output.
-        
+
         Uses Dask for memory-efficient consolidation of potentially larger-than-memory
         datasets. This is critical for the parallel workflow's primary use case:
         generating datasets that exceed available memory.
-        
+
         The consolidation reads all temporary parquet chunks lazily using Dask,
         repartitions for optimal I/O, and writes the consolidated output.
         """
         import glob
-        
-        tmp_dir = os.path.dirname(self.parquet_tmp)
+
+        tmp_dir = self.parquet_tmp
         tmp_pattern = os.path.join(tmp_dir, "chunk_*.parquet")
         tmp_files = sorted(glob.glob(tmp_pattern))
-        
+
         if not tmp_files:
             raise RuntimeError(f"No temporary parquet files found in {tmp_dir}")
-        
+
         print(f"Consolidating {len(tmp_files)} parquet chunk files...")
-        
+
         # Use Dask to read all chunks lazily (memory-efficient for large datasets)
         ddf = dd.read_parquet(tmp_pattern)
-        
+
         # Repartition for optimal write performance (300MB partitions is a good default)
         ddf = ddf.repartition(partition_size="300MB")
-        
+
         print(f"Dask DataFrame has {ddf.npartitions} partitions")
-        
+
         # Write consolidated file using ParquetBuilder (which handles dask DataFrames)
-        ParquetBuilder.save_to_file(ddf, self.parquet_filepath, overwrite=True)
-        
-        # Cleanup temporary files
+        ParquetBuilder.save_to_file(
+            ddf,
+            self.parquet_filepath,
+            overwrite=True,
+            compression=self.compression,
+        )
+
+        # Cleanup: the scratch directory goes once the merge has succeeded
         print(f"Cleaning up {len(tmp_files)} temporary files...")
         for f in tmp_files:
             os.remove(f)
+        PathManager.remove_scratch_dir(tmp_dir)
         print(f"Consolidated parquet file saved to {self.parquet_filepath}")

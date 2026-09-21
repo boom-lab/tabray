@@ -11,10 +11,10 @@ from numpy.typing import ArrayLike
 
 class ParameterValidator:
     """Validator for basic data generation parameters.
-    
+
     This class provides static methods to validate individual parameters
     before they are used in data generation.
-    
+
     Methods are ordered by their typical call sequence in the workflow.
     """
 
@@ -23,10 +23,10 @@ class ParameterValidator:
         """Validate number of observations.
 
         Check that num_obs to generate is int and larger than 0
-        
+
         Args:
             num_obs: Number of observations to generate
-            
+
         Raises:
             TypeError: If num_obs is not an integer
             ValueError: If num_obs is not positive
@@ -39,10 +39,10 @@ class ParameterValidator:
     @staticmethod
     def validate_num_dims(num_dims: int) -> None:
         """Validate number of dimensions.
-        
+
         Args:
             num_dims: Number of dimensions in coordinate space
-            
+
         Raises:
             TypeError: If num_dims is not an integer
             ValueError: If num_dims is not positive
@@ -55,10 +55,10 @@ class ParameterValidator:
     @staticmethod
     def validate_seed(seed: int) -> None:
         """Validate random seed.
-        
+
         Args:
             seed: Random seed for reproducibility
-            
+
         Raises:
             TypeError: If seed is not an integer
             ValueError: If seed is negative
@@ -71,10 +71,10 @@ class ParameterValidator:
     @staticmethod
     def validate_num_vars(num_vars: int) -> None:
         """Validate number of variables.
-        
+
         Args:
             num_vars: Number of variables in dataset
-            
+
         Raises:
             TypeError: If num_vars is not an integer
             ValueError: If num_vars is not positive
@@ -88,29 +88,29 @@ class ParameterValidator:
     def validate_var_dims(
         var_dims: Union[int, List, Tuple],
         num_vars: int,
-        num_dims: int
+        num_dims: int,
     ) -> float:
         """Check that var_dims is valid:
 
         - First variable (reference variable) occupies all dimensions.
         - var_dims is an int or has as many elements as number of variables
-        
+
         Args:
             var_dims: Number of dimensions for each variable
             num_vars: Number of variables in the dataset
-            num_dims: Number of dimensions in the coordinate space            
+            num_dims: Number of dimensions in the coordinate space
 
         Returns:
             var_dims_update: Updated value to enforce first variable to occupy all
             dimensions
-            
+
         Raises:
             TypeError: If var_dims type is not admitted
 
         """
 
         if isinstance(var_dims, int):
-            var_dims_update = [var_dims]*num_vars
+            var_dims_update = [var_dims] * num_vars
             if num_dims > var_dims:
                 var_dims_update[0] = num_dims
                 print(
@@ -121,24 +121,55 @@ class ParameterValidator:
                 )
 
         elif isinstance(var_dims, (list, tuple)):
-            var_dims_update = var_dims
-            if num_dims > var_dims[0]:
-                var_dims_update[0] = num_dims
-                print(
-                    "Reference variable must occupy all dimensions. Received "
-                    f"var_dims[0]={var_dims[0]} but num_dims={num_dims}. Assigning "
-                    f"{num_dims} to reference variable."
+            # Copy: element 0 is written below, and the caller still holds
+            # the argument.
+            var_dims_update = list(var_dims)
+            if not var_dims_update:
+                raise ValueError(
+                    f"var_dims must have one entry per variable ({num_vars}), got an "
+                    "empty sequence"
+                )
+
+            reference = var_dims_update[0]
+            if isinstance(reference, (list, tuple)):
+                # Explicit dimension indices, e.g. [[0,1,2], [1,2]]. This form
+                # is what MultiVarDimensionsConfig.from_list_element accepts and
+                # what the README's examples use; comparing it to num_dims as a
+                # number raised TypeError before reaching that code.
+                if sorted(reference) != list(range(num_dims)):
+                    var_dims_update[0] = list(range(num_dims))
+                    print(
+                        "Reference variable must occupy all dimensions. Received "
+                        f"var_dims[0]={list(reference)} but num_dims={num_dims}. "
+                        f"Assigning {list(range(num_dims))} to reference variable."
+                    )
+            elif isinstance(reference, (int, np.integer)) and not isinstance(
+                reference, bool
+            ):
+                if num_dims > reference:
+                    var_dims_update[0] = num_dims
+                    print(
+                        "Reference variable must occupy all dimensions. Received "
+                        f"var_dims[0]={reference} but num_dims={num_dims}. Assigning "
+                        f"{num_dims} to reference variable."
+                    )
+            else:
+                raise TypeError(
+                    "var_dims entries must be an int (a number of dimensions) or a "
+                    f"list/tuple of dimension indices, got {type(reference)}"
                 )
 
         else:
-            raise TypeError(f"var_dims must be an int, list or tuple, got {type(var_dims)}")
-        
+            raise TypeError(
+                f"var_dims must be an int, list or tuple, got {type(var_dims)}"
+            )
+
         return var_dims_update
 
     @staticmethod
     def validate_ratio_dims(
         ratio_dims: Union[int, ArrayLike],
-        num_dims: int
+        num_dims: int,
     ) -> np.ndarray:
         """Validate and convert ratio_dims to numpy array.
 
@@ -153,14 +184,14 @@ class ParameterValidator:
           (and 2.5-times of dimension #2)
         - num_dims = 5, ratio_dims=[1,3]: raises error because ratio_dims have
           fewer elements than num_dims
-        
+
         Args:
             ratio_dims: Relative sizes for each dimension
             num_dims: Number of dimensions (for consistency check)
-            
+
         Returns:
             Validated ratio_dims as numpy array
-            
+
         Raises:
             TypeError: If ratio_dims is not a valid type
             ValueError: If ratio_dims length doesn't match num_dims
@@ -178,62 +209,67 @@ class ParameterValidator:
                 f"ratio_dims must be int, tuple, list, or numpy array, "
                 f"got {type(ratio_dims)}"
             )
-        
+
         ratio_dims = np.asarray(ratio_dims)
-        
+
         if len(ratio_dims) != num_dims:
             raise ValueError(
                 f"num_dims must match length of ratio_dims, "
                 f"got {num_dims} and {len(ratio_dims)}"
             )
-        
+
         return ratio_dims
 
     @staticmethod
-    def validate_density_refvar(
-        density: Union[List, Tuple]
-    ) -> List:
+    def validate_density_refvar(density: Union[List, Tuple]) -> List:
         """Validate density value when a list is provided.
 
-        The density of the reference value (position 0) must
-        be the largest as refvar has the largest number of
-        observations.
+        The density of the reference value (position 0) must be the largest,
+        because var0 is the overlap reference and must have the largest number
+        of observations.
 
+        Raises rather than reordering: a two-element list is a ``[max, min]``
+        range, so moving the maximum into position 0 would collapse it to a
+        point and give every variable the same density.
+
+        Args:
+            density: Density input, scalar or sequence. Scalars pass through.
+
+        Returns:
+            A new list. The argument is never modified.
+
+        Raises:
+            ValueError: If the reference density is not the largest given
         """
 
         if not isinstance(density, (tuple, list)):
             return density
 
-        if isinstance(density, tuple):
-            density = [*density]
+        # Copy unconditionally -- a list argument must not be written through.
+        density = list(density)
 
         max_density = max(density)
-        if not density[0] == max_density:
-            print(
-                f"Reference variable was assigned density "
-                f"{density[0]}, which is lower than the "
-                f"maximum density {max_density} in the "
-                f"density argument provided, but refvar "
-                f"must have the maximum number of observations."
-                f" Imposing refvar density to be {max_density}."
+        if density[0] != max_density:
+            raise ValueError(
+                f"The reference variable takes density[0]={density[0]}, but the "
+                f"largest density given is {max_density}. var0 is the overlap "
+                "reference and must have the largest density, so list the "
+                "largest value first."
             )
-            density[0] = max_density
 
         return density
 
     @staticmethod
-    def validate_density_type(
-        density: Union[int, float, List, Tuple]
-    ) -> float:
+    def validate_density_type(density: Union[int, float, List, Tuple]) -> float:
         """Validate density type and return representative value for grid calculations.
 
         The density at the whole grid level is determined as the maximum value
         of density available across variables (if density is an int, it is the
         same for all variables)
-        
+
         Args:
             density: Density value(s) - scalar, 2-element, or num_vars-element
-            
+
         Returns:
             Representative density value (max if list/tuple) for grid calculation
 
@@ -251,11 +287,11 @@ class ParameterValidator:
             raise TypeError(
                 f"density must be a number, list, or tuple, got {type(density)}"
             )
-        
+
         if not 0.0 <= density_for_grid <= 1.0:
             raise ValueError(
                 f"density values must be between 0 and 1.0, "
                 f"got max={density_for_grid}"
             )
-        
+
         return density_for_grid
