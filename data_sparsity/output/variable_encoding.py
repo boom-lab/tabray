@@ -245,19 +245,19 @@ class VariableEncoding:
     def netcdf_encoding(self) -> dict:
         """The per-variable part of xarray's ``encoding``."""
         if self.integer:
-            return {"dtype": self.dtype,
+            return {"dtype": self.storage_dtype,
                     "_FillValue": np.dtype(self.dtype).type(self.fill_value)}
         if not self.packed and self.dtype == "float64" and self.fill_value is None:
             # The default. Say nothing, so xarray writes as it would without
             # an encoding argument at all.
             return {}
         if not self.packed:
-            encoding = {"dtype": self.dtype}
+            encoding = {"dtype": self.storage_dtype}
             if self.fill_value is not None:
                 encoding["_FillValue"] = np.dtype(self.dtype).type(self.fill_value)
             return encoding
         return {
-            "dtype": self.pack,
+            "dtype": self.storage_dtype,
             "scale_factor": self.param_dtype(self.scale_factor),
             "add_offset": self.param_dtype(self.add_offset),
             "_FillValue": np.dtype(self.pack).type(self.fill_value),
