@@ -14,7 +14,7 @@ from data_sparsity.output.compression_settings import CompressionSettings
 
 class ParquetBuilder:
     """Builder for Parquet/pandas output formats.
-    
+
     This class creates pandas DataFrames from record arrays and coordinates
     in both single-variable and multi-variable configurations.
     """
@@ -146,7 +146,7 @@ class ParquetBuilder:
         compression: CompressionSettings = None
     ) -> None:
         """Save DataFrame to Parquet file.
-        
+
         Args:
             dataframe: pandas or dask DataFrame
             filepath: Path to save file (or directory for dask)
@@ -160,48 +160,48 @@ class ParquetBuilder:
             compression: Codec to apply, shared with the netCDF output. None
                 writes uncompressed -- which must be said explicitly, because
                 dask's own default is Snappy.
-            
+
         Raises:
             FileExistsError: If file exists and overwrite is False
         """
         import os
-        
+
         # Convert pandas to dask if needed
         if isinstance(dataframe, pd.DataFrame):
             ddf = dd.from_pandas(dataframe, npartitions=1)
         else:
             ddf = dataframe
-        
+
         # Parse filepath into directory and filename
         dirpath = os.path.dirname(filepath)
         filename = os.path.basename(filepath)
-        
+
         # Handle case where filepath has no directory component
         if not dirpath:
             dirpath = '.'
-        
+
         # Remove .parquet extension if present for directory-based storage
         if filename.endswith('.parquet'):
             filename = filename[:-8]
-        
+
         if not filename:
             filename = 'data'
-        
+
         # Add chunk_id to filename if provided
         if chunk_id is not None:
             filename += f"_{chunk_id}"
-        
+
         # Create name function for partition files
         nb_digits = len(str(ddf.npartitions))
         def name_function(partition_idx: int) -> str:
             """Generate filename for a parquet partition."""
             return f"{filename}_{partition_idx:0{nb_digits}d}.parquet"
-        
+
         # Check if directory exists when not overwriting
         if os.path.exists(dirpath) and not overwrite:
             # Check if any files matching the pattern exist
             existing_files = [
-                f for f in os.listdir(dirpath) 
+                f for f in os.listdir(dirpath)
                 if f.startswith(filename) and f.endswith('.parquet')
             ]
             if existing_files:
@@ -209,18 +209,18 @@ class ParquetBuilder:
                     f"Files matching pattern {filename}*.parquet already exist "
                     f"in {dirpath}. Set overwrite=True to replace."
                 )
-        
+
         # For parallel generation with chunk_id, delete only files for this chunk
         if chunk_id is not None and overwrite and os.path.exists(dirpath):
             for f in os.listdir(dirpath):
                 if f.startswith(filename) and f.endswith('.parquet'):
                     os.remove(os.path.join(dirpath, f))
-        
+
         # For parallel generation, don't write metadata file
         # (will be written when chunks are merged)
         if write_metadata is None:
             write_metadata = (chunk_id is None)
-        
+
         # Save to parquet (overwrite=False to avoid deleting other chunks)
         compression_kwargs = (
             compression.parquet_kwargs() if compression else {"compression": None}
@@ -234,5 +234,5 @@ class ParquetBuilder:
             write_metadata_file=write_metadata,
             **compression_kwargs
         )
-        
+
         print(f"Saved to {dirpath}/{filename}_*.parquet")

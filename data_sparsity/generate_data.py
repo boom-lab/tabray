@@ -404,7 +404,7 @@ class GenerateData:
             self.var_num_obs,
             self.var_dims_indices
         )
-        
+
         # Update observation counts if they were adjusted
         if not np.array_equal(self.var_num_obs, adjusted_obs):
             self.var_num_obs = adjusted_obs
@@ -414,7 +414,7 @@ class GenerateData:
 
         Args:
             max_obs: Maximum observations per chunk
-            
+
         Raises:
             ValueError: If max_obs is incompatible with LHS requirements
         """
@@ -431,32 +431,32 @@ class GenerateData:
             # Note: LHS compatibility is handled via RNG state advancement
             # Each chunk generates its observations independently with properly
             # advanced RNG state to maintain serial/parallel equivalence
-            
+
             self.NTASKS = int(np.ceil(self.num_obs / max_obs))
             self.max_obs = max_obs
-            
+
             # Group the grid's strata into chunks. The split dimension was
             # already fixed during validation (see self.dim_split).
             max_dim = self.dim_split
             max_dim_size = self.nb_coords_per_dim[max_dim]
-            
+
             if max_dim_size < self.NTASKS:
                 raise ValueError(
                     f"Dimension has size {max_dim_size} but {self.NTASKS} "
                     f"chunks should be generated?"
                 )
-            
+
             # Divide the largest dimension into chunks
             Neach_section, extras = divmod(max_dim_size, self.NTASKS)
             Neach_section = int(Neach_section)
-            section_sizes = ([0] + extras * [Neach_section + 1] + 
+            section_sizes = ([0] + extras * [Neach_section + 1] +
                            (self.NTASKS - extras) * [Neach_section])
             div_points = np.array(section_sizes, dtype=int).cumsum()
-            
+
             self.max_dim_size = max_dim_size
             self.section_sizes = section_sizes[1:]
             self.div_points = div_points
-            
+
             print(f"Parallel generation: {self.NTASKS} tasks, {max_obs} obs per task")
             print(f"  Dataset split along dimension {self.dim_split}")
             print(f"  Block sizes along it: {self.section_sizes}")
@@ -572,7 +572,7 @@ class GenerateData:
             records = self._records
         if var_constant_dims is None:
             var_constant_dims = self.var_constant_dims
-            
+
         if attrs is None:
             # num_obs and density describe the reference variable, the same
             # quantities the chunk files record; the per-variable arrays below
@@ -741,7 +741,7 @@ class GenerateData:
                 seed=self.seed,
                 num_dims=self.num_dims
             )
-            
+
             self._coordinates = CoordinateGenerator.generate_all_coords(
                 self.shape,
                 rng=None,  # Not used when dim_rngs provided
@@ -797,23 +797,23 @@ class GenerateData:
 
         Submit as many dataset generation tasks as number of blocks needed.
         Supports both single-variable and multi-variable datasets.
-        
+
         Uses ProcessPoolExecutor for simpler, more robust parallelization without
         external dependencies.
         """
         from concurrent.futures import ProcessPoolExecutor, as_completed
         import multiprocessing
         from data_sparsity.workers import generate_chunk
-        
+
         # Ensure output directories exist
         nc_dir = os.path.dirname(self.netcdf_filepath)
         if nc_dir and not os.path.exists(nc_dir):
             os.makedirs(nc_dir, exist_ok=True)
-        
+
         parquet_dir = os.path.dirname(self.parquet_filepath)
         if parquet_dir and not os.path.exists(parquet_dir):
             os.makedirs(parquet_dir, exist_ok=True)
-            
+
         # Scratch chunks go in their own directory, not alongside the real
         # output. Clear any leftovers from an interrupted run, but only if the
         # directory holds nothing this code did not write.
@@ -923,7 +923,7 @@ class GenerateData:
         ctx = multiprocessing.get_context("spawn")
         with ProcessPoolExecutor(max_workers=max_workers, mp_context=ctx) as executor:
             futures = [executor.submit(generate_chunk, **args) for args in chunk_args]
-            
+
             tot_completed = 0
             tot_obs = 0
             for future in as_completed(futures):
@@ -1014,39 +1014,39 @@ class GenerateData:
 
     def _consolidate_parquet_files(self) -> None:
         """Consolidate temporary parquet files into single output.
-        
+
         Uses Dask for memory-efficient consolidation of potentially larger-than-memory
         datasets. This is critical for the parallel workflow's primary use case:
         generating datasets that exceed available memory.
-        
+
         The consolidation reads all temporary parquet chunks lazily using Dask,
         repartitions for optimal I/O, and writes the consolidated output.
         """
         import glob
-        
+
         tmp_dir = self.parquet_tmp
         tmp_pattern = os.path.join(tmp_dir, "chunk_*.parquet")
         tmp_files = sorted(glob.glob(tmp_pattern))
-        
+
         if not tmp_files:
             raise RuntimeError(f"No temporary parquet files found in {tmp_dir}")
-        
+
         print(f"Consolidating {len(tmp_files)} parquet chunk files...")
-        
+
         # Use Dask to read all chunks lazily (memory-efficient for large datasets)
         ddf = dd.read_parquet(tmp_pattern)
-        
+
         # Repartition for optimal write performance (300MB partitions is a good default)
         ddf = ddf.repartition(partition_size="300MB")
-        
+
         print(f"Dask DataFrame has {ddf.npartitions} partitions")
-        
+
         # Write consolidated file using ParquetBuilder (which handles dask DataFrames)
         ParquetBuilder.save_to_file(
             ddf, self.parquet_filepath, overwrite=True,
             compression=self.compression
         )
-        
+
         # Cleanup: the scratch directory goes once the merge has succeeded
         print(f"Cleaning up {len(tmp_files)} temporary files...")
         for f in tmp_files:

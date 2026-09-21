@@ -12,7 +12,7 @@ from data_sparsity.output.compression_settings import CompressionSettings
 
 class NetCDFBuilder:
     """Builder for NetCDF/xarray output formats.
-    
+
     This class creates xarray DataArray (single variable) or Dataset
     (multiple variables) objects from record arrays and coordinates.
     """
@@ -26,14 +26,14 @@ class NetCDFBuilder:
         seed: int
     ) -> Dict:
         """Create default attributes dictionary.
-        
+
         Args:
             num_obs: Number of observations
             num_dims: Number of dimensions
             ratio_dims: Dimension ratios
             density: Density value
             seed: Random seed
-            
+
         Returns:
             Dictionary of attributes
         """
@@ -114,13 +114,13 @@ class NetCDFBuilder:
         attrs: Optional[Dict] = None
     ) -> xr.DataArray:
         """Build xarray DataArray from record and coordinates.
-        
+
         Args:
             record: Record array with observations
             coordinates: Dictionary mapping dimension names to coordinate arrays
             var_name: Name for the DataArray variable
             attrs: Optional attributes dictionary
-            
+
         Returns:
             xarray DataArray
         """
@@ -142,7 +142,7 @@ class NetCDFBuilder:
         squeeze_constant_dims: bool = True,
     ) -> xr.Dataset:
         """Build xarray Dataset from multiple records.
-        
+
         Args:
             records: Dictionary mapping variable names to record arrays
             coordinates: Dictionary mapping dimension names to coordinate arrays
@@ -213,24 +213,24 @@ class NetCDFBuilder:
         compression: CompressionSettings = None
     ) -> None:
         """Save DataArray or Dataset to NetCDF file.
-        
+
         Args:
             data: xarray DataArray or Dataset
             filepath: Path to save file
             overwrite: Whether to overwrite existing file
             compression: Codec to apply, shared with the parquet output.
                 None writes uncompressed.
-            
+
         Raises:
             FileExistsError: If file exists and overwrite is False
         """
         import os
-        
+
         if os.path.exists(filepath) and not overwrite:
             raise FileExistsError(
                 f"File {filepath} already exists. Set overwrite=True to replace."
             )
-        
+
         encoding = compression.netcdf_encoding(data) if compression else {}
         data.to_netcdf(filepath, encoding=encoding)
         print(f"Saved to {filepath}")

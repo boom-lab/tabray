@@ -13,7 +13,7 @@ from data_sparsity.utils.streams import Stream, stream
 
 class RecordGenerator:
     """Base class for record generation.
-    
+
     This class provides common functionality for creating sparse record
     arrays, including initialization, index generation, and assignment.
     """
@@ -21,10 +21,10 @@ class RecordGenerator:
     @staticmethod
     def initialize_record(shape: List[int]) -> np.ndarray:
         """Initialize an empty record array filled with NaN.
-        
+
         Args:
             shape: Shape of the record array
-            
+
         Returns:
             Array filled with NaN values
         """
@@ -39,9 +39,9 @@ class RecordGenerator:
         observations: np.ndarray
     ) -> None:
         """Assign observation values to record at specified indices.
-        
+
         Modifies record in-place.
-        
+
         Args:
             record: Record array to modify
             multi_indices: Tuple of index arrays
@@ -56,26 +56,26 @@ class RecordGenerator:
         rng: np.random.Generator
     ) -> Tuple[np.ndarray, ...]:
         """Generate Latin Hypercube Sample indices for base coverage.
-        
+
         Creates n_s observations ensuring each coordinate in each dimension
         is used at least once. This forms the LHS component of the hybrid
         sampling approach.
-        
+
         For dimensions where size equals n_s, generates a full permutation
         ensuring each coordinate is used exactly once. For dimensions larger
         than n_s, randomly selects n_s unique coordinates.
-        
+
         Args:
             shape: Grid shape [n0, n1, ..., nk]
             n_s: Number of LHS samples (typically min(shape))
             rng: Random number generator
-            
+
         Returns:
             Tuple of index arrays, one per dimension, each of length n_s
-            
+
         Raises:
             ValueError: If any dimension size < n_s
-            
+
         Example:
             >>> rng = np.random.default_rng(42)
             >>> shape = [5, 7, 5]
@@ -127,31 +127,31 @@ class RecordGenerator:
         rng: np.random.Generator
     ) -> Tuple[np.ndarray, ...]:
         """Generate indices using hybrid LHS + random sampling.
-        
+
         This method implements a two-stage approach that guarantees all
         coordinates are used while maintaining randomness for additional
         observations:
-        
+
         Stage 1 (LHS base): First n_s observations use Latin Hypercube
                             Sampling to ensure each coordinate in each
                             dimension is used at least once.
-        
+
         Stage 2 (Random fill): Remaining observations (if any) use standard
                                random sampling without replacement, ensuring
                                no duplicates across LHS and random samples.
-        
+
         This hybrid approach works at ALL density levels:
         - At minimum density (num_obs = min(shape)): Pure LHS
         - Above minimum: LHS base + random fill
-        
+
         Args:
             shape: Grid shape [n0, n1, ..., nk]
             num_obs: Total number of observations to generate
             rng: Random number generator
-            
+
         Returns:
             Tuple of index arrays, one per dimension, each of length num_obs
-            
+
         Example:
             >>> rng = np.random.default_rng(42)
             >>> shape = [5, 5]
@@ -179,25 +179,25 @@ class RecordGenerator:
             )
         n_s = max_dim_size               # LHS base coverage: the whole longest axis
         n_random = num_obs - n_s         # Additional random points
-        
+
         # Stage 1: LHS for base coverage (first n_s observations)
         lhs_indices = RecordGenerator.generate_lhs_indices(shape, n_s, rng)
-        
+
         if n_random == 0:
             # At minimum density, pure LHS is sufficient
             return lhs_indices
-        
+
         # Stage 2: Random sampling for additional observations
         # We need to avoid duplicating LHS positions
         total_points = int(np.prod(shape))
-        
+
         # Convert LHS indices to flat indices to identify used positions
         lhs_flat = np.ravel_multi_index(lhs_indices, shape)
         lhs_set = set(lhs_flat)
-        
+
         # Create list of available positions (excluding LHS positions)
         available_positions = np.array([i for i in range(total_points) if i not in lhs_set])
-        
+
         # Sample from available positions
         if len(available_positions) >= n_random:
             # Enough positions available: sample without replacement
@@ -209,15 +209,15 @@ class RecordGenerator:
                 available_positions,
                 rng.choice(total_points, size=n_random - len(available_positions), replace=True)
             ])
-        
+
         random_indices = np.unravel_index(random_flat, shape)
-        
+
         # Combine LHS and random indices
         combined_indices = tuple(
             np.concatenate([lhs_indices[i], random_indices[i]])
             for i in range(len(shape))
         )
-        
+
         return combined_indices
 
     @staticmethod

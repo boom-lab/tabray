@@ -10,7 +10,7 @@ import numpy as np
 
 class DimensionValidator:
     """Validator for dimension-related parameters and computations.
-    
+
     This class provides static methods to compute and validate dimensions,
     coordinate counts, and grid properties.
     """
@@ -25,37 +25,37 @@ class DimensionValidator:
         """Compute number of coordinates in first dimension.
 
         Check that first dimension in coordinate space has at least one element.
-        
+
         Args:
             num_obs: Number of observations
             density: Density value
             ratio_dims_prod: Product of ratio_dims array
             num_dims: Number of dimensions
-            
+
         Returns:
             Number of coordinates in first dimension (may be non-integer)
-            
+
         Raises:
             ValueError: If computed value is less than 1
         """
         base = num_obs / (density * ratio_dims_prod)
         nb_coords_dim1 = np.power(base, 1 / num_dims)
-        
+
         if nb_coords_dim1 < 1:
             raise ValueError(
                 f"Number of elements for dimension 1 must be at least 1, "
                 f"got {nb_coords_dim1}"
             )
-        
+
         return nb_coords_dim1
 
     @staticmethod
     def round_to_integer(nb_coords_dim1: float) -> int:
         """Round coordinates in first dimension to nearest integer.
-        
+
         Args:
             nb_coords_dim1: Number of coordinates (may be non-integer)
-            
+
         Returns:
             Rounded integer value
         """
@@ -72,11 +72,11 @@ class DimensionValidator:
         nb_coords_dim1: int
     ) -> np.ndarray:
         """Compute number of coordinates per dimension.
-        
+
         Args:
             ratio_dims: Relative sizes for each dimension
             nb_coords_dim1: Number of coordinates in first dimension
-            
+
         Returns:
             Number of coordinates for each dimension
         """
@@ -85,10 +85,10 @@ class DimensionValidator:
     @staticmethod
     def validate_min_elements_per_dim(nb_coords_per_dim: np.ndarray) -> None:
         """Validate that all dimensions have at least one element.
-        
+
         Args:
             nb_coords_per_dim: Number of coordinates per dimension
-            
+
         Raises:
             ValueError: If any dimension has less than one element
         """
@@ -109,13 +109,13 @@ class DimensionValidator:
     @staticmethod
     def validate_integer_elements(nb_coords_per_dim: np.ndarray) -> np.ndarray:
         """Validate and round to ensure integer number of elements per dimension.
-        
+
         Args:
             nb_coords_per_dim: Number of coordinates per dimension
-            
+
         Returns:
             Rounded integer array
-            
+
         Raises:
             ValueError: If any dimension has significantly non-integer elements
         """
@@ -134,7 +134,7 @@ class DimensionValidator:
             raise ValueError(
                 "One or more dimensions contain a decimal number of elements."
             )
-        
+
         print(
             "All dimensions contain approximately a natural number of elements, "
             "casting and/or rounding them:"
@@ -142,7 +142,7 @@ class DimensionValidator:
         print(f"  Old number of elements: {nb_coords_per_dim}")
         rounded = np.rint(nb_coords_per_dim).astype(int)
         print(f"  New number of elements: {rounded}")
-        
+
         return rounded
 
     @staticmethod
@@ -150,10 +150,10 @@ class DimensionValidator:
         nb_coords_per_dim: np.ndarray
     ) -> Tuple[List[int], int]:
         """Compute shape and total grid points.
-        
+
         Args:
             nb_coords_per_dim: Number of coordinates per dimension
-            
+
         Returns:
             Tuple of (shape as list of ints, total grid points)
         """
