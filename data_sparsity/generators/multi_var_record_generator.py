@@ -62,6 +62,8 @@ class MultiVarRecordGenerator:
         lhs_shape: Optional[List[int]] = None,
         num_obs_global: Optional[int] = None,
         div_points: Optional[List[int]] = None,
+        layout: str = "scattered",
+        padded_dim: Optional[int] = None,
     ) -> Dict[str, np.ndarray]:
         """Place the single variable, one stratum at a time.
 
@@ -79,6 +81,8 @@ class MultiVarRecordGenerator:
             lhs_shape: Global shape for LHS generation in parallel mode
             num_obs_global: Global observation count in parallel mode
             div_points: Division points for chunk filtering in parallel mode
+            layout: ``scattered`` or ``padded``
+            padded_dim: The axis prefixes run along under ``padded``
 
         Returns:
             Dictionary with the filled var0 record
@@ -103,6 +107,8 @@ class MultiVarRecordGenerator:
             seed=seed,
             split_dim=dim_split,
             strata=wanted,
+            layout=layout,
+            padded_dim=padded_dim,
         )
         # The record array is chunk-shaped, so rebase the split axis.
         if stratum_start:
@@ -135,6 +141,8 @@ class MultiVarRecordGenerator:
         num_obs_global: Optional[int] = None,
         div_points: Optional[List[int]] = None,
         fixed_overlap: Optional[List[bool]] = None,
+        layout: str = "scattered",
+        padded_dim: Optional[int] = None,
     ) -> tuple[Dict[str, np.ndarray], float]:
         """Generate multi-variable records with overlap control.
 
@@ -159,6 +167,8 @@ class MultiVarRecordGenerator:
             fixed_overlap: Per non-reference variable, whether it shares the
                 reference ordering (MultiVarOverlapConfig output). Multi-variable
                 only.
+            layout: ``scattered`` or ``padded``
+            padded_dim: The axis prefixes run along under ``padded``
 
         Returns:
             Tuple of (records dict, actual overlap achieved)
@@ -204,6 +214,8 @@ class MultiVarRecordGenerator:
                 seed=seed,
                 split_dim=dim_split,
                 strata=strata,
+                layout=layout,
+                padded_dim=padded_dim,
             )
             for var_idx in range(num_vars):
                 var_name = f"var{var_idx}"
@@ -239,6 +251,8 @@ class MultiVarRecordGenerator:
             lhs_shape,
             num_obs_global,
             div_points,
+            layout,
+            padded_dim,
         )
         overlap_actual = OverlapCalculator.compute_overlap_report(
             records,
@@ -261,6 +275,8 @@ class MultiVarRecordGenerator:
         seed: int,
         split_dim: int,
         strata: Optional[Iterable[int]] = None,
+        layout: str = "scattered",
+        padded_dim: Optional[int] = None,
     ) -> Dict[str, Tuple[Tuple[np.ndarray, ...], np.ndarray]]:
         """Place every variable, one stratum at a time.
 
@@ -303,6 +319,8 @@ class MultiVarRecordGenerator:
             seed: Base random seed
             split_dim: Dimension indexing the strata
             strata: Which strata to generate (default: all)
+            layout: ``scattered`` or ``padded``, passed to var0's placement
+            padded_dim: The axis prefixes run along under ``padded``
 
         Returns:
             var_name -> (multi-indices in GLOBAL space, values)
@@ -318,6 +336,8 @@ class MultiVarRecordGenerator:
             seed=seed,
             split_dim=split_dim,
             strata=strata,
+            layout=layout,
+            padded_dim=padded_dim,
         )
         out = {"var0": (ref_indices, ref_values)}
         ref_split = ref_indices[split_dim]
