@@ -10,7 +10,7 @@ import numpy as np
 
 class OverlapCalculator:
     """Calculator for actual overlap between variables.
-    
+
     This class computes how much observation overlap was achieved
     between multiple variables in a dataset.
     """
@@ -21,16 +21,16 @@ class OverlapCalculator:
         num_dims: int
     ) -> Set[Tuple[int, ...]]:
         """Extract set of indices of coordinates where observations exist.
-        
+
         Args:
             record: Record array for one variable
             num_dims: Total number of dimensions
-            
+
         Returns:
             Set of indices tuples of coordinates where observations are non-NaN
         """
         non_nan_indices = np.where(~np.isnan(record))
-        
+
         coords_set = set()
         for obs_idx in range(len(non_nan_indices[0])):
             coord_tuple = tuple(
@@ -38,7 +38,7 @@ class OverlapCalculator:
                 for dim_idx in range(num_dims)
             )
             coords_set.add(coord_tuple)
-        
+
         return coords_set
 
     @staticmethod
@@ -47,11 +47,11 @@ class OverlapCalculator:
         dimensions: List[int]
     ) -> Set[Tuple[int, ...]]:
         """Project coordinates onto specific dimensions.
-        
+
         Args:
             coords_set: Set of full coordinate tuples
             dimensions: Dimension indices to project onto
-            
+
         Returns:
             Set of projected coordinate tuples
         """

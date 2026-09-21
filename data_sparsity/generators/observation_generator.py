@@ -8,7 +8,7 @@ import numpy as np
 
 class ObservationGenerator:
     """Generator for observation values.
-    
+
     This class creates random observation values for data points.
     """
 
@@ -18,11 +18,11 @@ class ObservationGenerator:
         rng: np.random.Generator
     ) -> np.ndarray:
         """Generate random observation values.
-        
+
         Args:
             num_obs: Number of observations to generate
             rng: Random number generator
-            
+
         Returns:
             Array of random observation values in [0, 1]
         """

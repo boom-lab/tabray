@@ -214,7 +214,7 @@ class ChunkUtils:
         task_shape[dim_split] = task_size
 
         return task_shape
-        
+
     @staticmethod
     def validate_chunk_points(
             task_shape: tuple

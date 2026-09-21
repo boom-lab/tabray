@@ -9,7 +9,7 @@ import numpy as np
 
 class CoordinateGenerator:
     """Generator for coordinate arrays.
-    
+
     This class creates coordinate values for each dimension of a
     multi-dimensional grid.
     """
@@ -23,13 +23,13 @@ class CoordinateGenerator:
         dim_rngs: Optional[Dict[int, np.random.Generator]] = None
     ) -> List[np.ndarray]:
         """Generate coordinates for all dimensions.
-        
+
         Args:
             shape: Number of coordinate points per dimension
             rng: Random number generator (default for all dimensions)
             dim_ranges: Optional dict mapping dimension index to (min, max) range
             dim_rngs: Optional dict mapping dimension index to specific RNG
-            
+
         Returns:
             List of coordinate arrays, one per dimension
         """
@@ -37,7 +37,7 @@ class CoordinateGenerator:
             dim_ranges = {}
         if dim_rngs is None:
             dim_rngs = {}
-        
+
         # Generate random coordinate arrays for each dimension
         coordinates = {}
         for idx, n_coords in enumerate(shape):

@@ -60,8 +60,8 @@ def run_case(
             ratio_dims=1,
             density=density,
             seed=seed,
-        )        
-        
+        )
+
     else:
         gen = GenerateData(
             num_obs=num_obs,
@@ -74,7 +74,7 @@ def run_case(
             overlap=overlap,
             fixed_overlap=fixed_overlap,
         )
-    
+
     gen.generate(
         netcdf_filepath=ncpath,
         parquet_filepath=pqpath,

@@ -10,24 +10,24 @@ import numpy as np
 
 class MultiVarSparsityConfig:
     """Configuration manager for multi-variable density.
-    
+
     This class processes the density parameter which can be:
     - A scalar: all variables get the same density
     - A 2-element list/tuple: one var gets min, one gets max, rest are random
     - A num_vars-element list/tuple: each var gets its corresponding density
-    
+
     """
 
     @staticmethod
     def from_scalar(density: float, num_vars: int) -> np.ndarray:
         """Create density array from scalar value.
-        
+
         All variables get the same density.
-        
+
         Args:
             density: Single density value
             num_vars: Number of variables
-            
+
         Returns:
             Array of density values, one per variable
         """
@@ -40,17 +40,17 @@ class MultiVarSparsityConfig:
         rng: np.random.Generator
     ) -> np.ndarray:
         """Create density array from 2-element list.
-        
+
         density_list is [max, min]. var0 takes the maximum and one other
         variable takes the minimum, so both prescribed values are used: with
         two variables the range is exactly the two densities. Any further
         variables are drawn uniformly from [min, max].
-        
+
         Args:
             density_list: List with exactly 2 elements [min, max]
             num_vars: Number of variables
             rng: Random number generator
-            
+
         Returns:
             Array of density values, one per variable
         """
@@ -76,14 +76,14 @@ class MultiVarSparsityConfig:
     @staticmethod
     def from_full_list(density_list: List[float], num_vars: int) -> np.ndarray:
         """Create density array from full list.
-        
+
         Args:
             density_list: List with one density per variable
             num_vars: Number of variables
-            
+
         Returns:
             Array of density values, one per variable
-            
+
         Raises:
             ValueError: If list length doesn't match num_vars
         """
@@ -100,14 +100,14 @@ class MultiVarSparsityConfig:
         density_min: float
     ) -> np.ndarray:
         """Validate density values and clip to minimum if needed.
-        
+
         Args:
             var_densities: Array of density values
             density_min: Minimum allowable density
-            
+
         Returns:
             Validated and clipped array
-            
+
         Raises:
             ValueError: If any density is outside [0, 1]
         """
@@ -122,7 +122,7 @@ class MultiVarSparsityConfig:
                     f"{density_min}, clipping to minimum"
                 )
                 var_densities[j] = density_min
-        
+
         return var_densities
 
     @staticmethod
@@ -131,14 +131,14 @@ class MultiVarSparsityConfig:
         num_obs: int
     ) -> np.ndarray:
         """Compute number of observations for each variable.
-        
+
         The variable with highest density gets num_obs observations,
         others are scaled proportionally.
-        
+
         Args:
             var_densities: Array of density values
             num_obs: Total number of observations for max density variable
-            
+
         Returns:
             Array of observation counts, one per variable
         """
@@ -156,20 +156,20 @@ class MultiVarSparsityConfig:
         rng: np.random.Generator
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Setup multi-variable density configuration from parameter.
-        
+
         Main entry point that processes density parameter and returns
         complete configuration.
-        
+
         Args:
             density: Density specification (scalar, 2-element, or full list)
             num_vars: Number of variables
             num_obs: Total observations for max density variable
             density_min: Minimum allowable density
             rng: Random number generator
-            
+
         Returns:
             Tuple of (var_densities array, var_num_obs array)
-            
+
         Raises:
             TypeError: If density is not a valid type
             ValueError: If density list has wrong length
@@ -197,12 +197,12 @@ class MultiVarSparsityConfig:
             raise TypeError(
                 f"density must be a scalar, list, or tuple, got {type(density)}"
             )
-        
+
         var_densities = MultiVarSparsityConfig.validate_and_clip(
             var_densities, density_min
         )
         var_num_obs = MultiVarSparsityConfig.compute_var_num_obs(
             var_densities, num_obs
         )
-        
+
         return var_densities, var_num_obs

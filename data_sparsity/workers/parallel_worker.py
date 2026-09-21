@@ -87,11 +87,11 @@ def generate_chunk(
     compression_level: int = 4,
 ) -> Tuple[int, int, str]:
     """Generate a single chunk of data in parallel.
-    
+
     This function is designed to be called by ProcessPoolExecutor and contains
     no references to the parent GenerateData object. All necessary parameters
     are passed explicitly.
-    
+
     Args:
         chunk_id: Identifier for this chunk
         obs_in_chunk: Number of observations to generate in this chunk
@@ -122,33 +122,33 @@ def generate_chunk(
             string rather than a CompressionSettings so the worker arguments
             stay plain values.
         compression_level: Compression level, ignored when the codec is None
-        
+
     Returns:
         Tuple of (chunk_id, total_observations, parquet_chunk_path)
     """
     log = _configure_worker_logging(chunk_id, netcdf_filepath)
     compression = CompressionSettings(compression_codec, compression_level)
     log.debug("######------ NEW CHUNK ------######")
-    
+
     # Determine chunk dimensions and range along split dimension FIRST
     task_range = (div_points[chunk_id], div_points[chunk_id + 1])
     task_size = section_sizes[chunk_id]
     task_shape = ChunkUtils.update_chunk_shape(shape, dim_split, task_size)
-    
+
     log.debug("task_range: %s", task_range)
     log.debug("task_size: %s", task_size)
     log.debug("task_shape: %s", task_shape)
-    
+
     total_chunk_points = ChunkUtils.validate_chunk_points(task_shape)
     log.debug("total_chunk_points: %s", total_chunk_points)
-    
+
     # Generate dimension-specific RNGs for coordinates (no chunk-specific parameters)
     # All chunks use the same base RNGs to ensure coordinate alignment
     coord_dim_rngs = ChunkUtils.generate_rngs(
         seed=seed,
         num_dims=num_dims
     )
-    
+
     # Draw every axis over the GLOBAL shape, exactly as serial does, then keep
     # this chunk's slice of the split axis. The axis is sorted, so that slice
     # holds precisely the coordinates whose global index falls in this chunk,
@@ -163,10 +163,10 @@ def generate_chunk(
     coordinates[split_dim_name] = coordinates[split_dim_name][
         task_range[0]:task_range[1]
     ]
-    
+
     log.debug("obs in chunk: %s", obs_in_chunk)
     log.debug("total chunk points: %s", total_chunk_points)
-    
+
     # Generate records for single or multiple variables
     if num_vars == 1:
         # Single variable mode - use MultiVarRecordGenerator with num_vars=1 for consistency
@@ -187,10 +187,10 @@ def generate_chunk(
             num_obs_global=num_obs_global,  # Pass global observation count
             div_points=div_points  # Pass division points for chunk filtering
         )
-        
+
         # Extract the single record from the dictionary
         record = records['var0']
-        
+
         log.debug("chunk id: %s", chunk_id)
         log.debug("record.shape: %s", record.shape)
         log.debug("num obs in chunk: %s", obs_in_chunk)
@@ -198,7 +198,7 @@ def generate_chunk(
         log.debug("dims: %s", list(coordinates.keys()))
         log.debug("coord sizes: %s",
                   {name: len(values) for name, values in coordinates.items()})
-        
+
         # Create DataArray with chunk-specific attributes
         chunk_attrs = NetCDFBuilder.create_default_attrs(
             num_obs, num_dims, ratio_dims, density, seed
@@ -209,7 +209,7 @@ def generate_chunk(
         dataarray = NetCDFBuilder.build_dataarray(
             record, coordinates, attrs=chunk_attrs
         )
-        
+
         # Save to NetCDF
         nb_digits = len(str(ntasks))
         fpath = f"{netcdf_filepath[:-3]}_{chunk_id:0{nb_digits}d}.nc"
@@ -218,12 +218,12 @@ def generate_chunk(
         )
         del dataarray
         gc.collect()
-        
+
         # Create DataFrame
         dataframe = ParquetBuilder.build_single_var_dataframe(
             record, coordinates, order_dim=dim_split
         )
-        
+
         # Save to the scratch directory. write_metadata=False: several workers
         # share this directory and _metadata is a single fixed filename.
         import os
@@ -232,9 +232,9 @@ def generate_chunk(
             dataframe, parquet_chunk_path, overwrite=False,
             write_metadata=False, compression=compression
         )
-        
+
         total_obs = np.sum(~np.isnan(record))
-        
+
     else:
         # Multi-variable mode
         # Generate the chunk directly so the workflow can scale past RAM.
@@ -285,7 +285,7 @@ def generate_chunk(
         # Achieved overlap is deliberately not recorded here: a chunk only sees
         # its own strata, so any figure it computed would be chunk-local and
         # would not aggregate to the dataset's overlap. It belongs to the merge.
-        
+
         dataset = NetCDFBuilder.build_dataset(
             records,
             coordinates,
@@ -293,7 +293,7 @@ def generate_chunk(
             var_constant_dims=var_constant_dims,
             squeeze_constant_dims=False,
         )
-        
+
         # Save to NetCDF
         nb_digits = len(str(ntasks))
         fpath = f"{netcdf_filepath[:-3]}_{chunk_id:0{nb_digits}d}.nc"
@@ -302,12 +302,12 @@ def generate_chunk(
         )
         del dataset
         gc.collect()
-        
+
         # Create DataFrame
         dataframe = ParquetBuilder.build_multi_var_dataframe(
             records, coordinates, num_vars, num_dims, order_dim=dim_split
         )
-        
+
         # Save to the scratch directory. write_metadata=False: several workers
         # share this directory and _metadata is a single fixed filename.
         import os
@@ -316,5 +316,5 @@ def generate_chunk(
             dataframe, parquet_chunk_path, overwrite=False,
             write_metadata=False, compression=compression
         )
-    
+
     return chunk_id, total_obs, parquet_chunk_path

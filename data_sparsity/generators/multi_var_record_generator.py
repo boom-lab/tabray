@@ -15,7 +15,7 @@ from data_sparsity.generators.overlap_calculator import OverlapCalculator
 
 class MultiVarRecordGenerator:
     """Generator for multi-variable record arrays with overlap control.
-    
+
     This class creates sparse record arrays for multiple variables,
     with control over how much observation locations overlap between variables.
     """
@@ -27,14 +27,14 @@ class MultiVarRecordGenerator:
         num_vars: int
     ) -> Dict[int, List[int]]:
         """Compute reduced shapes for each variable.
-        
+
         Constant dimensions get size 1, varying dimensions keep full size.
-        
+
         Args:
             shape: Full grid shape
             var_constant_dims: Constant dimensions per variable
             num_vars: Number of variables
-            
+
         Returns:
             Dictionary mapping var_idx to reduced shape
         """
@@ -65,7 +65,7 @@ class MultiVarRecordGenerator:
             var_constant_dims: Constant dimensions per variable
             var_constant_coord_indices: Pre-seeded RNGs per variable/dimension
             num_vars: Number of variables
-            
+
         Returns:
             Dictionary mapping var_idx -> {const_dim -> coord_value}
         """
@@ -90,12 +90,12 @@ class MultiVarRecordGenerator:
         num_obs: int
     ) -> Tuple:
         """Expand reduced-space indices to full-space coordinates.
-        
+
         Args:
             multi_indices: Indices in reduced shape (constant dims have 1 element)
             var_constant_coords: Constant coordinate values for this variable
             num_obs: Number of observations
-            
+
         Returns:
             Multi-indices in full space
         """
@@ -137,9 +137,9 @@ class MultiVarRecordGenerator:
         div_points: Optional[List[int]] = None
     ) -> Dict[str, np.ndarray]:
         """Generate multi-variable records without overlap constraints.
-        
+
         Each variable's observations are placed independently.
-        
+
         Args:
             shape: Full grid shape
             records: Pre-initialized empty record arrays
@@ -155,7 +155,7 @@ class MultiVarRecordGenerator:
             lhs_shape: Global shape for LHS generation in parallel mode
             num_obs_global: Global observation count for validation
             div_points: Division points for chunk filtering in parallel mode
-            
+
         Returns:
             Dictionary of filled record arrays
         """
@@ -165,20 +165,20 @@ class MultiVarRecordGenerator:
         var_constant_coords = MultiVarRecordGenerator._select_constant_coords(
             shape, var_constant_dims, var_constant_coord_indices, num_vars
         )
-        
+
         for var_idx in range(num_vars):
             var_name = f"var{var_idx}"
             var_shape = var_shapes[var_idx]
             var_total_points = int(np.prod(var_shape))
             num_obs = int(np.rint(var_num_obs[var_idx]))
-            
+
             # Ensure we don't exceed available points
             if num_obs < var_num_obs[var_idx]:
                 print(
                     f"WARNING: Variable {var_idx} limited to {num_obs} "
                     f"observations (requested {var_num_obs[var_idx]})"
                 )
-            
+
             # Determine index generation approach
             if num_vars == 1 and dim_split is not None:
                 # Stratified placement. Serial asks for every stratum, a worker
@@ -236,7 +236,7 @@ class MultiVarRecordGenerator:
             RecordGenerator.assign_observations(
                 records[var_name], full_multi_indices, observations
             )
-        
+
         return records
 
     @staticmethod
@@ -259,7 +259,7 @@ class MultiVarRecordGenerator:
         fixed_overlap: Union[bool, List[bool]] = False
     ) -> Dict[str, np.ndarray]:
         """Generate multi-variable records with controlled overlap.
-        
+
         Uses a shared RNG for coordinates of overlapping observations and separate
         RNGs for non-overlapping observations to achieve the target overlap level.
         All variables exist in full num_dims space with constant dimensions held at
@@ -277,7 +277,7 @@ class MultiVarRecordGenerator:
             var_constant_dims: Constant dimensions per variable
             var_constant_coord_indices: Pre-seeded RNGs for constant dims
             seed: Random seed
-            
+
         Returns:
             Dictionary of filled record arrays
         """
@@ -292,7 +292,7 @@ class MultiVarRecordGenerator:
         var_constant_coords = MultiVarRecordGenerator._select_constant_coords(
             shape, var_constant_dims, var_constant_coord_indices, num_vars
         )
-        
+
         # Create shared RNG for selecting coordinates of overlapping sites/points
         # This ensures overlapping observations are at the same spatial locations
         chunk_index = () if chunk_id is None else (chunk_id,)
@@ -337,7 +337,7 @@ class MultiVarRecordGenerator:
         # Generate observation values using VAR_RNG
         refvar_observations = var_rngs[refvar_idx].uniform(0, 1, size=refvar_num_obs)
         records[refvar_name][refvar_full_multi] = refvar_observations
-        
+
         ### Phase 3: Generate other variables with overlap
         if isinstance(overlap_target, (list, tuple, np.ndarray)):
             overlap_targets = list(overlap_target)
@@ -425,7 +425,7 @@ class MultiVarRecordGenerator:
                     )
                     separate_obs = var_rngs[var_idx].uniform(0, 1, size=num_separate)
                     records[var_name][separate_full_multi] = separate_obs
-        
+
         return records
 
     @staticmethod
@@ -449,9 +449,9 @@ class MultiVarRecordGenerator:
         fixed_overlap: Union[bool, List[bool]] = False
     ) -> tuple[Dict[str, np.ndarray], float]:
         """Generate multi-variable records with overlap control.
-        
+
         Main entry point for multi-variable record generation.
-        
+
         Args:
             shape: Full grid shape
             overlap: Overlap specification ('random' or 0-1)
@@ -469,7 +469,7 @@ class MultiVarRecordGenerator:
             lhs_shape: Global shape for LHS generation in parallel mode
             num_obs_global: Global observation count for validation
             div_points: Division points for chunk filtering in parallel mode
-            
+
         Returns:
             Tuple of (records dict, actual overlap achieved)
         """
@@ -477,7 +477,7 @@ class MultiVarRecordGenerator:
         for var_idx in range(num_vars):
             var_name = f"var{var_idx}"
             records[var_name] = RecordGenerator.initialize_record(shape)
-        
+
         if num_vars > 1 and dim_split is not None:
             # Stratified multi-variable placement: every variable is placed one
             # hyperplane at a time, so serial and parallel agree by construction
@@ -547,7 +547,7 @@ class MultiVarRecordGenerator:
             records = MultiVarRecordGenerator.generate_with_overlap(
                 shape, records, overlap, num_vars, var_num_obs,
                 var_constant_dims, var_constant_coord_indices, seed,
-                chunk_id, max_dim_size, dim_split, lhs_rng, lhs_shape, 
+                chunk_id, max_dim_size, dim_split, lhs_rng, lhs_shape,
                 num_obs_global, div_points, fixed_overlap
             )
             # One metric regardless of how the target was expressed: a scalar
@@ -555,7 +555,7 @@ class MultiVarRecordGenerator:
             overlap_actual = OverlapCalculator.compute_overlap_report(
                 records, num_vars, num_dims, var_dims_indices
             )["f1"]
-        
+
         return records, overlap_actual
 
     @staticmethod

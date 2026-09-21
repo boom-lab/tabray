@@ -11,10 +11,10 @@ from numpy.typing import ArrayLike
 
 class ParameterValidator:
     """Validator for basic data generation parameters.
-    
+
     This class provides static methods to validate individual parameters
     before they are used in data generation.
-    
+
     Methods are ordered by their typical call sequence in the workflow.
     """
 
@@ -23,10 +23,10 @@ class ParameterValidator:
         """Validate number of observations.
 
         Check that num_obs to generate is int and larger than 0
-        
+
         Args:
             num_obs: Number of observations to generate
-            
+
         Raises:
             TypeError: If num_obs is not an integer
             ValueError: If num_obs is not positive
@@ -39,10 +39,10 @@ class ParameterValidator:
     @staticmethod
     def validate_num_dims(num_dims: int) -> None:
         """Validate number of dimensions.
-        
+
         Args:
             num_dims: Number of dimensions in coordinate space
-            
+
         Raises:
             TypeError: If num_dims is not an integer
             ValueError: If num_dims is not positive
@@ -55,10 +55,10 @@ class ParameterValidator:
     @staticmethod
     def validate_seed(seed: int) -> None:
         """Validate random seed.
-        
+
         Args:
             seed: Random seed for reproducibility
-            
+
         Raises:
             TypeError: If seed is not an integer
             ValueError: If seed is negative
@@ -71,10 +71,10 @@ class ParameterValidator:
     @staticmethod
     def validate_num_vars(num_vars: int) -> None:
         """Validate number of variables.
-        
+
         Args:
             num_vars: Number of variables in dataset
-            
+
         Raises:
             TypeError: If num_vars is not an integer
             ValueError: If num_vars is not positive
@@ -94,16 +94,16 @@ class ParameterValidator:
 
         - First variable (reference variable) occupies all dimensions.
         - var_dims is an int or has as many elements as number of variables
-        
+
         Args:
             var_dims: Number of dimensions for each variable
             num_vars: Number of variables in the dataset
-            num_dims: Number of dimensions in the coordinate space            
+            num_dims: Number of dimensions in the coordinate space
 
         Returns:
             var_dims_update: Updated value to enforce first variable to occupy all
             dimensions
-            
+
         Raises:
             TypeError: If var_dims type is not admitted
 
@@ -159,7 +159,7 @@ class ParameterValidator:
 
         else:
             raise TypeError(f"var_dims must be an int, list or tuple, got {type(var_dims)}")
-        
+
         return var_dims_update
 
     @staticmethod
@@ -180,14 +180,14 @@ class ParameterValidator:
           (and 2.5-times of dimension #2)
         - num_dims = 5, ratio_dims=[1,3]: raises error because ratio_dims have
           fewer elements than num_dims
-        
+
         Args:
             ratio_dims: Relative sizes for each dimension
             num_dims: Number of dimensions (for consistency check)
-            
+
         Returns:
             Validated ratio_dims as numpy array
-            
+
         Raises:
             TypeError: If ratio_dims is not a valid type
             ValueError: If ratio_dims length doesn't match num_dims
@@ -205,15 +205,15 @@ class ParameterValidator:
                 f"ratio_dims must be int, tuple, list, or numpy array, "
                 f"got {type(ratio_dims)}"
             )
-        
+
         ratio_dims = np.asarray(ratio_dims)
-        
+
         if len(ratio_dims) != num_dims:
             raise ValueError(
                 f"num_dims must match length of ratio_dims, "
                 f"got {num_dims} and {len(ratio_dims)}"
             )
-        
+
         return ratio_dims
 
     @staticmethod
@@ -266,10 +266,10 @@ class ParameterValidator:
         The density at the whole grid level is determined as the maximum value
         of density available across variables (if density is an int, it is the
         same for all variables)
-        
+
         Args:
             density: Density value(s) - scalar, 2-element, or num_vars-element
-            
+
         Returns:
             Representative density value (max if list/tuple) for grid calculation
 
@@ -287,11 +287,11 @@ class ParameterValidator:
             raise TypeError(
                 f"density must be a number, list, or tuple, got {type(density)}"
             )
-        
+
         if not 0.0 <= density_for_grid <= 1.0:
             raise ValueError(
                 f"density values must be between 0 and 1.0, "
                 f"got max={density_for_grid}"
             )
-        
+
         return density_for_grid
