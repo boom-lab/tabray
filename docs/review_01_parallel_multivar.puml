@@ -1,0 +1,236 @@
+@startuml review_01_parallel_multivar
+' Review unit 01 of 15 -- see docs/review_diagrams.md for the series.
+' State AFTER commits b646f9a, 18a85ef, 48950f2, adb82be (src +424/-84, tests +219/-6).
+' Every number below is from a run of the two cases at commit adb82be.
+' Render: plantuml docs/review_01_parallel_multivar.puml
+
+title Unit 01 -- parallel support for multi-variable runs (b646f9a..adb82be)
+
+skinparam shadowing false
+skinparam defaultFontName Monospaced
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam activity {
+  BackgroundColor #FCFCFC
+  BorderColor #777777
+  DiamondBackgroundColor #F2F2F2
+  DiamondBorderColor #777777
+}
+skinparam partition {
+  BorderColor #8899AA
+  FontColor #33495E
+}
+skinparam note {
+  BackgroundColor #FFFDF0
+  BorderColor #C8C08A
+}
+
+start
+
+partition "the call -- one set of parameters, two cases" {
+  :GenerateData(
+     num_obs=100, num_dims=3, ratio_dims=[1, 2, 2],
+     density=[0.4, 0.1], seed=77,
+     num_vars=2, var_dims=[3, 2],
+     overlap=0.5, fixed_overlap=False,
+     <b>case A</b>: max_obs=None      <b>case B</b>: max_obs=40)
+  .generate(netcdf_filepath, parquet_filepath, parquet_tmp);
+  note right #C8E6C9
+    NEW parameter <b>max_workers</b> (default None).
+    Validated in __init__: a positive int or None,
+    else ValueError. It caps the process pool;
+    the cap used to be the constant 4.
+  end note
+}
+
+partition "validators/  (identical in both cases)" {
+  :<b>ParameterValidator</b>
+  num_obs, num_dims, seed, num_vars, var_dims -> per-variable dim counts
+  validate_reference_is_largest: var0 must hold the most observations;
+  :<b>DimensionValidator</b>
+  nb_coords_dim1 = (100 / (0.4 * prod([1,2,2]))) ** (1/3) = 3.9685 -> 4
+  nb_coords_per_dim = [1,2,2] * 4 = <b>shape [4, 8, 8]</b>, 256 grid sites;
+  :<b>SparsityValidator</b>
+  density_zero = 1 / nmin**(num_dims-1) = 1 / 4**2 = <b>0.0625</b>
+  num_obs 100 disagrees with density*sites = 102.4
+  -> corrected <b>num_obs = 102</b>, grid density 0.3984375;
+}
+
+partition "config/  (identical in both cases)" {
+  :<b>MultiVarSparsityConfig</b>  rng = default_rng(seed)
+  density is a 2-element list -> min/max, and with num_vars=2
+  a coin flip decides which variable gets which
+  seed 77 -> heads -> var_densities = <b>[0.4, 0.1]</b>
+  var_num_obs = rint(var_densities / max * 102) = <b>[102, 26]</b>;
+  note right
+    A different seed gives tails and var0 the
+    minimum, which validate_reference_is_largest
+    then rejects. Unit 11 removes the coin flip.
+  end note
+
+  :<b>MultiVarDimensionsConfig</b>  (seed-derived RNGs)
+  var_dims=[3,2] -> var_dims_indices = <b>[ [0,1,2], [0,2] ]</b>
+  var_constant_dims = <b>[ [], [1] ]</b>
+  var1's coordinate on x1 is drawn once: <b>index 2</b>;
+  :<b>MultiVarOverlapConfig</b>
+  overlap_target = 0.5, fixed_overlap = [False] per variable
+  minimum feasible overlap for this grid = 0.0;
+  :_multiprocessing_setup(max_obs)
+  case A: max_obs=None -> <b>NTASKS = 1</b>
+  case B: NTASKS = ceil(102 / 40) = <b>3</b>, split along the LARGEST
+     dimension: dim_split = argmax([4,8,8]) = <b>1</b>, max_dim_size = 8
+     section_sizes = [3, 3, 2], div_points = [0, 3, 6, 8];
+}
+
+if (NTASKS) then (== 1  -- CASE A, serial)
+
+  partition "coordinates (serial)" {
+    :ChunkUtils.generate_rngs(seed, num_dims)
+    one RNG per dimension, derived by OFFSET: default_rng(seed + dim*1000);
+    :CoordinateGenerator.generate_all_coords
+    x0 = sort(uniform(0,1,4)), x1 = sort(uniform(0,1,8)), x2 = sort(uniform(0,1,8));
+  }
+
+  partition "placement (serial): one global draw per variable" {
+    :records[var0], records[var1] = full([4,8,8], NaN);
+    :_compute_var_shapes -> var0 [4,8,8] (256 cells), var1 [4,<b>1</b>,8] (32 cells)
+    _select_constant_coords -> var1 pinned at x1 index 2;
+    :shared_rng = default_rng(seed + 9999)
+    var_rngs[i] = default_rng(seed + 2000 + i);
+    :<b>var0</b>: shared_rng.choice(256, size=102, replace=False)
+    -> unravel to (x0,x1,x2), values from var_rngs[0];
+    :<b>var1</b>: n_overlap = round(0.5 * 26) = <b>13</b>
+    compatible reference sites = the 32 var0 sites with x1 == 2
+    13 of them drawn with var_rngs[1], then 13 more from the
+    remaining cells of var1's own 32-cell plane;
+    note right
+      Overlap is applied to var1's OWN count (0.5 * 26),
+      and the remainder is drawn from cells that may
+      already hold var0, so coincidences accumulate on
+      top of the target. Units 03 and 04 change both.
+    end note
+    :OverlapCalculator.compute_actual_overlap
+    pooled, in FULL coordinate space: |S0 & S1| / |S1| = 14/26 = <b>0.5385</b>;
+    note right
+      Measured on the run: var1 occupies 26 cells, all at
+      x1 index 2; 14 of them also carry var0. Seen as F1 on
+      the shared dimensions (x0, x2) the same data reads
+      26/32 = 0.8125 -- unit 04 switches to that definition.
+    end note
+  }
+
+  partition "output (serial)" {
+    :NetCDFBuilder.build_dataset(records, coordinates, attrs,
+       var_constant_dims)  -- squeeze_constant_dims defaults to True
+    var0 (x0,x1,x2) 4x8x8, var1 dropna+squeeze on x1 -> <b>var1 (x0,x2)</b>;
+    :attrs = num_obs, num_dims, ratio_dims, density, seed,
+       description, overlap_target, fixed_overlap  (8 keys);
+    :ParquetBuilder.build_multi_var_dataframe
+    one row per occupied coordinate: <b>114 rows x 5 columns</b>
+    x0, x1, x2, var0, var1;
+    note right #C8E6C9
+      A variable absent at a coordinate now writes
+      <b>np.nan</b>, not pd.NA. pd.NA made the column
+      dtype object, so parquet stored it boxed:
+      the file drops 7482 -> <b>6246 B</b> on the same data.
+    end note
+    :PathManager.setup_output_paths(overwrite=True)
+    to_netcdf(...)   dd.from_pandas(df, 1).to_parquet(...);
+  }
+
+  #FFF9C4:CASE A on disk:
+  netCDF/ds.nc  12589 B
+  parquet_0.parquet  6246 B (was 7482 B)
+  _metadata 3804 B, _common_metadata 3025 B;
+
+else (== 3  -- CASE B, parallel)
+
+  partition "chunking (parallel)" {
+    :setup_output_paths, then rmtree(dirname(parquet_tmp)) and recreate it;
+    #C8E6C9:<b>NEW branch on num_vars</b>
+    num_vars == 1 -> ChunkUtils.get_observations_per_chunk (as before,
+       now handed max(density) when density is a list)
+    num_vars > 1 -> <b>ChunkUtils.get_multi_var_observations_per_chunk</b>
+       var_num_obs [102, 26] split by section_sizes [3,3,2] / 8
+       largest-remainder, so each variable's total is preserved
+       -> chunk 0 [38, 10], chunk 1 [38, 10], chunk 2 [26, 6];
+    note right #C8E6C9
+      Before this unit the multi-variable parallel path
+      never reached a worker: the single-variable
+      apportionment was applied to the per-variable array
+      and raised
+      <b>ValueError: operands could not be broadcast
+      together with shapes (2,) (3,)</b>
+    end note
+    #C8E6C9:one plain-value argument dict per chunk, carrying the
+    CHUNK-LOCAL var_num_obs, plus dim_split, div_points,
+    section_sizes, max_dim_size, netcdf_filepath, parquet_tmp;
+    #C8E6C9:max_workers = min(NTASKS, max_workers or os.cpu_count())
+    was min(NTASKS, 4);
+    :ProcessPoolExecutor(spawn context);
+  }
+
+  partition "workers/generate_chunk  (3 processes)" {
+    :task_range = div_points[id:id+2], task_size = section_sizes[id],
+    task_shape = [4, task_size, 8]  (chunk 0 and 1: 3, chunk 2: 2);
+    #C8E6C9:coordinates: every NON-split axis is redrawn in full from its
+    own offset RNG (x0: 4 values, x2: 8 values), the split axis is
+    drawn as task_size uniforms inside [start/8, end/8] and sorted
+    -- identical non-split axes are what lets the files concatenate;
+    :MultiVarRecordGenerator.generate(task_shape, ..., chunk_id,
+       max_dim_size, dim_split, fixed_overlap)
+    same generate_with_overlap routine, seeds shifted by the chunk:
+    shared_seed += chunk_id*10000, var_seeds += chunk_id*100;
+    #C8E6C9:NetCDFBuilder.build_dataset(..., var_constant_dims,
+       <b>squeeze_constant_dims=False</b>)
+    chunk files keep all three dimensions so xarray can
+    concatenate them later;
+    #C8E6C9:chunk attrs now include chunk_id, num_vars, var_densities,
+    var_num_obs, overlap_target, fixed_overlap;
+    :write <b>ds_NNN.nc</b> and a parquet chunk under parquet_tmp;
+  }
+
+  partition "consolidation (parallel)" {
+    :_consolidate_parquet_files
+    dd.read_parquet(chunk_*.parquet).repartition("300MB")
+    -> one parquet dataset, chunk files deleted;
+    :generate() returns (None, None) -- results exist only on disk;
+  }
+
+  #FFF9C4:CASE B on disk:
+  netCDF/ds_0.nc 12250 B  (x0 4, x1 3, x2 8; var0 38, var1 10)
+  netCDF/ds_1.nc 12250 B  (x0 4, x1 3, x2 8; var0 38, var1 10)
+  netCDF/ds_2.nc 12242 B  (x0 4, x1 2, x2 8; var0 26, var1 6)
+  parquet_0.parquet 5927..5952 B
+  tmp/_metadata 3807 B left behind in the scratch tree;
+
+endif
+
+partition "the single-variable flow (num_vars=1, density=0.4, same grid)" {
+  :unchanged by this unit. Serial still places 102 observations with
+  RecordGenerator.generate_hybrid_indices; parallel still uses
+  get_observations_per_chunk -> [36, 39, 27] and
+  generate_global_lhs_indices_for_chunk. Byte-identical output
+  before and after the unit.;
+}
+
+stop
+
+legend right
+  |<#C8E6C9> green |= added or changed by THIS unit |
+  |<#FFCDD2> red |= removed by THIS unit |
+  |<#FFE0B2> orange |= single-variable flow touched by THIS unit |
+  |<#FFF9C4> yellow |= generated data or file that changed as a result |
+  | plain | unchanged since the previous unit |
+
+  <b>What to review in unit 01</b>
+  * get_multi_var_observations_per_chunk: largest-remainder split,
+    does every variable's total survive the split?
+  * squeeze_constant_dims=False for chunk files only
+  * max_workers validation and the min(NTASKS, cpu_count) default
+  * the chunk-id seed shifts, which unit 12 removes entirely
+  <b>Verified</b>: multi-variable parallel goes from ValueError to
+  three chunk files; single-variable output unchanged.
+end legend
+
+@enduml

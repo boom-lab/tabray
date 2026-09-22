@@ -1,0 +1,132 @@
+@startuml review_14_netcdf_merge
+' Review unit 14 of 15 -- see docs/review_diagrams.md for the series.
+' State AFTER commit ab60aee (src +195/-7).
+' Every number below is from a run of the three cases at commit ab60aee.
+' Render: plantuml docs/review_14_netcdf_merge.puml
+
+title Unit 14 -- merge one variable at a time, single-threaded (ab60aee)
+
+skinparam shadowing false
+skinparam defaultFontName Monospaced
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam activity {
+  BackgroundColor #FCFCFC
+  BorderColor #777777
+  DiamondBackgroundColor #F2F2F2
+  DiamondBorderColor #777777
+}
+skinparam partition {
+  BorderColor #8899AA
+  FontColor #33495E
+}
+skinparam note {
+  BackgroundColor #FFFDF0
+  BorderColor #C8C08A
+}
+
+start
+
+partition "the call" {
+  :GenerateData(
+     num_obs=100, num_dims=3, ratio_dims=[1, 2, 2],
+     density=[0.4, 0.1], seed=77,
+     num_vars=2, var_dims=[3, 2],
+     overlap=0.5, fixed_overlap=False,
+     <b>case A</b>: max_obs=None      <b>case B</b>: max_obs=40)
+  .generate(netcdf_filepath, parquet_filepath, parquet_tmp,
+            merge_nc=False or True);
+}
+
+partition "validate, configure, place -- unchanged" {
+  :shape [4, 8, 8], num_obs 102, dim_split 1, var1 constant on x0
+  at index 2, F1 0.4561 and F2 1.0, 116 parquet rows;
+}
+
+if (NTASKS) then (== 1  -- CASE A, serial)
+
+  :nothing in this unit touches the serial path.
+  ds.nc 15729 B, parquet_0.parquet 6265 B;
+
+else (== 3  -- CASE B, parallel)
+
+  partition "chunks and parquet -- unchanged" {
+    :ds_0.nc and ds_1.nc (x1 size 3), ds_2.nc (x1 size 2),
+    13704 B each, var0 37, 39, 26 and var1 9, 9, 8,
+    consolidated parquet_0.parquet 5965 B;
+  }
+
+  if (merge_nc?) then (False)
+    :chunk files kept, nothing merged;
+  else (True)
+    partition "_merge_netcdf_files" {
+      :open_mfdataset over the chunk files, concat along x1,
+      squeeze the constant dimensions, fix up the chunk attributes
+      -- all as in unit 06;
+      #FFCDD2:merged.to_netcdf(path) -- one call for the whole dataset;
+      note right #FFCDD2
+        to_netcdf on a dask-backed dataset issues one
+        store PER DATA VARIABLE and runs them concurrently,
+        so every variable's chunks are in flight at once and
+        HDF5 allocates their space in completion order.
+        Identical data then produced a different file on
+        every run (diagnostic S7), and with dask's default
+        thread pool a thread reading a chunk and a thread
+        writing the output could block each other on
+        xarray's single netCDF4 lock and hang the run for
+        good (diagnostic S8: twice in four runs of the
+        verification harness, never in 25 runs of the case
+        on its own).
+      end note
+      #C8E6C9:write <b>one data variable per call</b>, in order:
+      merged[ [var0] ].to_netcdf(path, mode="w")
+      then merged[ [var1] ].to_netcdf(path, mode="a")
+      raising if the merged dataset has no data variables;
+      #C8E6C9:the whole write runs under
+      <b>dask.config.set(scheduler="synchronous")</b>, in the calling
+      thread, so two threads cannot contend for the netCDF4 lock;
+      note right #C8E6C9
+        Neither change is a memory trade. Each write is
+        still lazy and streams chunk by chunk; one
+        variable at a time needs LESS memory than all of
+        them at once (measured on a 382 MB, 3-variable
+        dataset: about 900 MB of address space against
+        about 1200 MB for the single call).
+      end note
+      #FFF9C4:merged <b>ds.nc 15488 -> 13558 B</b>, and the file is now
+      byte-reproducible across runs of the same case;
+    }
+  endif
+
+endif
+
+partition "the single-variable flow (num_vars=1, density=0.4)" {
+  #FFE0B2:the same merge routine serves it -- one data variable, so
+  one to_netcdf call, now under the synchronous scheduler. The
+  reproducibility and deadlock arguments apply to any variable
+  count, since the read side is still parallel across chunks.
+  No change to the files this example writes;
+}
+
+stop
+
+legend right
+  |<#C8E6C9> green |= added or changed by THIS unit |
+  |<#FFCDD2> red |= removed by THIS unit |
+  |<#FFE0B2> orange |= single-variable flow touched by THIS unit |
+  |<#FFF9C4> yellow |= generated data or file that changed as a result |
+  | plain | unchanged since unit 13 |
+
+  <b>What to review in unit 14</b>
+  * mode="w" for the first variable and mode="a" for the rest --
+    does the second call see the coordinates the first wrote?
+  * the empty-data_vars RuntimeError
+  * scheduler="synchronous" scope: it wraps only the write, and
+    the claim is that nothing is materialised by it
+  * whether the size drop (15488 -> 13558 B) is layout only and
+    not data loss -- the variable counts are unchanged at 102 and 26
+  <b>Verified</b>: merged file shrinks and stabilises; chunk files,
+  parquet and the serial path are untouched.
+end legend
+
+@enduml

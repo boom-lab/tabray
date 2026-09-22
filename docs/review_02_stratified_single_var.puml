@@ -1,0 +1,173 @@
+@startuml review_02_stratified_single_var
+' Review unit 02 of 15 -- see docs/review_diagrams.md for the series.
+' State AFTER commits 2b14258, 86e9e2e (src +304/-75, tests +87/-32).
+' Every number below is from a run of the two cases at commit 86e9e2e.
+' Render: plantuml docs/review_02_stratified_single_var.puml
+
+title Unit 02 -- stratify the grid by hyperplane (single-variable path)
+
+skinparam shadowing false
+skinparam defaultFontName Monospaced
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam activity {
+  BackgroundColor #FCFCFC
+  BorderColor #777777
+  DiamondBackgroundColor #F2F2F2
+  DiamondBorderColor #777777
+}
+skinparam partition {
+  BorderColor #8899AA
+  FontColor #33495E
+}
+skinparam note {
+  BackgroundColor #FFFDF0
+  BorderColor #C8C08A
+}
+
+start
+
+partition "the call -- unchanged parameters, two cases" {
+  :GenerateData(
+     num_obs=100, num_dims=3, ratio_dims=[1, 2, 2],
+     density=[0.4, 0.1], seed=77,
+     num_vars=2, var_dims=[3, 2],
+     overlap=0.5, fixed_overlap=False,
+     <b>case A</b>: max_obs=None      <b>case B</b>: max_obs=40)
+  .generate(netcdf_filepath, parquet_filepath, parquet_tmp);
+}
+
+partition "validators/ and config/" {
+  :shape [4, 8, 8], 256 sites, density_zero 0.0625, num_obs 100 -> 102
+  var_densities 0.4 and 0.1, var_num_obs 102 and 26
+  var_dims_indices [ [0,1,2], [0,2] ], var1 constant on x1 at index 2
+  overlap_target 0.5, fixed_overlap False;
+  #C8E6C9:<b>dim_split moves into validation</b>
+  self.dim_split = argmax(nb_coords_per_dim) = <b>1</b>,
+  set for EVERY run, serial included;
+  note right #C8E6C9
+    The stratification is a property of the grid,
+    not of max_obs: the same partition has to be
+    used whether or not the run is chunked, or
+    serial and parallel cannot agree.
+    _multiprocessing_setup now only GROUPS strata
+    into chunks; it no longer picks the axis.
+  end note
+  :_multiprocessing_setup(max_obs)
+  case A: NTASKS = 1
+  case B: NTASKS = 3, max_dim_size = 8,
+     section_sizes 3, 3, 2 and div_points 0, 3, 6, 8;
+}
+
+if (num_vars) then (== 2  -- the multi-variable example)
+
+  partition "placement: UNCHANGED in this unit" {
+    :MultiVarRecordGenerator.generate_with_overlap, exactly as in unit 01
+    var0: one global choice of 102 of the 256 cells
+    var1: 13 overlapping cells plus 13 more from its own 32-cell plane
+    reported overlap (pooled, full space) 0.5385;
+    note right
+      dim_split is now passed in, but the multi-variable
+      branch ignores it: only num_vars == 1 takes the new
+      route. Unit 03 moves this path over, and the data
+      changes then, not here.
+    end note
+    #FFF9C4:CASE A on disk, byte-identical to unit 01:
+    ds.nc 12589 B, parquet_0.parquet 6246 B, 114 rows;
+    #FFF9C4:CASE B on disk, byte-identical to unit 01:
+    ds_0.nc and ds_1.nc 12250 B, ds_2.nc 12242 B
+    var0 counts 38, 38, 26 and var1 counts 10, 10, 6;
+  }
+
+else (== 1  -- the single-variable example, density=0.4)
+
+  partition "coordinates" {
+    :ChunkUtils.generate_rngs -> default_rng(seed + dim*1000) per axis
+    x0 4 values, x1 8 values, x2 8 values, each sorted;
+  }
+
+  partition "placement -- REPLACED by RecordGenerator.generate_stratified_indices" {
+    #FFCDD2:generate_hybrid_indices on the whole grid at once:
+    one LHS block plus one global random fill, drawn from a single
+    RNG. A chunk could only reproduce it by regenerating the whole
+    grid and filtering, which is what the parallel path did;
+    #C8E6C9:<b>stage 1 -- LHS, global, computed by every caller</b>
+    n_s = min(num_obs, min(shape)) = min(102, 4) = <b>4</b>
+    rng = default_rng([seed, LHS_STREAM=1])
+    generate_lhs_indices gives 4 points covering the SHORTEST axis;
+    #C8E6C9:<b>stage 2 -- apportion the fill across strata</b>
+    strata = the 8 hyperplanes at x1 = 0 .. 7
+    taken = how many LHS points fell in each stratum
+    available = 32 - taken   (a hyperplane of this grid has 4*8 = 32 cells)
+    <b>ChunkUtils.apportion</b>(102 - 4, weights=available, capacity=available)
+    largest-remainder, so the counts sum to exactly 98;
+    note right #C8E6C9
+      apportion is new and shared: floor of each exact
+      share, then the leftover units go to the largest
+      fractional parts, with a per-bin capacity.
+      Rounding each bin on its own would move num_obs,
+      and num_obs is what seeds the draw.
+    end note
+    #C8E6C9:<b>stage 3 -- per stratum j</b>
+    rng = default_rng([seed, STRATUM_STREAM=2, j])
+    ranks = rng.choice(32 - lhs_here, n_fill) over the FREE sites
+    _ranks_to_local shifts each rank past the LHS sites already taken
+    values = rng.uniform(0, 1) drawn AFTER the sites, from the same stream;
+    note right #C8E6C9
+      A stratum depends on (seed, stratum) and nothing
+      else -- not on how many strata the caller wants,
+      not on a chunk id. That is the whole serial and
+      parallel contract, and peak memory is one
+      hyperplane rather than the grid.
+    end note
+  }
+
+  #FFE0B2:CASE A (serial), measured at this commit:
+  102 observations, per-stratum counts along x1
+  13, 12, 13, 12, 13, 13, 13, 13
+  different sites from unit 01 -- same count, new placement model;
+
+  partition "CASE B -- the same routine, fewer strata" {
+    #C8E6C9:worker chunk id 0 asks for strata range(0, 3),
+    chunk 1 for range(3, 6), chunk 2 for range(6, 8),
+    then rebases the split axis by stratum_start so the
+    indices fit its own task_shape;
+    #FFE0B2:per-chunk observation counts <b>38, 38, 26</b>
+    (were 36, 39, 27 before this unit)
+    and the rows are the same ones serial would place;
+  }
+
+endif
+
+partition "output and disk (unchanged mechanics)" {
+  :single variable: DataArray named "record" plus a one-row-per-observation
+  DataFrame; two variables: Dataset var0 and var1 plus one row per occupied
+  coordinate. PathManager.setup_output_paths(overwrite=True), to_netcdf,
+  dd.to_parquet;
+  #FFF9C4:single-variable case A: ds.nc 14061 B, parquet 5401 B
+  single-variable case B: three chunk files of 10997 B, parquet 5136 B;
+}
+
+stop
+
+legend right
+  |<#C8E6C9> green |= added or changed by THIS unit |
+  |<#FFCDD2> red |= removed by THIS unit |
+  |<#FFE0B2> orange |= single-variable flow touched by THIS unit |
+  |<#FFF9C4> yellow |= generated data or file that changed as a result |
+  | plain | unchanged since unit 01 |
+
+  <b>What to review in unit 02</b>
+  * ChunkUtils.apportion -- does the largest-remainder loop
+    respect capacity and still sum to the total?
+  * generate_stratified_indices -- the LHS stage is recomputed
+    by every caller; is that cheap and identical everywhere?
+  * _ranks_to_local -- the shift past excluded sites (still the
+    scalar loop here; unit 03 vectorises it)
+  * dim_split moving from _multiprocessing_setup to validation
+  <b>Verified</b>: single-variable data changes (new model), and
+  serial and parallel now agree on the per-chunk counts;
+  multi-variable output is byte-identical to unit 01.
+end legend
+
+@enduml
