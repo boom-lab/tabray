@@ -160,6 +160,13 @@ memory than all of them at once.
 - Non-expert Python users read this code: prefer clear over clever, and comment any non-obvious design decision.
 - Never commit generated data (`.nc`, `.parquet`, `.csv`, …) — `.gitignore` already covers them.
 
+## Open items
+
+`.claude/HANDOFF.md` lists what an earlier session left unfinished: lint exceptions
+still to agree, black not declared as a dependency, the zstd check in
+`CompressionSettings`, diagnostics S6 and A4, and the untracked `docs/*.puml`
+diagrams. Read it before picking up that work; delete entries as they are done.
+
 ## Known drift in the docs
 
 `README.md` claims `from data_sparsity import GenerateData` and `342/426 tests passing`. Both are stale: `data_sparsity/__init__.py` is empty, so the import is `from data_sparsity.generate_data import GenerateData` (what the tests and notebook helpers use), and the suite is fully green at 524 tests. It also describes multi-variable data_vars as `record0, record1, …`; they are `var0, var1, …`.
