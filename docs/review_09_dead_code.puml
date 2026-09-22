@@ -1,0 +1,109 @@
+@startuml review_09_dead_code
+' Review unit 09 of 15 -- see docs/review_diagrams.md for the series.
+' State AFTER commits e9c789c, 9a4841c, f88be14 (src +217/-4598, tests +5/-1518).
+' Every number below is from a run of the two cases at commit f88be14.
+' Render: plantuml docs/review_09_dead_code.puml
+
+title Unit 09 -- remove the machinery the stratum model replaced (f88be14)
+
+skinparam shadowing false
+skinparam defaultFontName Monospaced
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam activity {
+  BackgroundColor #FCFCFC
+  BorderColor #777777
+  DiamondBackgroundColor #F2F2F2
+  DiamondBorderColor #777777
+}
+skinparam partition {
+  BorderColor #8899AA
+  FontColor #33495E
+}
+skinparam note {
+  BackgroundColor #FFFDF0
+  BorderColor #C8C08A
+}
+
+start
+
+partition "the call -- unchanged parameters, two cases" {
+  :GenerateData(
+     num_obs=100, num_dims=3, ratio_dims=[1, 2, 2],
+     density=[0.4, 0.1], seed=77,
+     num_vars=2, var_dims=[3, 2],
+     overlap=0.5, fixed_overlap=False,
+     <b>case A</b>: max_obs=None      <b>case B</b>: max_obs=40)
+  .generate(netcdf_filepath, parquet_filepath, parquet_tmp, merge_nc);
+}
+
+partition "what the live flow still is, after the deletions" {
+  :validators, then config, then _choose_split_dim, then coordinates,
+  then RecordGenerator.generate_stratified_indices for var0,
+  then MultiVarRecordGenerator.generate_multivar_stratified for var1,
+  then OverlapCalculator.compute_overlap_report,
+  then NetCDFBuilder and ParquetBuilder, then PathManager, then disk;
+}
+
+partition "removed: the regenerate-and-filter parallel machinery" {
+  #FFCDD2:<b>RecordGenerator.generate_global_lhs_indices_for_chunk</b>
+  a chunk regenerated the WHOLE grid's indices and discarded
+  everything outside its slice. Replaced in unit 02 by asking
+  generate_stratified_indices for a range of strata;
+  #FFCDD2:<b>RecordGenerator.generate_flat_indices</b>, generate_hybrid_indices
+  callers, and the RNG-advancement helpers in ChunkUtils
+  (calculate_lhs_draws_per_generation, generate_lhs_rng,
+  assign_rngs_to_dimensions, validate_chunk_points);
+  #FFCDD2:<b>MultiVarRecordGenerator.generate_without_overlap</b> and
+  <b>generate_with_overlap</b> -- the pre-stratum placement routines,
+  unreachable since unit 03 for every dim_split that is not None;
+  #FFCDD2:<b>generators/overlap_index_mapper.py</b> -- the whole module
+  (identify_random_assign_dims, map_single_coordinate,
+  try_random_assignment, map_indices_for_overlap), which mapped a
+  reference site into a lower-dimensional variable's space by
+  retrying random assignments;
+  #FFCDD2:<b>CoordinateGenerator.generate_dimension_coords</b>, a wrapper
+  with no remaining caller;
+  #FFCDD2:<b>data_sparsity/generate_data.py.~origin_main~</b> -- a 2325-line
+  editor backup of the module that had been committed to main;
+  note right #FFCDD2
+    2974 deleted lines of source and 1518 of tests.
+    The tests removed are the ones that only covered
+    the deleted functions; nothing else lost coverage.
+  end note
+}
+
+if (NTASKS) then (== 1  -- CASE A, serial)
+  #FFF9C4:no change: ds.nc 15729 B, parquet_0.parquet 6263 B, 118 rows,
+  overlap F1 0.8125 and F2 1.0;
+else (== 3  -- CASE B, parallel)
+  #FFF9C4:no change: ds_0.nc, ds_1.nc, ds_2.nc 13704 B each,
+  parquet_0.parquet 5899 B, merged ds.nc 15488 B;
+endif
+
+partition "the single-variable flow (num_vars=1, density=0.4)" {
+  :untouched in behaviour, although most of the deleted code was
+  the single-variable parallel path. Files byte-identical:
+  ds.nc 14061 B serial, three 10997 B chunk files parallel;
+}
+
+stop
+
+legend right
+  |<#C8E6C9> green |= added or changed by THIS unit |
+  |<#FFCDD2> red |= removed by THIS unit |
+  |<#FFE0B2> orange |= single-variable flow touched by THIS unit |
+  |<#FFF9C4> yellow |= generated data or file that changed as a result |
+  | plain | unchanged since unit 08 |
+
+  <b>What to review in unit 09</b>
+  * every deletion is reachable-from-nowhere: grep each removed
+    name across src, tests and notebooks
+  * the backup file removal (it should never have been on main)
+  * the tests deleted alongside -- do any of them assert
+    behaviour that the new code still owes?
+  <b>Verified</b>: byte-identical output in all four cases
+  (serial and parallel, one and two variables).
+end legend
+
+@enduml

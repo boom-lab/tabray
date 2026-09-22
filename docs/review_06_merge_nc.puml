@@ -1,0 +1,127 @@
+@startuml review_06_merge_nc
+' Review unit 06 of 15 -- see docs/review_diagrams.md for the series.
+' State AFTER commit a2bc4fb (src +95/-9).
+' Every number below is from a run of the three cases at commit a2bc4fb.
+' Render: plantuml docs/review_06_merge_nc.puml
+
+title Unit 06 -- opt-in merge_nc concatenates the chunk files (a2bc4fb)
+
+skinparam shadowing false
+skinparam defaultFontName Monospaced
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam activity {
+  BackgroundColor #FCFCFC
+  BorderColor #777777
+  DiamondBackgroundColor #F2F2F2
+  DiamondBorderColor #777777
+}
+skinparam partition {
+  BorderColor #8899AA
+  FontColor #33495E
+}
+skinparam note {
+  BackgroundColor #FFFDF0
+  BorderColor #C8C08A
+}
+
+start
+
+partition "the call" {
+  :GenerateData(
+     num_obs=100, num_dims=3, ratio_dims=[1, 2, 2],
+     density=[0.4, 0.1], seed=77,
+     num_vars=2, var_dims=[3, 2],
+     overlap=0.5, fixed_overlap=False,
+     <b>case A</b>: max_obs=None      <b>case B</b>: max_obs=40)
+  .generate(netcdf_filepath, parquet_filepath, parquet_tmp,
+     <b>merge_nc=False</b>);
+  note right #C8E6C9
+    NEW keyword <b>merge_nc</b>, parallel mode only,
+    default False. Before this unit the keyword did
+    not exist: passing it raised
+    <b>TypeError: generate() got an unexpected keyword
+    argument 'merge_nc'</b>
+    Off by default because large datasets are routinely
+    served as many files, and merging doubles both the
+    I/O and the peak disk.
+  end note
+}
+
+partition "validate, configure, place -- unchanged" {
+  :shape [4, 8, 8], num_obs 102, var_num_obs 102 and 26, dim_split 2
+  per-stratum placement and F1 0.8125 as in units 03 to 05;
+}
+
+if (NTASKS) then (== 1  -- CASE A, serial)
+
+  :merge_nc is ignored: a serial run already writes one file.
+  ds.nc 15729 B, parquet_0.parquet 6260 B, 118 rows;
+
+else (== 3  -- CASE B, parallel)
+
+  partition "chunks (unchanged)" {
+    :three workers write ds_0.nc, ds_1.nc, ds_2.nc, each 13704 B,
+    keeping all three dimensions, plus parquet chunks that
+    _consolidate_parquet_files merges into parquet_0.parquet 5927 B;
+  }
+
+  if (merge_nc?) then (False -- the default)
+    #FFF9C4:B1: the three chunk files stay. The only option when
+    the output is too large to merge;
+  else (True)
+    partition "_merge_netcdf_files  (NEW)" {
+      #C8E6C9:glob ds_*.nc, open with xr.open_mfdataset(
+         combine="nested", concat_dim="x2",
+         data_vars="minimal", coords="minimal", compat="override")
+      lazy, so a larger-than-memory dataset streams;
+      #C8E6C9:NetCDFBuilder.squeeze_constant_dims(merged, var_constant_dims)
+      chunk files had to keep every dimension in order to concatenate,
+      so squeezing here is what makes the merged file match a serial
+      one: var1 comes out as (x0, x2), not (x0, x1, x2);
+      #C8E6C9:fix up the attributes that described a chunk:
+      drop chunk_id, strip " (chunk)" from description,
+      reset num_obs and density to the whole-dataset values,
+      rewrite var_num_obs;
+      #C8E6C9:merged.to_netcdf(path)  -- one call for the whole dataset
+      then delete the three chunk files;
+      note right
+        One call for all variables is what unit 14 changes:
+        it makes the file non-reproducible and can deadlock.
+      end note
+      #FFF9C4:B2: one <b>ds.nc 15488 B</b> with x0 4, x1 8, x2 8,
+      var0 102 values and var1 26 values -- the same dataset the
+      serial run writes (15729 B; the sizes differ because the
+      merged file is dask-written and chunked differently);
+    }
+  endif
+
+endif
+
+partition "the single-variable flow (num_vars=1, density=0.4)" {
+  :untouched. merge_nc works for it too -- squeeze_constant_dims is
+  skipped when num_vars == 1 -- but no single-variable number or
+  file changes in this unit;
+}
+
+stop
+
+legend right
+  |<#C8E6C9> green |= added or changed by THIS unit |
+  |<#FFCDD2> red |= removed by THIS unit |
+  |<#FFE0B2> orange |= single-variable flow touched by THIS unit |
+  |<#FFF9C4> yellow |= generated data or file that changed as a result |
+  | plain | unchanged since unit 05 |
+
+  <b>What to review in unit 06</b>
+  * concat_dim = x<dim_split> matches how the chunks were cut
+  * squeeze_constant_dims on the merged dataset, and that
+    the result equals the serial layout
+  * the attribute fix-ups: which ones describe a chunk and
+    must not survive the merge
+  * the chunk files are deleted only after to_netcdf returns
+  <b>Verified</b>: merge_nc=True goes from TypeError to a single
+  15488 B file holding all 102 var0 and 26 var1 values.
+end legend
+
+@enduml

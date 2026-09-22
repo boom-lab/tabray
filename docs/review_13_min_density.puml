@@ -1,0 +1,105 @@
+@startuml review_13_min_density
+' Review unit 13 of 15 -- see docs/review_diagrams.md for the series.
+' State AFTER commit 8525f0c (src +171/-43 including tests).
+' Every number below is from a run of the two cases at commit 8525f0c.
+' Render: plantuml docs/review_13_min_density.puml
+
+title Unit 13 -- minimum density from the longest axis (8525f0c)
+
+skinparam shadowing false
+skinparam defaultFontName Monospaced
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam activity {
+  BackgroundColor #FCFCFC
+  BorderColor #777777
+  DiamondBackgroundColor #F2F2F2
+  DiamondBorderColor #777777
+}
+skinparam partition {
+  BorderColor #8899AA
+  FontColor #33495E
+}
+skinparam note {
+  BackgroundColor #FFFDF0
+  BorderColor #C8C08A
+}
+
+start
+
+partition "the call -- unchanged parameters, two cases" {
+  :GenerateData(
+     num_obs=100, num_dims=3, ratio_dims=[1, 2, 2],
+     density=[0.4, 0.1], seed=77,
+     num_vars=2, var_dims=[3, 2],
+     overlap=0.5, fixed_overlap=False,
+     <b>case A</b>: max_obs=None      <b>case B</b>: max_obs=40)
+  .generate(netcdf_filepath, parquet_filepath, parquet_tmp, merge_nc);
+}
+
+partition "validators/ -- SparsityValidator.compute_min_density" {
+  :DimensionValidator gives shape [4, 8, 8], 256 grid sites;
+  #FFCDD2:density_zero = 1 / nmin**(num_dims-1), keyed to the SHORTEST
+  axis. For this grid: 1 / 4**2 = <b>0.0625</b>;
+  #C8E6C9:density_zero = <b>max(shape) / prod(shape)</b>, the sparsest grid
+  in which every coordinate of every axis is still used at least
+  once. For this grid: 8 / 256 = <b>0.03125</b>;
+  note right #C8E6C9
+    Each observation supplies one coordinate per axis,
+    so the LONGEST axis sets the floor and max(shape)
+    observations can reach it -- which is exactly the
+    n_s the LHS stage takes since unit 03.
+    The two formulas agree on cubic grids
+    (n**d / n**(d-1) = n) and diverge off them: the old
+    one was 5.6x too strict on a GLORYS12-shaped grid,
+    and returned 1.0 for any grid with an axis of
+    length 1, so such grids could only be generated
+    fully gridded.
+  end note
+  :density=0.0 requests this minimum, and a density below it is
+  clipped up to it with a printed warning;
+}
+
+partition "configure and place -- unchanged" {
+  :var_densities 0.4 and 0.1 are both far above either floor, so
+  nothing is clipped: var_num_obs 102 and 26, dim_split 1,
+  var1 constant on x0 at index 2, F1 0.4561 and F2 1.0;
+}
+
+if (NTASKS) then (== 1  -- CASE A, serial)
+  #FFF9C4:printed "Minimum density value for the current set of
+  dimensions: 0.03125" instead of 0.0625.
+  Data and files unchanged: ds.nc 15729 B, parquet 6265 B, 116 rows;
+else (== 3  -- CASE B, parallel)
+  #FFF9C4:same printed change, no data change: three chunk files of
+  13704 B, parquet_0.parquet 5965 B;
+endif
+
+partition "the single-variable flow (num_vars=1, density=0.4)" {
+  #FFE0B2:same change to the printed floor, and the same widening of
+  what is accepted: a single-variable run on this grid may now ask
+  for densities between 0.03125 and 0.0625, which used to raise.
+  No change to the output for density=0.4;
+}
+
+stop
+
+legend right
+  |<#C8E6C9> green |= added or changed by THIS unit |
+  |<#FFCDD2> red |= removed by THIS unit |
+  |<#FFE0B2> orange |= single-variable flow touched by THIS unit |
+  |<#FFF9C4> yellow |= generated data or file that changed as a result |
+  | plain | unchanged since unit 12 |
+
+  <b>What to review in unit 13</b>
+  * the derivation: max(shape)/prod(shape) and its agreement with
+    the LHS stage taking n_s = max(shape) observations
+  * grids with an axis of length 1, which the old formula pinned
+    to density 1.0
+  * densities that the old formula rejected and this one accepts
+    -- are they actually generatable end to end?
+  <b>Verified</b>: for this example only the printed floor changes
+  (0.0625 -> 0.03125); every file is byte-identical.
+end legend
+
+@enduml
