@@ -721,10 +721,6 @@ class MultiVarRecordGenerator:
         clipped: Dict[int, list] = {}
         for stratum in wanted_strata:
             here = ref_split == stratum
-            if not here.any() and all(
-                counts[v][stratum] == 0 for v in range(1, num_vars)
-            ):
-                continue
             ref_here = tuple(axis[here] for axis in ref_indices)
             shared_rng = stream(seed, Stream.SHARED_OVERLAP, stratum)
             shared_order_cache = {}
