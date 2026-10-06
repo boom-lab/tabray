@@ -309,7 +309,8 @@ logged at DEBUG too. With 216 chunks that is 216 files dropped wherever the job 
 from.
 
 **Fixed.** A named per-worker logger, silent unless `TABRAY_WORKER_LOG=debug` (or `info`) is
-set, writing beside the netCDF output rather than into the working directory. The coordinate
+set, writing into its own directory, `generate(log_dir=...)` (default `./logs`), rather than
+into the working directory or beside the data (it first went beside the netCDF output). The coordinate
 dump logs axis sizes instead of the arrays.
 
 ### S6 — chunk count is capped by the longest axis, and `max_obs` is not a memory knob

@@ -770,6 +770,7 @@ class GenerateData:
         parquet_filepath: str = None,
         parquet_tmp: str = None,
         merge_nc: bool = False,
+        log_dir: str = "logs",
     ) -> Tuple[Union[xr.DataArray, xr.Dataset], pd.DataFrame]:
         """Generate all data and optionally save to files.
 
@@ -790,6 +791,9 @@ class GenerateData:
                 into one netCDF and delete them. Off by default: large datasets
                 are routinely served as many files (daily observation files,
                 for instance), and merging doubles the I/O and the peak disk.
+            log_dir: Parallel mode only. Directory for the per-worker logs,
+                kept apart from the data directories. Nothing is written
+                unless TABRAY_WORKER_LOG is set to debug or info.
 
         Returns:
             Tuple of (DataArray/Dataset, DataFrame) containing the generated data
@@ -845,14 +849,14 @@ class GenerateData:
                     overwrite=True,
                 )
             )
-            self._generate_par()
+            self._generate_par(log_dir)
             if merge_nc:
                 self._merge_netcdf_files()
             return None, None
 
         raise ValueError(f"NTASKS must be positive, got {self.NTASKS}")
 
-    def _generate_par(self) -> None:
+    def _generate_par(self, log_dir: str) -> None:
         """Generate sparse record array with observations using parallel processing.
 
         Submit as many dataset generation tasks as number of blocks needed.
@@ -932,6 +936,7 @@ class GenerateData:
                     "num_obs_global": self.num_obs,
                     "compression_codec": self.compression.codec,
                     "compression_level": self.compression.level,
+                    "log_dir": log_dir,
                 }
                 chunk_args.append(args)
         else:
@@ -971,6 +976,7 @@ class GenerateData:
                     "num_obs_global": self.num_obs,
                     "compression_codec": self.compression.codec,
                     "compression_level": self.compression.level,
+                    "log_dir": log_dir,
                 }
                 chunk_args.append(args)
 
