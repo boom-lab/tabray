@@ -21,17 +21,16 @@ from data_sparsity.output import (
 from data_sparsity.utils import ChunkUtils
 
 
-def _configure_worker_logging(chunk_id: int, netcdf_filepath: str) -> logging.Logger:
+def _configure_worker_logging(chunk_id: int, log_dir: str) -> logging.Logger:
     """Set up this worker's logger.
 
     Off unless ``TABRAY_WORKER_LOG=debug`` (or ``info``) is set. It configures
-    this logger rather than the root one, and writes beside the netCDF output
-    rather than into the working directory -- one file per chunk, and a run can
-    have hundreds.
+    this logger rather than the root one, and writes into its own directory,
+    never a data directory -- one file per chunk, and a run can have hundreds.
 
     Args:
         chunk_id: Identifier for this chunk
-        netcdf_filepath: Output path, used to place the log beside it
+        log_dir: Directory the log file goes in, created if missing
 
     Returns:
         A logger for this worker, silent unless enabled
@@ -47,7 +46,6 @@ def _configure_worker_logging(chunk_id: int, netcdf_filepath: str) -> logging.Lo
         logger.setLevel(logging.WARNING)
         return logger
 
-    log_dir = os.path.dirname(netcdf_filepath) or "."
     os.makedirs(log_dir, exist_ok=True)
     handler = logging.FileHandler(os.path.join(log_dir, f"worker_{chunk_id}.log"))
     handler.setFormatter(
@@ -84,6 +82,7 @@ def generate_chunk(
     fixed_overlap: Union[bool, List[bool]] = False,
     compression_codec: Optional[str] = None,
     compression_level: int = 4,
+    log_dir: str = "logs",
 ) -> Tuple[int, int, str]:
     """Generate a single chunk of data in parallel.
 
@@ -120,11 +119,13 @@ def generate_chunk(
             string rather than a CompressionSettings so the worker arguments
             stay plain values.
         compression_level: Compression level, ignored when the codec is None
+        log_dir: Directory for this worker's log, used only when
+            TABRAY_WORKER_LOG is set
 
     Returns:
         Tuple of (chunk_id, total_observations, parquet_chunk_path)
     """
-    log = _configure_worker_logging(chunk_id, netcdf_filepath)
+    log = _configure_worker_logging(chunk_id, log_dir)
     compression = CompressionSettings(compression_codec, compression_level)
     log.debug("######------ NEW CHUNK ------######")
 
