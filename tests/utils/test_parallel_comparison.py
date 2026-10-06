@@ -265,7 +265,6 @@ def build_chunked_multivar_args(gen, netcdf_filepath, parquet_tmp):
                 ),
                 "overlap_target": gen.overlap_target,
                 "dim_split": gen.dim_split,
-                "max_dim_size": gen.max_dim_size,
                 "div_points": gen.div_points,
                 "section_sizes": gen.section_sizes,
                 "netcdf_filepath": netcdf_filepath,
