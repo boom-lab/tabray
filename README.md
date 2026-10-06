@@ -137,6 +137,8 @@ gen_multi.generate(
 - Each chunk is generated independently using parallel processing with Dask
 - For NetCDF: Multiple files are created (e.g., `large_data_0.nc`, `large_data_1.nc`, etc.)
 - For Parquet: Chunks are generated, then repartitioned and consolidated into a single dataset
+- Worker logs: off by default. Set `TABRAY_WORKER_LOG=debug` (or `info`) to write one
+  `worker_<id>.log` per chunk into `generate(log_dir=...)`, default `./logs`
 - Coordinates along shared dimensions are identical across chunks (using the same seed)
 - Coordinates along the split dimension are unique per chunk
 - **Multi-variable support:** All variables are generated for each chunk with proper overlap control
@@ -243,15 +245,6 @@ dataset, df = gen.generate()
   **longest** axis that sets the bound, not the shortest, and that axes of length 1 cost nothing:
   a `50x10x1x1` grid needs the same 50 observations as `50x10`. `docs/explainer.md` derives this.
 - **sparsity** (float, list, or tuple, optional): Fraction of grid points that are vacant, `sparsity = 1 - density`. Accepts the same float/list/tuple forms as `density` and is converted to `density` internally. Provide either `density` or `sparsity` (not both).
-- **compression** (str, optional): Codec applied to **both** outputs, so the two formats are
-  written on the same terms (default: `None`, uncompressed). `"gzip"` (aliases `"zlib"`,
-  `"deflate"`) is DEFLATE, which netCDF4 and parquet can both do. Parquet-only codecs
-  (`snappy`, `zstd`, `lz4`, `brotli`) are refused: using one would mean the formats were no
-  longer comparable. Note that `None` is not the same as leaving it out — dask writes Snappy
-  parquet by default, so an uncompressed netCDF was previously being compared against a
-  compressed parquet.
-- **complevel** (int, optional): Compression level 1-9 (default: 4), ignored when
-  `compression` is `None`.
 - **seed** (int): Random seed for reproducibility (non-negative integer)
 - **max_obs** (int, optional): Maximum number of observations per chunk when using parallel generation (default: 10,000,000). When `num_obs` exceeds this value, the dataset is automatically split into chunks and generated in parallel.
 - **num_vars** (int, optional): Number of variables in the dataset (default: 1)
