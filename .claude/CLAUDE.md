@@ -16,7 +16,7 @@ conda env create -f environment.yml && conda activate tabray
 # or
 pip install -e ".[dev]"          # dev = pytest, pytest-cov, pylint
 
-pytest                            # 524 tests, ~50s; -v and --tb=short come from pyproject
+pytest                            # 484 tests, ~75s; -v and --tb=short come from pyproject
 pytest tests/generators/test_overlap_calculator.py
 pytest tests/generators/test_coordinate_generator.py::TestGenerateDimensionCoords
 pytest -k "overlap"
@@ -37,7 +37,7 @@ Notebooks under `notebooks/` must be run with `notebooks/` as the working direct
 GenerateData.__init__  ->  validators/   ParameterValidator, DimensionValidator, SparsityValidator
                        ->  config/       MultiVarSparsityConfig, MultiVarDimensionsConfig, MultiVarOverlapConfig
 GenerateData.generate  ->  generators/   CoordinateGenerator, MultiVarRecordGenerator (-> RecordGenerator,
-                                         ObservationGenerator, OverlapIndexMapper, OverlapCalculator)
+                                         ObservationGenerator, OverlapCalculator)
                        ->  output/       NetCDFBuilder, ParquetBuilder, PathManager
                        ->  workers/      generate_chunk  (parallel path only)
 ```
@@ -68,7 +68,7 @@ There is one generation path. `generate()` calls `_generate_multi_var_records` f
 
 ### Variables on fewer dimensions
 
-The grid is always `num_dims`-dimensional. A variable with fewer dimensions varies along `var_dims_indices[i]` and is pinned to a single coordinate on each dimension in `var_constant_dims[i]`. Records are generated in the reduced shape (constant dims set to size 1) and expanded to full coordinates before assignment; `NetCDFBuilder.build_dataset` drops and squeezes those dims back out on write.
+The grid is always `num_dims`-dimensional. A variable with fewer dimensions varies along `var_dims_indices[i]` and is pinned to a single coordinate on each dimension in `var_constant_dims[i]`. `generate_multivar_stratified` draws a variable's sites on its varying dims and writes its pinned coordinate on each constant dim straight into the full-grid indices; `NetCDFBuilder.build_dataset` drops and squeezes those dims back out on write.
 
 ### Overlap
 
@@ -147,7 +147,7 @@ untracked `docs/*.puml` diagrams. Read it before picking up that work; delete en
 
 ## Known drift in the docs
 
-`README.md` claims `from data_sparsity import GenerateData` and `342/426 tests passing`. Both are stale: `data_sparsity/__init__.py` is empty, so the import is `from data_sparsity.generate_data import GenerateData` (what the tests and notebook helpers use), and the suite is fully green at 524 tests. It also describes multi-variable data_vars as `record0, record1, …`; they are `var0, var1, …`.
+`README.md` claims `from data_sparsity import GenerateData` and `342/426 tests passing`. Both are stale: `data_sparsity/__init__.py` is empty, so the import is `from data_sparsity.generate_data import GenerateData` (what the tests and notebook helpers use), and the suite is fully green at 484 tests. It also describes multi-variable data_vars as `record0, record1, …`; they are `var0, var1, …`.
 
 # Claude Persona & Output Constraints
 

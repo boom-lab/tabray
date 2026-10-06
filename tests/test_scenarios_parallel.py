@@ -1,7 +1,10 @@
 """Parallel versions of TestScenarios - testing with max_obs to trigger parallel execution.
 
-All tests should produce identical results to their serial counterparts,
-except that data is read from disk (NetCDF/Parquet) after generation.
+Each test runs only the parallel path, reads the result back from disk
+(NetCDF/Parquet), and applies the structural checks TestScenarios applies to
+serial output. The data itself is compared with a serial run in
+tests/utils/test_parallel_comparison.py::test_parallel_reproduces_serial_exactly,
+which uses the same scenario parameters.
 """
 
 import pytest

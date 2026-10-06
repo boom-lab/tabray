@@ -120,6 +120,18 @@ class TestFromTwoElementList:
         assert not np.array_equal(a, b)
         assert a[0] == b[0] == 0.8, "only the non-reference densities vary"
 
+    def test_minimum_goes_to_different_variables(self):
+        """The non-reference densities are shuffled, so var1 is not always the minimum."""
+        holders = set()
+        for seed in range(50):
+            result = MultiVarSparsityConfig.from_two_element_list(
+                [0.9, 0.1],
+                4,
+                np.random.default_rng(seed),
+            )
+            holders.add(int(np.argmin(result[1:])))
+        assert len(holders) > 1
+
 
 class TestFromFullList:
     """Tests for from_full_list method."""

@@ -21,6 +21,11 @@ from data_sparsity.utils.chunk_utils import ChunkUtils
 from data_sparsity.workers.parallel_worker import generate_chunk
 
 
+# grid shapes of scenarios 1c and 3c in tests/test_scenarios_parallel.py
+SCENARIO_1C_SHAPE = [10, 5, 6, 8, 2, 4, 5, 3, 3, 7]
+SCENARIO_3C_SHAPE = [3, 5, 6, 9, 2, 4, 5]
+
+
 def datasets_are_identical(ds1, ds2, variable="record"):
     """Compare two datasets for structural and data equivalence.
 
@@ -57,8 +62,8 @@ def datasets_are_identical(ds1, ds2, variable="record"):
         if c1.shape != c2.shape:
             return False, f"Coordinate {coord} shape differs"
 
-        # skip checking actual values for x0 because parallel generates it
-        # differently (but still uniformly distributed)
+        # x0 values are not compared here; parallel now reproduces them
+        # exactly, which test_parallel_reproduces_serial_exactly checks
         if c1.name == "x0":
             continue
 
@@ -588,6 +593,125 @@ class TestParallelSerialComparison:
         # Compare datasets
         match, msg = datasets_are_identical(da_serial, da_parallel_full)
         assert match, f"Datasets don't match: {msg}"
+
+        # Compare dataframes
+        coords = ["x0", "x1", "x2"]
+        match_df, msg_df = dataframes_coordinate_nan_match(
+            df_serial,
+            df_parallel,
+            coords,
+        )
+        assert match_df, f"Dataframes don't match: {msg_df}"
+
+    @pytest.mark.parametrize(
+        "params, max_obs",
+        [
+            # the parameters of the scenarios in tests/test_scenarios_parallel.py
+            pytest.param(
+                dict(num_obs=100, num_dims=1, ratio_dims=1, density=1.0, seed=34),
+                25,
+                id="1a-full-1d",
+            ),
+            pytest.param(
+                dict(num_obs=3300, num_dims=2, ratio_dims=[100, 33], density=1.0, seed=76),
+                800,
+                id="1b-full-2d",
+            ),
+            pytest.param(
+                dict(
+                    num_obs=int(np.prod(SCENARIO_1C_SHAPE)),
+                    num_dims=len(SCENARIO_1C_SHAPE),
+                    ratio_dims=SCENARIO_1C_SHAPE,
+                    density=1.0,
+                    seed=10,
+                ),
+                int(np.prod(SCENARIO_1C_SHAPE) // max(SCENARIO_1C_SHAPE)),
+                id="1c-full-10d",
+            ),
+            pytest.param(
+                dict(num_obs=5, num_dims=2, ratio_dims=1, density=1 / 5, seed=35),
+                2,
+                id="2b-minimum-2d",
+            ),
+            pytest.param(
+                dict(num_obs=3, num_dims=10, ratio_dims=1, density=1 / 3**9, seed=11),
+                1,
+                id="2c-minimum-10d",
+            ),
+            pytest.param(
+                dict(num_obs=10, num_dims=2, ratio_dims=[7, 5], density=10 / 35, seed=31),
+                5,
+                id="3a-sparse-2d",
+            ),
+            pytest.param(
+                dict(num_obs=399, num_dims=2, ratio_dims=[100, 4], density=399 / 400, seed=20),
+                100,
+                id="3b-all-but-one-2d",
+            ),
+            pytest.param(
+                dict(
+                    num_obs=int(np.prod(SCENARIO_3C_SHAPE)) - 1,
+                    num_dims=len(SCENARIO_3C_SHAPE),
+                    ratio_dims=SCENARIO_3C_SHAPE,
+                    density=(np.prod(SCENARIO_3C_SHAPE) - 1) / np.prod(SCENARIO_3C_SHAPE),
+                    seed=20,
+                ),
+                int(np.ceil((np.prod(SCENARIO_3C_SHAPE) - 1) / 4)),
+                id="3c-all-but-one-7d",
+            ),
+            pytest.param(
+                dict(num_obs=200, num_dims=3, ratio_dims=[2, 1, 1.5], density=0.15, seed=5),
+                60,
+                id="sparse-3d",
+            ),
+            pytest.param(
+                dict(num_obs=300, num_dims=2, ratio_dims=1, density=0.3, seed=5),
+                80,
+                id="sparse-2d",
+            ),
+        ],
+    )
+    def test_parallel_reproduces_serial_exactly(self, temp_dir, params, max_obs):
+        """Parallel output equals serial output, split axis and values included.
+
+        Chunks slice the global sorted coordinate axis and draw each stratum
+        from the same stream as serial, so nothing is allowed to differ: not the
+        split-axis coordinates, which datasets_are_identical skips for x0, and
+        not the data values, which it compares by NaN position only.
+        """
+        da_serial, df_serial = GenerateData(**params).generate(
+            netcdf_filepath=os.path.join(temp_dir, "serial_nc", "test.nc"),
+            parquet_filepath=os.path.join(temp_dir, "serial_pq", "test"),
+        )
+
+        nc_dir = os.path.join(temp_dir, "nc")
+        pq_dir = os.path.join(temp_dir, "pq")
+        gen_parallel = GenerateData(**params, max_obs=max_obs)
+        result = gen_parallel.generate(
+            netcdf_filepath=os.path.join(nc_dir, "test.nc"),
+            parquet_filepath=os.path.join(pq_dir, "test"),
+        )
+        assert result == (None, None)
+        # chunks are cut along the longest axis, which need not be x0
+        split_name = f"x{gen_parallel.dim_split}"
+
+        nc_files = sorted(glob.glob(os.path.join(nc_dir, "test_*.nc")))
+        assert len(nc_files) > 1, "the run must actually be chunked"
+        dataarrays = [xr.open_dataarray(f) for f in nc_files]
+        da_parallel = xr.concat(dataarrays, dim=split_name).load()
+        for chunk in dataarrays:
+            chunk.close()
+
+        # assert_equal compares coordinates and values but not attrs, which
+        # record per-chunk metadata
+        xr.testing.assert_equal(da_serial, da_parallel)
+
+        df_parallel = pd.read_parquet(pq_dir)
+        keys = [col for col in df_serial.columns if col.startswith("x")]
+        pd.testing.assert_frame_equal(
+            df_serial.sort_values(keys).reset_index(drop=True),
+            df_parallel[df_serial.columns].sort_values(keys).reset_index(drop=True),
+        )
 
     def test_multi_var_overlap_parallel_vs_serial(self, temp_dir):
         """Multi-var parallel generation should emit chunked, valid outputs."""
