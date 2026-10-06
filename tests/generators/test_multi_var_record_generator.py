@@ -391,6 +391,73 @@ class TestGenerate:
             count = np.count_nonzero(~np.isnan(records[f"var{var_idx}"]))
             assert count == var_num_obs[var_idx]
 
+    def test_unequal_counts_with_constant_dims(self):
+        """Each variable gets exactly its own count, also on fewer dimensions.
+
+        var1 is pinned on x2 (not the split dim) and var2 is pinned on x0, the
+        split dim, so var2 lives in a single stratum. Each takes a different
+        branch of the per-stratum apportioning.
+        """
+        shape = [10, 10, 10]
+        var_num_obs = np.array([300, 60, 40])
+        var_dims_indices = [[0, 1, 2], [0, 1], [1, 2]]
+        var_constant_dims = [[], [2], [0]]
+        var_constant_coord_indices = {0: {}, 1: {2: 4}, 2: {0: 7}}
+
+        records, _ = MultiVarRecordGenerator.generate(
+            shape=shape,
+            overlap=0.5,
+            num_vars=3,
+            var_num_obs=var_num_obs,
+            var_dims_indices=var_dims_indices,
+            var_constant_dims=var_constant_dims,
+            var_constant_coord_indices=var_constant_coord_indices,
+            num_dims=3,
+            seed=42,
+            dim_split=0,
+        )
+
+        for var_idx in range(3):
+            count = np.count_nonzero(~np.isnan(records[f"var{var_idx}"]))
+            assert count == var_num_obs[var_idx]
+        var1_sites = np.nonzero(~np.isnan(records["var1"]))
+        var2_sites = np.nonzero(~np.isnan(records["var2"]))
+        assert set(var1_sites[2]) == {4}
+        assert set(var2_sites[0]) == {7}
+
+    @staticmethod
+    def _generate_two_vars(var_num_obs, overlap):
+        shape = [10, 10]
+        return MultiVarRecordGenerator.generate(
+            shape=shape,
+            overlap=overlap,
+            num_vars=2,
+            var_num_obs=np.array(var_num_obs),
+            var_dims_indices=[[0, 1], [0, 1]],
+            var_constant_dims=[[], []],
+            var_constant_coord_indices={0: {}, 1: {}},
+            num_dims=2,
+            seed=42,
+            dim_split=0,
+        )
+
+    def test_unreachable_overlap_warns_and_keeps_density(self, capsys):
+        """var0 fills the grid, so overlap 0 cannot be met: no cell is free of var0.
+
+        Density takes precedence: var1 keeps its count and lands on var0's
+        cells, and the shortfall is reported.
+        """
+        records, overlap_actual = self._generate_two_vars([100, 50], overlap=0.0)
+
+        out = capsys.readouterr().out
+        assert "WARNING var1: overlap target not reachable in 10 of 10 strata" in out
+        assert np.count_nonzero(~np.isnan(records["var1"])) == 50
+        assert overlap_actual[0] == pytest.approx(0.5)
+
+    def test_reachable_overlap_does_not_warn(self, capsys):
+        self._generate_two_vars([100, 50], overlap=0.5)
+        assert "not reachable" not in capsys.readouterr().out
+
     def test_fixed_overlap_shares_prefix_across_true_flags(self):
         """Variables opting into fixed_overlap draw from one shared ordering.
 

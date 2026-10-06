@@ -140,3 +140,46 @@ class TestComputeOverlapReport:
         np.testing.assert_array_equal(report["f1"], np.array([1.0, 0.0]))
         np.testing.assert_array_equal(report["f2"], np.array([1.0, 0.0]))
         np.testing.assert_array_equal(report["shared"], np.array([4, 0]))
+
+    def test_f1_and_f2_use_different_denominators(self):
+        """F1 divides by the reference's size, F2 by the variable's own."""
+        records = {
+            "var0": np.full((5, 5), np.nan),
+            "var1": np.full((5, 5), np.nan),
+        }
+        records["var0"][0:2, 0:3] = 0.5  # 6 sites
+        records["var1"][0:2, 0:2] = 0.7  # 4 sites, all inside var0's
+
+        report = OverlapCalculator.compute_overlap_report(
+            records, num_vars=2, num_dims=2
+        )
+
+        np.testing.assert_allclose(report["f1"], [4 / 6])
+        np.testing.assert_allclose(report["f2"], [1.0])
+        np.testing.assert_array_equal(report["shared"], [4])
+        np.testing.assert_array_equal(report["ref_size"], [6])
+        np.testing.assert_array_equal(report["var_size"], [4])
+
+    def test_reduced_variable_is_compared_on_its_own_dimensions(self):
+        """A variable on fewer dims overlaps var0 through the projection.
+
+        var0 at (0, 1) and var1 at (2, 1) differ on x0 but share x1 = 1. var1
+        varies along x1 only, so on the dimension the two share they coincide.
+        """
+        records = {
+            "var0": np.full((3, 3), np.nan),
+            "var1": np.full((3, 3), np.nan),
+        }
+        records["var0"][0, 1] = 0.5
+        records["var1"][2, 1] = 0.7
+
+        projected = OverlapCalculator.compute_overlap_report(
+            records, num_vars=2, num_dims=2, var_dims_indices=[[0, 1], [1]]
+        )
+        full = OverlapCalculator.compute_overlap_report(
+            records, num_vars=2, num_dims=2
+        )
+
+        np.testing.assert_array_equal(projected["f1"], [1.0])
+        np.testing.assert_array_equal(projected["shared"], [1])
+        np.testing.assert_array_equal(full["f1"], [0.0])

@@ -90,3 +90,54 @@ class TestAssignObservations:
         RecordGenerator.assign_observations(record, multi_indices, observations)
         for i, obs in enumerate(observations):
             assert record[i, 5 - i] == obs
+
+
+class TestGenerateStratifiedIndicesSubsets:
+    """A subset of strata reproduces exactly the slices of a full run.
+
+    Parallel workers each generate only their own strata, so this is what makes
+    the concatenated chunks equal the serial output.
+    """
+
+    @staticmethod
+    def _sorted_by_site(shape, indices, values):
+        flat = np.ravel_multi_index(indices, shape)
+        order = np.argsort(flat)
+        return flat[order], values[order]
+
+    @pytest.mark.parametrize(
+        "shape, num_obs, split_dim",
+        [
+            ([6, 5], 12, 0),
+            ([6, 5], 29, 1),
+            ([4, 7, 3], 40, 0),
+            ([4, 7, 3], 40, 1),
+            ([3, 10, 5], 10, 2),
+        ],
+    )
+    def test_partitioned_strata_equal_full_run(self, shape, num_obs, split_dim):
+        seed = 7
+        full_idx, full_vals = RecordGenerator.generate_stratified_indices(
+            shape, num_obs, seed, split_dim
+        )
+
+        # uneven partition of the strata, as chunking can produce
+        strata = list(range(shape[split_dim]))
+        groups = [strata[:1], strata[1:3], strata[3:]]
+        parts = [
+            RecordGenerator.generate_stratified_indices(
+                shape, num_obs, seed, split_dim, strata=group
+            )
+            for group in groups
+        ]
+        part_idx = tuple(
+            np.concatenate([idx[dim] for idx, _ in parts]) for dim in range(len(shape))
+        )
+        part_vals = np.concatenate([vals for _, vals in parts])
+
+        full_flat, full_sorted = self._sorted_by_site(shape, full_idx, full_vals)
+        part_flat, part_sorted = self._sorted_by_site(shape, part_idx, part_vals)
+
+        assert full_flat.size == num_obs
+        np.testing.assert_array_equal(part_flat, full_flat)
+        np.testing.assert_array_equal(part_sorted, full_sorted)

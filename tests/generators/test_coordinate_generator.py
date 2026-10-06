@@ -63,8 +63,28 @@ class TestGenerateAllCoords:
         rng2 = np.random.default_rng(42)
         coords1 = CoordinateGenerator.generate_all_coords(shape, rng1)
         coords2 = CoordinateGenerator.generate_all_coords(shape, rng2)
-        for c1, c2 in zip(coords1, coords2):
-            np.testing.assert_array_equal(c1, c2)
+        assert coords1.keys() == coords2.keys()
+        for dim_name in coords1:
+            np.testing.assert_array_equal(coords1[dim_name], coords2[dim_name])
+
+    def test_default_range_is_unit_interval(self, fixed_rng):
+        """Without dim_ranges every axis is a numpy array drawn from [0, 1)."""
+        coords = CoordinateGenerator.generate_all_coords((1000, 500), fixed_rng)
+        for coord_array in coords.values():
+            assert isinstance(coord_array, np.ndarray)
+            assert coord_array.min() >= 0.0
+            assert coord_array.max() < 1.0
+
+    def test_dim_ranges_sets_the_range_of_one_axis(self, fixed_rng):
+        """dim_ranges applies to the axes it names; the rest keep [0, 1)."""
+        coords = CoordinateGenerator.generate_all_coords(
+            (1000, 1000),
+            fixed_rng,
+            dim_ranges={1: (-5.0, 5.0)},
+        )
+        assert coords["x0"].min() >= 0.0 and coords["x0"].max() < 1.0
+        assert coords["x1"].min() >= -5.0 and coords["x1"].max() < 5.0
+        assert coords["x1"].min() < 0.0, "the range is used, not just bounded by it"
 
 
 class TestRNGAlignment:

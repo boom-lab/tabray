@@ -47,7 +47,7 @@ class MultiVarSparsityConfig:
         variables are drawn uniformly from [min, max].
 
         Args:
-            density_list: List with exactly 2 elements [min, max]
+            density_list: List with exactly 2 elements [max, min]
             num_vars: Number of variables
             rng: Random number generator
 
