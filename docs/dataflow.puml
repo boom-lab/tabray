@@ -31,12 +31,7 @@ partition "GenerateData.__init__  (caller's parameters)" {
     num_obs, num_dims, ratio_dims,
     density or sparsity, seed,
     num_vars, var_dims, overlap, fixed_overlap,
-    max_obs, max_workers, compression, complevel);
-  note right
-    One codec drives both formats.
-    <b>CompressionSettings</b> raises here, not at
-    write time, for a codec only parquet has.
-  end note
+    max_obs, max_workers);
 }
 
 partition "validators/  (shape and counts)" {
@@ -170,12 +165,12 @@ if (NTASKS) then (== 1: serial)
     :<b>PathManager.setup_output_paths(overwrite=True)</b>
     existing .nc / .parquet / _metadata in the target
     directories are deleted;
-    :to_netcdf(encoding = compression.netcdf_encoding(data))
-    per data variable: {"zlib": True, "complevel": n};
-    :dd.from_pandas(df, npartitions=1).to_parquet(
-       engine="pyarrow", compression=codec)
-    compression=None is passed explicitly: dask's own
-    default is Snappy, which would break the comparison;
+    :to_netcdf(path)
+    no encoding is passed, so the file is uncompressed;
+    :dd.from_pandas(df, npartitions=1).to_parquet(engine="pyarrow")
+    no compression keyword is passed, so dask's default,
+    Snappy, applies: the two formats are written on
+    different terms (see .claude/HANDOFF.md, Compression);
   }
 
   :return (DataArray or Dataset, DataFrame);

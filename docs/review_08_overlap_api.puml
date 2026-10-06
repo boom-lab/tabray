@@ -4,7 +4,7 @@
 ' Every number below is from a run of the two cases at commit b46195b.
 ' Render: plantuml docs/review_08_overlap_api.puml
 
-title Unit 08 -- one entry point for overlap, pooled metric dropped (b46195b)
+title Unit 08 -- one entry point for overlap, pooled metric dropped (3e31654..b46195b)
 
 skinparam shadowing false
 skinparam defaultFontName Monospaced

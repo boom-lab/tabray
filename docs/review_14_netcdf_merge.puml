@@ -4,7 +4,7 @@
 ' Every number below is from a run of the three cases at commit ab60aee.
 ' Render: plantuml docs/review_14_netcdf_merge.puml
 
-title Unit 14 -- merge one variable at a time, single-threaded (ab60aee)
+title Unit 14 -- merge one variable at a time, single-threaded (8525f0c..ab60aee)
 
 skinparam shadowing false
 skinparam defaultFontName Monospaced

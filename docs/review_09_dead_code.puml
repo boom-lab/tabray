@@ -4,7 +4,7 @@
 ' Every number below is from a run of the two cases at commit f88be14.
 ' Render: plantuml docs/review_09_dead_code.puml
 
-title Unit 09 -- remove the machinery the stratum model replaced (f88be14)
+title Unit 09 -- remove the machinery the stratum model replaced (b46195b..f88be14)
 
 skinparam shadowing false
 skinparam defaultFontName Monospaced

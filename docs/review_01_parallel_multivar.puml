@@ -4,7 +4,7 @@
 ' Every number below is from a run of the two cases at commit adb82be.
 ' Render: plantuml docs/review_01_parallel_multivar.puml
 
-title Unit 01 -- parallel support for multi-variable runs (b646f9a..adb82be)
+title Unit 01 -- parallel support for multi-variable runs (067aab8..adb82be)
 
 skinparam shadowing false
 skinparam defaultFontName Monospaced

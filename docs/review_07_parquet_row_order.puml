@@ -4,7 +4,7 @@
 ' Every number below is from a run of the two cases at commit 3e31654.
 ' Render: plantuml docs/review_07_parquet_row_order.puml
 
-title Unit 07 -- identical parquet row order in both paths (3e31654)
+title Unit 07 -- identical parquet row order in both paths (a2bc4fb..3e31654)
 
 skinparam shadowing false
 skinparam defaultFontName Monospaced

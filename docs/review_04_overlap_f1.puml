@@ -4,7 +4,7 @@
 ' Every number below is from a run of the two cases at commit 2368f7c.
 ' Render: plantuml docs/review_04_overlap_f1.puml
 
-title Unit 04 -- report overlap as F1, with F2 alongside (2368f7c)
+title Unit 04 -- report overlap as F1, with F2 alongside (c0393ef..2368f7c)
 
 skinparam shadowing false
 skinparam defaultFontName Monospaced

@@ -4,7 +4,7 @@
 ' Every number below is from a run of the two cases at commit 8525f0c.
 ' Render: plantuml docs/review_13_min_density.puml
 
-title Unit 13 -- minimum density from the longest axis (8525f0c)
+title Unit 13 -- minimum density from the longest axis (77d4b72..8525f0c)
 
 skinparam shadowing false
 skinparam defaultFontName Monospaced

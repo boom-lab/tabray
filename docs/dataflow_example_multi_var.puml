@@ -156,7 +156,7 @@ partition "two in-memory stores, which differ in shape here" {
 
 partition "disk" {
   :ds.nc                       13243 B
-  parquet/ddf_0.parquet         3875 B
+  parquet/ddf_0.parquet         3871 B
   parquet/_metadata             3326 B
   parquet/_common_metadata      2704 B;
 }

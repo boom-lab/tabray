@@ -1,11 +1,10 @@
 @startuml review_15_compression
 ' Review unit 15 of 15 -- see docs/review_diagrams.md for the series.
-' State AFTER commits 7424f42, 3e4f87f, d3e9329, 0f070a1, 5d3cb12
-' (src +419/-14 for the codec, plus comment trimming, pylint and black).
+' State AFTER commits 7424f42, 3e4f87f, d3e9329, 0f070a1, 5d3cb12 (src +419/-14 for the codec, plus comment trimming, pylint and black).
 ' Every number below is from a run of the three cases at commit 5d3cb12 (HEAD).
 ' Render: plantuml docs/review_15_compression.puml
 
-title Unit 15 -- one codec for both formats (3e4f87f), plus formatting
+title Unit 15 -- one codec for both formats, plus formatting (ab60aee..5d3cb12)
 
 skinparam shadowing false
 skinparam defaultFontName Monospaced

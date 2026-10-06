@@ -4,7 +4,7 @@
 ' Every number below is from a run of the two cases at commit c0393ef.
 ' Render: plantuml docs/review_03_stratified_multivar.puml
 
-title Unit 03 -- per-stratum placement for every variable (08e0cfa..c0393ef)
+title Unit 03 -- per-stratum placement for every variable (86e9e2e..c0393ef)
 
 skinparam shadowing false
 skinparam defaultFontName Monospaced

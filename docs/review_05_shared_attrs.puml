@@ -4,7 +4,7 @@
 ' Every number below is from a run of the two cases at commit 6390501.
 ' Render: plantuml docs/review_05_shared_attrs.puml
 
-title Unit 05 -- both paths write the same self-describing attributes (6390501)
+title Unit 05 -- both paths write the same self-describing attributes (2368f7c..6390501)
 
 skinparam shadowing false
 skinparam defaultFontName Monospaced

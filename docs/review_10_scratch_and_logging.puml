@@ -4,7 +4,7 @@
 ' Every number below is from a run of the two cases at commit b218154.
 ' Render: plantuml docs/review_10_scratch_and_logging.puml
 
-title Unit 10 -- scratch directory and worker logging (d49efbc, b218154)
+title Unit 10 -- scratch directory and worker logging (f88be14..b218154)
 
 skinparam shadowing false
 skinparam defaultFontName Monospaced
