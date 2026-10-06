@@ -32,7 +32,6 @@ from data_sparsity.generators import (
     MultiVarRecordGenerator,
 )
 from data_sparsity.output import (
-    CompressionSettings,
     NetCDFBuilder,
     ParquetBuilder,
     PathManager,
@@ -78,8 +77,6 @@ class GenerateData:
         overlap: Union[float, str] = "random",
         fixed_overlap: Union[bool, List[bool]] = False,
         density: Union[int, float, List, Tuple, None] = None,
-        compression: Optional[str] = None,
-        complevel: int = 4,
     ) -> None:
         """Initialize the data generator with validation.
 
@@ -126,10 +123,6 @@ class GenerateData:
         self.var_dims = var_dims if var_dims is not None else num_dims
         self.overlap = overlap
         self.fixed_overlap = fixed_overlap
-        # One codec for both outputs: the comparison this package exists to
-        # make is only meaningful if the two formats are written on the same
-        # terms. Raises here rather than at write time.
-        self.compression = CompressionSettings(compression, complevel)
         self._resolve_density_input()
 
         self._print_input_config()
@@ -208,7 +201,6 @@ class GenerateData:
         print(f"  Variable dimensions: {self.var_dims}")
         print(f"  Overlap: {self.overlap}")
         print(f"  Fixed overlap: {self.fixed_overlap}")
-        print(f"  Compression: {self.compression}")
 
     def _print_updated_config(self) -> None:
         """Print updated configuration after validation."""
@@ -731,12 +723,7 @@ class GenerateData:
         if dataarray is None:
             dataarray = self._dataset if self.num_vars > 1 else self._dataarray
 
-        NetCDFBuilder.save_to_file(
-            dataarray,
-            filepath,
-            overwrite,
-            compression=self.compression,
-        )
+        NetCDFBuilder.save_to_file(dataarray, filepath, overwrite)
 
     def save_to_parquet(
         self,
@@ -756,13 +743,7 @@ class GenerateData:
         if dataframe is None:
             dataframe = self._dataframe
 
-        ParquetBuilder.save_to_file(
-            dataframe,
-            filepath,
-            overwrite,
-            chunk_id,
-            compression=self.compression,
-        )
+        ParquetBuilder.save_to_file(dataframe, filepath, overwrite, chunk_id)
 
     def generate(
         self,
@@ -934,8 +915,6 @@ class GenerateData:
                     "parquet_tmp": self.parquet_tmp,
                     "ntasks": self.NTASKS,
                     "num_obs_global": self.num_obs,
-                    "compression_codec": self.compression.codec,
-                    "compression_level": self.compression.level,
                     "log_dir": log_dir,
                 }
                 chunk_args.append(args)
@@ -974,8 +953,6 @@ class GenerateData:
                     "parquet_tmp": self.parquet_tmp,
                     "ntasks": self.NTASKS,
                     "num_obs_global": self.num_obs,
-                    "compression_codec": self.compression.codec,
-                    "compression_level": self.compression.level,
                     "log_dir": log_dir,
                 }
                 chunk_args.append(args)
@@ -1067,19 +1044,10 @@ class GenerateData:
         # allocate the variables in completion order, and the read and write
         # sides of this one lock can deadlock. Neither is a memory trade -- the
         # write still streams. docs/parallel_architecture_change.md explains.
-        encoding = self.compression.netcdf_encoding(merged)
         with dask.config.set(scheduler="synchronous"):
-            merged[[var_names[0]]].to_netcdf(
-                self.netcdf_filepath,
-                mode="w",
-                encoding={k: v for k, v in encoding.items() if k == var_names[0]},
-            )
+            merged[[var_names[0]]].to_netcdf(self.netcdf_filepath, mode="w")
             for var_name in var_names[1:]:
-                merged[[var_name]].to_netcdf(
-                    self.netcdf_filepath,
-                    mode="a",
-                    encoding={k: v for k, v in encoding.items() if k == var_name},
-                )
+                merged[[var_name]].to_netcdf(self.netcdf_filepath, mode="a")
         merged.close()
         for chunk_file in chunk_files:
             os.remove(chunk_file)
@@ -1118,12 +1086,7 @@ class GenerateData:
         print(f"Dask DataFrame has {ddf.npartitions} partitions")
 
         # Write consolidated file using ParquetBuilder (which handles dask DataFrames)
-        ParquetBuilder.save_to_file(
-            ddf,
-            self.parquet_filepath,
-            overwrite=True,
-            compression=self.compression,
-        )
+        ParquetBuilder.save_to_file(ddf, self.parquet_filepath, overwrite=True)
 
         # Cleanup: the scratch directory goes once the merge has succeeded
         print(f"Cleaning up {len(tmp_files)} temporary files...")

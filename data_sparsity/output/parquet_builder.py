@@ -9,8 +9,6 @@ import numpy as np
 import pandas as pd
 import dask.dataframe as dd
 
-from data_sparsity.output.compression_settings import CompressionSettings
-
 
 class ParquetBuilder:
     """Builder for Parquet/pandas output formats.
@@ -159,7 +157,6 @@ class ParquetBuilder:
         overwrite: bool = False,
         chunk_id: int = None,
         write_metadata: bool = None,
-        compression: CompressionSettings = None,
     ) -> None:
         """Save DataFrame to Parquet file.
 
@@ -173,9 +170,6 @@ class ParquetBuilder:
                 pass False explicitly: they write into a shared scratch
                 directory, and several processes writing `_metadata` at once
                 race for the same two filenames.
-            compression: Codec to apply, shared with the netCDF output. None
-                writes uncompressed -- which must be said explicitly, because
-                dask's own default is Snappy.
 
         Raises:
             FileExistsError: If file exists and overwrite is False
@@ -240,9 +234,6 @@ class ParquetBuilder:
             write_metadata = chunk_id is None
 
         # Save to parquet (overwrite=False to avoid deleting other chunks)
-        compression_kwargs = (
-            compression.parquet_kwargs() if compression else {"compression": None}
-        )
         ddf.to_parquet(
             dirpath,
             engine="pyarrow",
@@ -250,7 +241,6 @@ class ParquetBuilder:
             append=False,
             overwrite=False,  # Never overwrite at dask level for chunks
             write_metadata_file=write_metadata,
-            **compression_kwargs,
         )
 
         print(f"Saved to {dirpath}/{filename}_*.parquet")

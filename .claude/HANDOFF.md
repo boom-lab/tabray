@@ -27,12 +27,61 @@ text appended to the directive).
   `target-version = ["py312"]` leaves all 59 files unchanged, so pinning it
   costs no diff.
 
-## Code
+## Compression: per-format settings to design and implement
 
-- **`CompressionSettings` hardcodes zstd as parquet-only.** It should read
-  `netCDF4.__has_zstandard_support__`, which is 1 in the conda env and 0 under
-  pyenv. The `PARQUET_ONLY` tuple and the class docstring both state the
-  hardcoded conclusion, which is wrong for this environment.
+Commit `3e4f87f` made one codec (`compression`, `complevel`, via
+`CompressionSettings`) apply to both formats, and refused any codec that only
+one of them supports. That was removed on 2026-10-06, in the working tree after
+`0980348`: the module, its 32 tests, the constructor parameters, the worker
+arguments, and the README and CLAUDE.md text. Data digests are unchanged.
+
+**Current state, which is the pre-`3e4f87f` behaviour:** netCDF is written
+uncompressed, and parquet with dask's default, Snappy. The two formats are
+therefore compared on unequal terms by default again: at 5% density on a
+20k-observation grid, netCDF 3.26 MB against parquet 0.44 MB; with DEFLATE on
+both, 0.42 against 0.29.
+
+**Why matching the codec was dropped.** Naming one algorithm does not put the
+formats on the same terms:
+- DEFLATE gets very different input: in netCDF a dense, mostly-NaN array,
+  shuffled, in HDF5 chunks that netCDF4 sizes itself (a 400x300 test variable
+  was a single chunk); in parquet, column pages after dictionary and run-length
+  encoding.
+- gzip parquet is rare in practice (Snappy or zstd are the norm), so a matched
+  codec measures a setup few people use.
+- The package is about read and manipulation performance. DEFLATE is slow to
+  decompress, and a whole-variable HDF5 chunk means any subset read
+  decompresses everything, so codec speed and chunk shape matter as much as
+  file size.
+- The intersection rule was wrong for this environment anyway: the conda env's
+  netCDF4 has `__has_zstandard_support__ = 1`, yet zstd was refused.
+
+**What to keep from it.** No setting may come from a hidden default. The old
+code's one sound part was passing `compression=None` to `to_parquet`
+explicitly; omitting the keyword gives Snappy.
+
+**Design to implement.** Whether to match codecs is a choice for the
+benchmark, not the generator:
+- separate, explicit settings per format, for example `nc_compression`
+  (with level) and `pq_compression` (with level), `None` meaning none, passed
+  explicitly to both writers so no library default applies
+- a convenience option that sets both to the same codec, for anyone who wants
+  that comparison
+- netCDF chunk shape exposed as a parameter, since it drives both file size and
+  read time
+- support checks per format (for netCDF, read `netCDF4.__has_zstandard_support__`
+  and the similar flags rather than hardcoding a list)
+- the benchmark then sweeps "matched codec" against "each format's usual
+  setup" and reports both
+
+**Context worth keeping** (was in CLAUDE.md): compression is the only thing that
+shrinks a scattered sparse grid in netCDF. HDF5 does not skip all-fill data that
+is written, so a dense array of NaNs costs 8 bytes per vacant site. Unwritten
+chunks cost nothing only when a chunk is entirely empty, which for randomly
+scattered occupancy needs fewer than about one point per chunk.
+
+`docs/review_15_compression.puml` describes `3e4f87f` as it was reviewed and
+was left as a record.
 
 ## Diagnostics
 
