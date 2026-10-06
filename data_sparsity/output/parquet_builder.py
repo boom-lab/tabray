@@ -48,18 +48,17 @@ class ParquetBuilder:
         """
         names = list(coordinates)
         axes = ParquetBuilder._row_axes(len(names), order_dim)
-        non_nan_indices = np.where(
-            ~np.isnan(np.moveaxis(record, axes, range(len(axes))))
-        )
+        # A view with order_dim first. The indices and the values below both
+        # come from it, so row k of every column describes the same site.
+        reordered = np.moveaxis(record, axes, range(len(axes)))
+        non_nan_indices = np.where(~np.isnan(reordered))
 
         data_dict = {}
         for position, dim in enumerate(axes):
             data_dict[names[dim]] = coordinates[names[dim]][non_nan_indices[position]]
         # restore x0..xN column order
         data_dict = {name: data_dict[name] for name in names}
-        data_dict["record"] = np.moveaxis(record, axes, range(len(axes)))[
-            non_nan_indices
-        ]
+        data_dict["record"] = reordered[non_nan_indices]
 
         return pd.DataFrame(data_dict)
 
@@ -115,12 +114,12 @@ class ParquetBuilder:
         axes = ParquetBuilder._row_axes(num_dims, order_dim)
         reordered_shape = tuple(len(coordinates[names[dim]]) for dim in axes)
 
-        flats, values = [], []
+        flat_indices, values = [], []
         for var_idx in range(num_vars):
             record = np.moveaxis(records[f"var{var_idx}"], axes, range(num_dims))
             mask = ~np.isnan(record)
             indices = np.where(mask)
-            flats.append(
+            flat_indices.append(
                 np.ravel_multi_index(indices, reordered_shape)
                 if indices[0].size
                 else np.empty(0, dtype=np.int64)
@@ -128,10 +127,17 @@ class ParquetBuilder:
             values.append(record[mask])
 
         occupied = (
-            np.unique(np.concatenate(flats)) if flats else np.empty(0, dtype=np.int64)
+            np.unique(np.concatenate(flat_indices))
+            if flat_indices
+            else np.empty(0, dtype=np.int64)
         )
         unravelled = np.unravel_index(occupied, reordered_shape)
 
+        # Coordinate columns. unravelled[position] holds every row's index along
+        # axis `position` of the reordered grid, which is original dimension
+        # axes[position]; indexing that axis's labels turns indices into
+        # coordinate values. The dict is filled in reordered order (split
+        # dimension first), then rebuilt so the columns read x0..xN.
         columns = {}
         for position, dim in enumerate(axes):
             columns[names[dim]] = coordinates[names[dim]][unravelled[position]]
@@ -139,8 +145,9 @@ class ParquetBuilder:
 
         for var_idx in range(num_vars):
             column = np.full(occupied.size, np.nan)
-            if flats[var_idx].size:
-                column[np.searchsorted(occupied, flats[var_idx])] = values[var_idx]
+            if flat_indices[var_idx].size:
+                rows = np.searchsorted(occupied, flat_indices[var_idx])
+                column[rows] = values[var_idx]
             columns[f"var{var_idx}"] = column
 
         return pd.DataFrame(columns)
