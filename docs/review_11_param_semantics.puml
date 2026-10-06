@@ -4,7 +4,7 @@
 ' Every number below is from a run of the two cases at commit 7fa9e8e.
 ' Render: plantuml docs/review_11_param_semantics.puml
 
-title Unit 11 -- var_dims indices and a deterministic density range (7fa9e8e)
+title Unit 11 -- var_dims indices and a deterministic density range (b218154..7fa9e8e)
 
 skinparam shadowing false
 skinparam defaultFontName Monospaced

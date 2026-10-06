@@ -4,7 +4,7 @@
 ' Every number below is from a run of the three cases at commit a2bc4fb.
 ' Render: plantuml docs/review_06_merge_nc.puml
 
-title Unit 06 -- opt-in merge_nc concatenates the chunk files (a2bc4fb)
+title Unit 06 -- opt-in merge_nc concatenates the chunk files (6390501..a2bc4fb)
 
 skinparam shadowing false
 skinparam defaultFontName Monospaced

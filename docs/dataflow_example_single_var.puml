@@ -118,7 +118,8 @@ partition "disk" {
   parquet/_metadata             2891 B
   parquet/_common_metadata      2387 B;
   note right
-    compression=None here, so both are raw.
+    netCDF is written uncompressed, parquet with
+    dask's default Snappy.
     The payload is 9 doubles (72 B) against 6 rows:
     at this size the container dominates and the
     two figures say nothing about the formats.

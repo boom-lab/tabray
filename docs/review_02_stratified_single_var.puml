@@ -4,7 +4,7 @@
 ' Every number below is from a run of the two cases at commit 86e9e2e.
 ' Render: plantuml docs/review_02_stratified_single_var.puml
 
-title Unit 02 -- stratify the grid by hyperplane (single-variable path)
+title Unit 02 -- stratify the grid by hyperplane (single-variable path) (e6091d6..86e9e2e)
 
 skinparam shadowing false
 skinparam defaultFontName Monospaced

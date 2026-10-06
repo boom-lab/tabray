@@ -4,7 +4,7 @@
 ' Every number below is from a run of the two cases at commit 77d4b72.
 ' Render: plantuml docs/review_12_stream_registry.puml
 
-title Unit 12 -- every random stream from one tagged registry (77d4b72)
+title Unit 12 -- every random stream from one tagged registry (7fa9e8e..77d4b72)
 
 skinparam shadowing false
 skinparam defaultFontName Monospaced
