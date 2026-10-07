@@ -333,7 +333,7 @@ class GenerateData:
         would not add up to the requested global overlap.
 
         Excluding such dimensions can mean splitting a shorter axis, which
-        lowers the maximum number of chunks (see S6).
+        lowers the maximum number of chunks.
 
         Returns:
             Index of the dimension to stratify along
@@ -940,7 +940,7 @@ class GenerateData:
                     "ratio_dims": self.ratio_dims,
                     "num_obs": int(np.sum(var_obs_chunk)),
                     "var_densities": self.var_densities,
-                    "var_num_obs": self.var_num_obs,  # GLOBAL: strata apportion
+                    "var_num_obs": self.var_num_obs,  # whole-grid; strata take shares
                     "var_dims_indices": self.var_dims_indices,
                     "var_constant_dims": self.var_constant_dims,
                     "var_constant_coord_indices": self.var_constant_coord_indices,
@@ -992,8 +992,9 @@ class GenerateData:
 
         Opened lazily with dask and written one variable at a time, so the
         merge holds one variable's chunks rather than the whole dataset. It
-        still needs roughly 900 MB of address space per 382 MB of data; for
-        output larger than that, leave merge_nc False and keep the chunk files.
+        still needs more address space than the data size (900 MB for 382 MB
+        of data in one measurement); for output that does not fit in memory,
+        leave merge_nc False and keep the chunk files.
 
         Chunk files keep every dimension because they have to concatenate; the
         constant dimensions are squeezed out here, so the merged file matches
@@ -1040,10 +1041,12 @@ class GenerateData:
                 "data variables"
             )
 
-        # One variable per call, in this thread: concurrent stores let HDF5
-        # allocate the variables in completion order, and the read and write
-        # sides of this one lock can deadlock. Neither is a memory trade -- the
-        # write still streams. docs/parallel_architecture_change.md explains.
+        # One variable per to_netcdf call, under the synchronous scheduler.
+        # Writing all variables in one call stores them concurrently, and HDF5
+        # allocates their space in completion order, so identical data gives a
+        # different file on each run. With the threaded scheduler, a thread
+        # reading a chunk and a thread writing the output can deadlock on
+        # xarray's netCDF4 lock. The write still streams chunk by chunk.
         with dask.config.set(scheduler="synchronous"):
             merged[[var_names[0]]].to_netcdf(self.netcdf_filepath, mode="w")
             for var_name in var_names[1:]:

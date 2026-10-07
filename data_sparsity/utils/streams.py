@@ -7,8 +7,8 @@ sharing a stream. See ``stream`` for the shift that makes that true even when a
 tag or an index is zero.
 
 Add a purpose by adding a tag here, where the existing values are visible.
-Deriving streams by arithmetic on the seed instead is what this replaced, and
-it collided silently: ``seed + 0*1000`` is ``seed``, and ``seed + 5000`` is
+Do not derive streams by adding offsets to the seed: offsets collide without
+any error, since ``seed + 0*1000`` is ``seed`` and ``seed + 5000`` is
 ``seed + 5*1000``.
 """
 
@@ -20,8 +20,7 @@ class Stream:
     """Tags identifying what a random stream is for.
 
     Values are fixed: changing one changes the data generated for that
-    purpose. The placement tags keep the values they were introduced with, so
-    moving to this registry did not disturb them.
+    purpose. The gap between CONST_COORD and VAR has no meaning.
     """
 
     # The comments are aligned on purpose, so the column reads as a table.

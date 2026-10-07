@@ -52,10 +52,10 @@ class TestFromTwoElementList:
         assert list(result) == [0.8, 0.2]
 
     def test_minimum_is_always_used_by_some_variable(self):
-        """The lower bound is a density, not just a bound.
+        """The lower bound is a density that some variable takes, not only a bound.
 
-        An earlier attempt drew every non-reference variable from the range, so
-        the minimum could go unused entirely.
+        Drawing every non-reference variable from the range could leave the
+        minimum unused.
         """
         for num_vars in (2, 3, 5, 10):
             for seed in range(20):
@@ -68,11 +68,11 @@ class TestFromTwoElementList:
                 assert 0.1 in result, "some variable takes the minimum"
 
     def test_reference_is_the_maximum_for_every_seed(self):
-        """No coin flip: var0 must not depend on the seed.
+        """var0 takes the maximum for every seed.
 
-        The old version assigned min and max to the two variables at random, so
-        about half of all seeds produced a var0 that
-        validate_reference_is_largest then rejected.
+        If the maximum went to a variable chosen at random, the seeds that give
+        it to another variable would produce a var0 that
+        validate_reference_is_largest rejects.
         """
         for seed in range(50):
             result = MultiVarSparsityConfig.from_two_element_list(

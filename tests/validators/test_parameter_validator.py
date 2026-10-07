@@ -130,7 +130,7 @@ class TestValidateDensityRefvarDoesNotMutate:
     """The density argument must not be written through."""
 
     def test_list_argument_is_not_mutated(self):
-        """A list used to be assigned, not copied, then written at index 0."""
+        """Writing index 0 of the result must not change the caller's list."""
         density = [0.5, 0.3]
 
         result = ParameterValidator.validate_density_refvar(density)
@@ -147,10 +147,11 @@ class TestValidateDensityRefvarDoesNotMutate:
         assert density == (0.6, 0.2)
 
     def test_reference_not_largest_raises(self):
-        """It used to overwrite density[0] with the maximum.
+        """A reference that is not the largest raises instead of being overwritten.
 
-        For a two-element list, read downstream as a [max, min] range, that
-        collapsed the range and gave every variable the same density, silently.
+        A two-element list is read downstream as a [max, min] range.
+        Overwriting density[0] with the maximum would collapse that range and
+        give every variable the same density without telling the caller.
         """
         with pytest.raises(ValueError, match="must have the largest density"):
             ParameterValidator.validate_density_refvar([0.3, 0.5])
@@ -173,8 +174,7 @@ class TestValidateVarDimsExplicitIndices:
     def test_list_of_lists_is_accepted(self):
         """The form MultiVarDimensionsConfig supports, and the README uses.
 
-        This used to raise TypeError: the reference check compared num_dims to
-        var_dims[0] as a number, and var_dims[0] was a list.
+        The reference check must handle a list in var_dims[0], not only an int.
         """
         result = ParameterValidator.validate_var_dims(
             [[0, 1, 2], [1, 2, 3], [0, 2, 3]],
@@ -198,13 +198,9 @@ class TestValidateVarDimsExplicitIndices:
     def test_caller_list_is_not_mutated(self):
         """Completing the reference must not write through to the argument.
 
-        var_dims_update was bound to the caller's list and then assigned at
-        index 0, so the caller's object changed underneath them: passing
-        [2, 2] left the caller holding [3, 2].
-
-        Uses the integer form deliberately. The list-of-lists form raised
-        TypeError before reaching that assignment, so it cannot distinguish
-        the mutation from the crash.
+        Passing [2, 2] with num_dims=3 returns [3, 2] and must leave the
+        caller's list as [2, 2]. The list-of-lists form is covered by
+        test_caller_list_of_lists_is_not_mutated.
         """
         var_dims = [2, 2]
 
@@ -231,7 +227,7 @@ class TestValidateVarDimsExplicitIndices:
             ParameterValidator.validate_var_dims(["x", 2], num_vars=2, num_dims=3)
 
     def test_integer_entries_still_work(self):
-        """The int-per-variable form is unchanged."""
+        """The int-per-variable form is accepted."""
         assert ParameterValidator.validate_var_dims([2, 2], num_vars=2, num_dims=3) == [
             3,
             2,

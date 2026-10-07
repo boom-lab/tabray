@@ -134,8 +134,8 @@ class ParameterValidator:
             if isinstance(reference, (list, tuple)):
                 # Explicit dimension indices, e.g. [[0,1,2], [1,2]]. This form
                 # is what MultiVarDimensionsConfig.from_list_element accepts and
-                # what the README's examples use; comparing it to num_dims as a
-                # number raised TypeError before reaching that code.
+                # what the README's examples use. The reference must list every
+                # dimension, so compare its sorted contents to range(num_dims).
                 if sorted(reference) != list(range(num_dims)):
                     var_dims_update[0] = list(range(num_dims))
                     print(
@@ -224,7 +224,7 @@ class ParameterValidator:
     def validate_density_refvar(density: Union[List, Tuple]) -> List:
         """Validate density value when a list is provided.
 
-        The density of the reference value (position 0) must be the largest,
+        The density of the reference variable (position 0) must be the largest,
         because var0 is the overlap reference and must have the largest number
         of observations.
 
@@ -262,6 +262,11 @@ class ParameterValidator:
     @staticmethod
     def validate_density_type(density: Union[int, float, List, Tuple]) -> float:
         """Validate density type and return representative value for grid calculations.
+
+            density_i = n_i / prod(shape),   sparsity_i = 1 - density_i
+
+        where n_i is the number of observations of variable i and prod(shape)
+        the number of sites in the full grid.
 
         The density at the whole grid level is determined as the maximum value
         of density available across variables (if density is an int, it is the

@@ -149,8 +149,8 @@ class PathManager:
         )
 
         # parquet_tmp names the scratch DIRECTORY itself, not a file inside
-        # one -- taking its dirname lands on the real output directory, which
-        # the scratch cleanup then deletes.
+        # one. Do not take its dirname: that is the real output directory,
+        # and the scratch cleanup would delete it.
         print(f"Setting up temporary parquet directory {parquet_tmp}")
         os.makedirs(parquet_tmp, exist_ok=True)
 
@@ -163,8 +163,8 @@ class PathManager:
         """Delete a scratch directory, but only if it holds nothing else.
 
         Refuses to remove anything containing a file this run did not write, or
-        a subdirectory. A mistyped path then fails loudly instead of destroying
-        data: the previous code called shutil.rmtree on whatever it was given.
+        a subdirectory, so a mistyped path keeps its contents instead of
+        deleting unrelated data.
 
         Args:
             dir_path: Directory to remove

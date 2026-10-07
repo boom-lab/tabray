@@ -22,10 +22,10 @@ class SparsityValidator:
         which every coordinate on every axis is still used at least once, an
         unused coordinate being stored without describing any data point.
 
-        The LONGEST axis sets it, not the shortest: each observation supplies
-        one coordinate per axis, so covering an axis of length L needs L
-        observations. docs/explainer.md, "Minimum density, on any grid",
-        derives it and shows the floor is reachable.
+        The LONGEST axis sets it: each observation supplies one coordinate per
+        axis, so covering an axis of length L needs L observations. The floor
+        is reachable: the LHS stage places max(shape) observations that use
+        every coordinate of every axis.
 
         Args:
             nb_coords_per_dim: Number of coordinates per dimension

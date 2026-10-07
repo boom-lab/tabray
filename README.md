@@ -166,7 +166,7 @@ gen = GenerateData(
     seed=42,
     num_vars=3,           # Number of variables
     var_dims=3,           # Each variable uses all 3 dimensions
-    overlap=0.5,          # 50% of measurements overlap across variables
+    overlap=0.5,          # half of var0's sites also carry each other variable
     fixed_overlap=False   # Share overlap draws only when enabled
 )
 
@@ -193,11 +193,23 @@ print(dataframe['variable'].value_counts())
 - List of lists/tuples (e.g., `[[0,1], [1,2], [0,2]]`): Each variable uses explicitly specified dimensions
 
 **Overlap Control:**
+
+```
+overlap_i = |proj(S_0) & proj(S_i)| / |proj(S_0)|
+```
+
+Share of var0's sites that also carry variable *i*. `S_i`: sites of variable *i*; `proj`:
+projection onto the dimensions the two share.
+
 - `'random'` (default): No constraint, measurements placed independently
-- Float `0.0` to `1.0`: Target percentage of measurements at same coordinates
-  - `0.0`: No overlap (measurements at different points)
-  - `1.0`: Complete overlap (all measurements at same points)
-  - `0.5`: Half the measurements overlap
+- Float `0.0` to `1.0`: Target overlap for every non-reference variable
+  - `0.0`: No site of var0 carries variable *i*
+  - `0.5`: Half of var0's sites carry variable *i*
+  - `1.0`: Every site of var0 carries variable *i*
+  - Maximum: `|proj(S_i)| / |proj(S_0)|`
+  - Minimum (variable on every dimension): `max(0, n_0 + n_i - N) / n_0` for `N` grid points;
+    a lower target raises
+  - Unreachable targets: the generator warns and density takes precedence
 - List of length `num_vars - 1`: One target per non-reference variable, in
   `var1`, `var2`, ... order
 - `fixed_overlap` (bool or list of bools, default `False`): Share overlap draws
@@ -213,7 +225,7 @@ gen = GenerateData(
     seed=42,
     num_vars=3,
     var_dims=[[0,1,2], [1,2,3], [0,3]],  # Different dimensions per variable
-    overlap=0.7  # 70% overlap along shared dimensions
+    overlap=0.7  # 70% of var0's sites carry each variable, on shared dimensions
 )
 
 dataset, df = gen.generate()
@@ -255,7 +267,7 @@ dataset, df = gen.generate()
   - Default: All variables use all dimensions
 - **overlap** (float, list, or str, optional): Control overlap between variables (default: 'random')
   - `'random'`: No constraint on overlap
-  - Float [0.0, 1.0]: Target overlap percentage for every non-reference variable
+  - Float [0.0, 1.0]: Target share of var0's sites that also carry each non-reference variable (see **Overlap Control**)
   - List of length `num_vars - 1`: One overlap target per non-reference variable
 
 ## Testing

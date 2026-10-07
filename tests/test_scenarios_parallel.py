@@ -501,7 +501,6 @@ class TestScenariosParallel:
 
         non_nan_count = np.count_nonzero(~np.isnan(dataarray.values))
         total_points = m * n
-        # assert non_nan_count < total_points
         assert non_nan_count == m * n - 1
 
         valid_values = dataarray.values[~np.isnan(dataarray.values)].flatten()
@@ -524,7 +523,6 @@ class TestScenariosParallel:
 
         m = [3, 5, 6, 9, 2, 4, 5]
         num_obs = int(np.prod(m) - 1)
-        # max_obs = int(np.floor(num_obs/np.max(m)+1))
         max_obs = int(np.ceil(num_obs / 4))
 
         gen = GenerateData(
@@ -599,9 +597,9 @@ class TestScenariosParallel:
 class TestMergedNetCDFIsByteReproducible:
     """The merged netCDF must be identical on disk between identical runs.
 
-    Three variables, because the failure is multi-variable only: writing them
-    in one to_netcdf call lets HDF5 allocate them in completion order.
-    docs/parallel_architecture_change.md, "Writing the merged file".
+    Uses three variables, because the layout can vary only with more than
+    one: if all variables are written in one to_netcdf call, HDF5 places them
+    in the order their writes finish, which differs between runs.
     """
 
     @staticmethod
@@ -631,12 +629,16 @@ class TestMergedNetCDFIsByteReproducible:
         first = self.generate(tmp_path, 0).read_bytes()
         second = self.generate(tmp_path, 1).read_bytes()
         assert first == second, (
-            "merged netCDF differs between identical runs; the merge is "
-            "probably writing all variables in one to_netcdf call again"
+            "merged netCDF differs between identical runs; check that the "
+            "merge writes one variable per to_netcdf call"
         )
 
     def test_merged_file_holds_every_variable(self, tmp_path):
-        """The mode='w' then mode='a' sequence must not drop a variable."""
+        """Every variable must be in the merged file.
+
+        The merge writes the first variable with mode='w' and appends the
+        others with mode='a'.
+        """
         merged = self.generate(tmp_path, 2)
         with xr.open_dataset(merged) as ds:
             assert sorted(ds.data_vars) == ["var0", "var1", "var2"]

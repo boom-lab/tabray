@@ -28,10 +28,10 @@ class MultiVarRecordGenerator:
     ) -> Dict[int, Dict[int, int]]:
         """Select actual coordinate values for constant dimensions.
 
-        ``shape`` must be the GLOBAL grid shape. Passing a chunk's task shape
-        draws the coordinate from ``[0, task_size)`` instead of the full extent,
-        so each chunk picks a different local index and a variable that should
-        sit at one coordinate ends up at one per chunk (D5).
+        ``shape`` must be the GLOBAL grid shape. A chunk's task shape would
+        draw the coordinate from ``[0, task_size)`` instead of the full extent,
+        so each chunk would pick a different local index and a variable that
+        should sit at one coordinate would end up at one per chunk.
 
         Args:
             shape: Full GLOBAL grid shape (never a chunk's task shape)
@@ -245,7 +245,7 @@ class MultiVarRecordGenerator:
         if num_vars > 1:
             # Stratified multi-variable placement: every variable is placed one
             # hyperplane at a time, so serial and parallel agree by construction
-            # and peak memory is one hyperplane (D4, D5, A3).
+            # and peak memory is one hyperplane.
             global_shape = list(lhs_shape) if lhs_shape is not None else list(shape)
             var_constant_coords = MultiVarRecordGenerator._select_constant_coords(
                 global_shape,
@@ -349,7 +349,7 @@ class MultiVarRecordGenerator:
         therefore be generated from ``(seed, stratum)`` alone, and serial and
         parallel agree by construction.
 
-        Overlap follows F1, the definition in ``docs/explainer_multivar.md``:
+        Overlap is defined as:
 
             O_i = |proj(S_0) & proj(S_i)| / |proj(S_0)|
 
@@ -362,7 +362,7 @@ class MultiVarRecordGenerator:
 
         The non-overlapping remainder is drawn from cells held by **neither**
         variable, so the achieved overlap equals the target instead of picking
-        up accidental coincidences at var0's density (A3).
+        up accidental coincidences at var0's density.
 
         Args:
             global_shape: Full grid shape
@@ -370,7 +370,7 @@ class MultiVarRecordGenerator:
             var_num_obs: Observation count per variable
             var_dims_indices: Dimensions each variable varies along
             var_constant_coords: var_idx -> {constant dim -> GLOBAL coordinate}
-            overlap_targets: Target F1 overlap for var1..varN-1
+            overlap_targets: Target overlap O_i for var1..varN-1
             fixed_overlap_flags: Whether each non-reference variable shares the
                 reference ordering, so opted-in variables overlap each other
             seed: Base random seed
@@ -409,7 +409,7 @@ class MultiVarRecordGenerator:
                 weights = np.full(num_strata, plane[var_idx], dtype=np.int64)
             else:
                 # constant on the split dimension: the variable exists in ONE
-                # stratum, so every other stratum places nothing for it (D5)
+                # stratum, so every other stratum places nothing for it
                 home[var_idx] = int(var_constant_coords[var_idx][split_dim])
                 weights = np.zeros(num_strata, dtype=np.int64)
                 weights[home[var_idx]] = plane[var_idx]
@@ -484,7 +484,8 @@ class MultiVarRecordGenerator:
                 else:
                     chosen = np.empty(0, dtype=np.int64)
 
-                # remainder from cells held by NEITHER variable (A3)
+                # remainder from cells held by NEITHER variable, so the
+                # overlap does not exceed the target
                 if target is not None:
                     n_free = n_here - n_overlap
                     if n_free:
@@ -527,8 +528,10 @@ class MultiVarRecordGenerator:
                 )
 
         # An unreachable target means the (density, overlap) pair was
-        # over-determined for that variable -- always so for a variable varying
-        # along one dimension (docs/explainer_multivar.md).
+        # over-determined for that variable. This is always the case for a
+        # variable varying along one dimension: the LHS stage uses every
+        # coordinate of every axis, so var0's projection onto that axis covers
+        # all of it and no cell is free of var0.
         for var_idx, events in sorted(clipped.items()):
             _, first_ideal, first_got, proj_size, free = events[0]
             print(
