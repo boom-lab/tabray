@@ -16,7 +16,7 @@ conda env create -f environment.yml && conda activate tabray
 # or
 pip install -e ".[dev]"          # dev = pytest, pytest-cov, pylint
 
-pytest                            # 457 tests, ~75s; -v and --tb=short come from pyproject
+pytest                            # full suite, ~85s; -v and --tb=short come from pyproject
 pytest tests/generators/test_overlap_calculator.py
 pytest tests/generators/test_coordinate_generator.py::TestGenerateDimensionCoords
 pytest -k "overlap"
@@ -148,7 +148,7 @@ untracked `docs/*.puml` diagrams. Read it before picking up that work; delete en
 
 ## Known drift in the docs
 
-`README.md` claims `from data_sparsity import GenerateData` and `342/426 tests passing`. Both are stale: `data_sparsity/__init__.py` is empty, so the import is `from data_sparsity.generate_data import GenerateData` (what the tests and notebook helpers use), and the suite is fully green at 457 tests. It also describes multi-variable data_vars as `record0, record1, …`; they are `var0, var1, …`.
+`README.md` claims `from data_sparsity import GenerateData` and `342/426 tests passing`. Both are stale: `data_sparsity/__init__.py` is empty, so the import is `from data_sparsity.generate_data import GenerateData` (what the tests and notebook helpers use), and the suite is fully green. It also describes multi-variable data_vars as `record0, record1, …`; they are `var0, var1, …`.
 
 # Claude Persona & Output Constraints
 
