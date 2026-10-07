@@ -47,8 +47,9 @@ GenerateData.generate  ->  generators/   CoordinateGenerator, MultiVarRecordGene
 `SparsityValidator.compute_min_density` returns `max(shape) / prod(shape)`: the sparsest grid in
 which every coordinate on every axis is still used at least once. Each observation supplies one
 coordinate per axis, so the LONGEST axis sets the floor, and `max(shape)` observations can reach
-it (the LHS stage takes `n_s = max(shape)` for exactly this reason). `density=0.0` requests this
-minimum. `docs/explainer.md`, "Minimum density, on any grid", derives it; the README documents it
+it (the LHS stage takes `n_s = max(shape)` for exactly this reason). `density=0.0` raises in
+`ParameterValidator.validate_density_type`: the grid size is `num_obs / density`, so zero cannot
+select the minimum. `docs/explainer.md`, "Minimum density, on any grid", derives it; the README documents it
 under the `density` parameter.
 
 This was `1 / nmin**(d-1)`, keyed to the SHORTEST axis. The two agree on cubic grids

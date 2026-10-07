@@ -88,13 +88,8 @@ class TestValidateDensityBounds:
         result = SparsityValidator.validate_density_bounds(0.5, 0.1)
         assert result == 0.5
 
-    def test_density_zero_returns_minimum(self):
-        """Density = 0 should return minimum."""
-        result = SparsityValidator.validate_density_bounds(0.0, 0.1)
-        assert result == 0.1
-
-    def test_density_less_than_minimum_not_zero_raises_value_error(self):
-        """Density < minimum (not 0) should raise ValueError."""
+    def test_density_less_than_minimum_raises_value_error(self):
+        """Density < minimum should raise ValueError."""
         with pytest.raises(ValueError, match="lower than minimum value"):
             SparsityValidator.validate_density_bounds(0.05, 0.1)
 
