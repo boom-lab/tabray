@@ -65,10 +65,19 @@ class TestValidateDensityType:
         result = ParameterValidator.validate_density_type((0.1, 0.9))
         assert result == 0.9
 
-    def test_zero_is_allowed(self):
-        """Sparsity = 0 is now allowed (will be converted to minimum later)."""
-        result = ParameterValidator.validate_density_type(0.0)
-        assert result == 0.0
+    def test_zero_raises_value_error(self):
+        """Density = 0 gives an infinite grid and should raise ValueError."""
+        with pytest.raises(ValueError, match="greater than 0"):
+            ParameterValidator.validate_density_type(0.0)
+
+    def test_all_zero_list_raises_value_error(self):
+        """A list whose largest density is 0 should raise ValueError."""
+        with pytest.raises(ValueError, match="greater than 0"):
+            ParameterValidator.validate_density_type([0.0, 0.0])
+
+    def test_zero_for_non_reference_is_allowed(self):
+        """A 0 below a positive maximum passes (clipped to minimum later)."""
+        assert ParameterValidator.validate_density_type([0.5, 0.0]) == 0.5
 
     def test_negative_raises_value_error(self):
         """Negative value should raise ValueError."""

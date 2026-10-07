@@ -252,7 +252,8 @@ dataset, df = gen.generate()
   minimum observations = max(shape)        minimum density = max(shape) / prod(shape)
   ```
 
-  A density below this raises. Passing `density=0.0` asks for exactly this minimum. On a grid of
+  A density below this raises, and so does `density=0.0` (or `sparsity=1.0`): the grid size is
+  `num_obs / density`, so the density must be positive. On a grid of
   `d` equal axes of size `n` it works out to the familiar `1/n^(d-1)`. Note that it is the
   **longest** axis that sets the bound, not the shortest, and that axes of length 1 cost nothing:
   a `50x10x1x1` grid needs the same 50 observations as `50x10`. `docs/explainer.md` derives this.

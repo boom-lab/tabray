@@ -280,10 +280,9 @@ class ParameterValidator:
 
         Raises:
             TypeError: If density is not a valid type
-            ValueError: If density values are not in [0, 1]
+            ValueError: If density values are not in [0, 1], or the largest is 0
 
         """
-        # Allow density=0 as it will be converted to minimum later
         if isinstance(density, (float, int)):
             density_for_grid = float(density)
         elif isinstance(density, (list, tuple)):
@@ -297,6 +296,14 @@ class ParameterValidator:
             raise ValueError(
                 f"density values must be between 0 and 1.0, "
                 f"got max={density_for_grid}"
+            )
+
+        # Grid size is num_obs / density: zero gives an infinite grid.
+        if density_for_grid == 0.0:
+            raise ValueError(
+                "density must be greater than 0 (sparsity less than 1): the grid "
+                "size is num_obs / density. The smallest density a grid allows "
+                "is max(shape) / prod(shape)."
             )
 
         return density_for_grid

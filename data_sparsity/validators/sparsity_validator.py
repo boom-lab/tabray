@@ -44,35 +44,25 @@ class SparsityValidator:
     ) -> float:
         """Validate density is within allowable bounds.
 
-        Special handling for density = 0.0: automatically adjusts to minimum.
-        This allows users to request the minimum density by setting density=0.
-
         Args:
             density: Input density value
             density_min: Minimum allowable density
 
         Returns:
-            Validated density (adjusted to min if input was 0)
+            Validated density
 
         Raises:
-            ValueError: If density is below minimum and not 0
+            ValueError: If density is below minimum
         """
         print(
             f"Minimum density value for the current set of dimensions: "
             f"{density_min}"
         )
 
-        # Special case: density=0 means "use minimum"
-        if density == 0.0:
-            print(f"Input density is zero, imposing minimum value: " f"{density_min}")
-            return density_min
-
-        # Validate non-zero density is above minimum
         if density < density_min:
             raise ValueError(
                 f"Provided density value of {density} is lower than "
-                f"minimum value of {density_min}. If you want to impose "
-                "the minimum value possible, set density to 0. as input."
+                f"minimum value of {density_min}."
             )
 
         return density
