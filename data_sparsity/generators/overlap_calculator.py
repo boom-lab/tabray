@@ -65,8 +65,7 @@ class OverlapCalculator:
         records: Dict[str, np.ndarray],
         num_vars: int,
         num_dims: int,
-        var_dims_indices: Optional[List[List[int]]] = None,
-        ref_var: str = "var0",
+        var_dims_indices: List[List[int]],
     ) -> Dict[str, np.ndarray]:
         """Measure overlap against the reference variable, both conventions.
 
@@ -88,9 +87,7 @@ class OverlapCalculator:
             records: Dictionary mapping variable names to record arrays
             num_vars: Number of variables
             num_dims: Total number of dimensions
-            var_dims_indices: Dimensions each variable varies along. Defaults to
-                every dimension for every variable, i.e. no projection.
-            ref_var: Reference variable name
+            var_dims_indices: Dimensions each variable varies along
 
         Returns:
             Dict with 'f1', 'f2', 'shared', 'ref_size' and 'var_size' arrays,
@@ -100,10 +97,7 @@ class OverlapCalculator:
         if num_vars <= 1:
             return {k: empty for k in ("f1", "f2", "shared", "ref_size", "var_size")}
 
-        if var_dims_indices is None:
-            var_dims_indices = [list(range(num_dims))] * num_vars
-
-        ref_full = OverlapCalculator.extract_coordinate_set(records[ref_var], num_dims)
+        ref_full = OverlapCalculator.extract_coordinate_set(records["var0"], num_dims)
         f1, f2, shared, ref_size, var_size = [], [], [], [], []
 
         for var_idx in range(1, num_vars):
@@ -133,7 +127,7 @@ class OverlapCalculator:
     @staticmethod
     def print_overlap_report(
         report: Dict[str, np.ndarray],
-        targets: Optional[List] = None,
+        targets: List[Optional[float]],
     ) -> None:
         """Print achieved overlap in both conventions.
 
@@ -142,9 +136,11 @@ class OverlapCalculator:
         that also carry var0. Both are shown because either can be the one a
         reader expects, and they are not interchangeable: they differ by the
         ratio of the projected set sizes.
+
+        Args:
+            report: Output of compute_overlap_report, at least one variable
+            targets: Target F1 per non-reference variable, None for 'random'
         """
-        if report["f1"].size == 0:
-            return
         print(
             "Achieved overlap against var0 "
             "(F1 = share of var0's sites also carrying the variable; "
@@ -152,9 +148,7 @@ class OverlapCalculator:
         )
         for idx in range(report["f1"].size):
             target = (
-                ""
-                if targets is None or targets[idx] is None
-                else f"  target F1 {float(targets[idx]):.4f}"
+                "" if targets[idx] is None else f"  target F1 {float(targets[idx]):.4f}"
             )
             print(
                 f"  var{idx + 1}: F1 {report['f1'][idx]:.4f}   "

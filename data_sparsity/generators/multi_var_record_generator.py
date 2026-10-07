@@ -36,7 +36,7 @@ class MultiVarRecordGenerator:
         Args:
             shape: Full GLOBAL grid shape (never a chunk's task shape)
             var_constant_dims: Constant dimensions per variable
-            var_constant_coord_indices: Pre-seeded RNGs per variable/dimension
+            var_constant_coord_indices: Pre-seeded RNG per variable and constant dim
             num_vars: Number of variables
 
         Returns:
@@ -46,143 +46,76 @@ class MultiVarRecordGenerator:
         for var_idx in range(num_vars):
             const_coords = {}
             for const_dim in var_constant_dims[var_idx]:
-                const_source = var_constant_coord_indices[var_idx][const_dim]
-                if isinstance(const_source, (int, np.integer)):
-                    const_coords[const_dim] = int(const_source)
-                else:
-                    const_coords[const_dim] = int(
-                        const_source.integers(0, shape[const_dim])
-                    )
+                const_rng = var_constant_coord_indices[var_idx][const_dim]
+                const_coords[const_dim] = int(const_rng.integers(0, shape[const_dim]))
             var_constant_coords[var_idx] = const_coords
         return var_constant_coords
 
     @staticmethod
-    def _expand_to_full_coords(
-        multi_indices: Tuple,
-        var_constant_coords: Dict[int, int],
-        num_obs: int,
-    ) -> Tuple:
-        """Expand reduced-space indices to full-space coordinates.
-
-        Args:
-            multi_indices: Indices in reduced shape (constant dims have 1 element)
-            var_constant_coords: Constant coordinate values for this variable
-            num_obs: Number of observations
-
-        Returns:
-            Multi-indices in full space
-        """
-        full_coords = list(multi_indices)
-        for const_dim, const_val in var_constant_coords.items():
-            full_coords[const_dim] = np.full(num_obs, const_val)
-        return tuple(full_coords)
-
-    @staticmethod
     def generate_without_overlap(
-        shape: List[int],
         records: Dict[str, np.ndarray],
-        num_vars: int,
         var_num_obs: np.ndarray,
-        var_constant_dims: List[List[int]],
-        var_constant_coord_indices: Dict,
         seed: int,
+        dim_split: int,
+        shape: List[int],
         chunk_id: Optional[int] = None,
-        dim_split: Optional[int] = None,
         lhs_shape: Optional[List[int]] = None,
         num_obs_global: Optional[int] = None,
         div_points: Optional[List[int]] = None,
     ) -> Dict[str, np.ndarray]:
-        """Place a single variable, one stratum at a time.
+        """Place the single variable, one stratum at a time.
 
-        Only one variable reaches here: ``generate`` sends every
-        multi-variable case to ``generate_multivar_stratified``.
+        ``generate`` sends every multi-variable case to
+        ``generate_multivar_stratified``; only var0 reaches here, varying
+        along every dimension.
 
         Args:
-            shape: Full grid shape
-            records: Pre-initialized empty record arrays
-            num_vars: Number of variables
-            var_num_obs: Observation counts per variable
-            var_constant_dims: Constant dimensions per variable
-            var_constant_coord_indices: Pre-seeded RNGs for constant dims
+            records: Pre-initialized empty record array for var0
+            var_num_obs: Observation count, one entry
             seed: Random seed
-            chunk_id: Identifier for this chunk (if parallel workflow)
             dim_split: Dimension the strata are taken along
+            shape: Record shape (a chunk's shape in parallel mode)
+            chunk_id: Identifier for this chunk (if parallel workflow)
             lhs_shape: Global shape for LHS generation in parallel mode
-            num_obs_global: Global observation count for validation
+            num_obs_global: Global observation count in parallel mode
             div_points: Division points for chunk filtering in parallel mode
 
         Returns:
-            Dictionary of filled record arrays
-
-        Raises:
-            ValueError: If given more than one variable, or no dim_split
+            Dictionary with the filled var0 record
         """
-        if num_vars != 1 or dim_split is None:
-            raise ValueError(
-                "generate_without_overlap places one variable along dim_split; "
-                f"got num_vars={num_vars}, dim_split={dim_split}. Several "
-                "variables go through generate_multivar_stratified."
-            )
-        var_constant_coords = MultiVarRecordGenerator._select_constant_coords(
-            shape,
-            var_constant_dims,
-            var_constant_coord_indices,
-            num_vars,
+        # Stratified placement. Serial asks for every stratum, a worker asks
+        # for the ones in its chunk, and both get byte-identical slices because
+        # a stratum depends only on (seed, stratum). Peak memory is one
+        # hyperplane, not the whole grid.
+        global_shape = list(lhs_shape) if lhs_shape is not None else list(shape)
+        num_obs = int(np.rint(var_num_obs[0]))
+        total_obs = num_obs_global if num_obs_global is not None else num_obs
+        if chunk_id is not None and div_points is not None:
+            stratum_start = int(div_points[chunk_id])
+            wanted = range(stratum_start, int(div_points[chunk_id + 1]))
+        else:
+            stratum_start = 0
+            wanted = None
+
+        multi_indices, observations = RecordGenerator.generate_stratified_indices(
+            global_shape=global_shape,
+            num_obs=total_obs,
+            seed=seed,
+            split_dim=dim_split,
+            strata=wanted,
         )
-
-        for var_idx in range(num_vars):
-            var_name = f"var{var_idx}"
-            num_obs = int(np.rint(var_num_obs[var_idx]))
-
-            # Ensure we don't exceed available points
-            if num_obs < var_num_obs[var_idx]:
-                print(
-                    f"WARNING: Variable {var_idx} limited to {num_obs} "
-                    f"observations (requested {var_num_obs[var_idx]})"
-                )
-
-            # Stratified placement. Serial asks for every stratum, a worker
-            # asks for the ones in its chunk, and both get byte-identical
-            # slices because a stratum depends only on (seed, stratum).
-            # Peak memory is one hyperplane, not the whole grid.
-            global_shape = list(lhs_shape) if lhs_shape is not None else list(shape)
-            total_obs = num_obs_global if num_obs_global is not None else num_obs
-            if chunk_id is not None and div_points is not None:
-                stratum_start = int(div_points[chunk_id])
-                wanted = range(stratum_start, int(div_points[chunk_id + 1]))
-            else:
-                stratum_start = 0
-                wanted = None
-
-            multi_indices, observations = RecordGenerator.generate_stratified_indices(
-                global_shape=global_shape,
-                num_obs=total_obs,
-                seed=seed,
-                split_dim=dim_split,
-                strata=wanted,
-            )
-            # The record array is chunk-shaped, so rebase the split axis.
-            if stratum_start:
-                multi_indices = tuple(
-                    values - stratum_start if dim == dim_split else values
-                    for dim, values in enumerate(multi_indices)
-                )
-            num_obs_actual = len(multi_indices[0])
-
-            # Expand to FULL space by filling constant dims with a single coordinate value
-            full_multi_indices = MultiVarRecordGenerator._expand_to_full_coords(
-                multi_indices,
-                var_constant_coords[var_idx],
-                num_obs_actual,
+        # The record array is chunk-shaped, so rebase the split axis.
+        if stratum_start:
+            multi_indices = tuple(
+                values - stratum_start if dim == dim_split else values
+                for dim, values in enumerate(multi_indices)
             )
 
-            # Assign observations to the full-space coordinates
-            RecordGenerator.assign_observations(
-                records[var_name],
-                full_multi_indices,
-                observations,
-            )
-
+        RecordGenerator.assign_observations(
+            records["var0"],
+            multi_indices,
+            observations,
+        )
         return records
 
     @staticmethod
@@ -196,12 +129,12 @@ class MultiVarRecordGenerator:
         var_constant_coord_indices: Dict,
         num_dims: int,
         seed: int,
+        dim_split: int,
         chunk_id: Optional[int] = None,
-        dim_split: Optional[int] = None,
         lhs_shape: Optional[List[int]] = None,
         num_obs_global: Optional[int] = None,
         div_points: Optional[List[int]] = None,
-        fixed_overlap: Union[bool, List[bool]] = False,
+        fixed_overlap: Optional[List[bool]] = None,
     ) -> tuple[Dict[str, np.ndarray], float]:
         """Generate multi-variable records with overlap control.
 
@@ -217,26 +150,19 @@ class MultiVarRecordGenerator:
             var_constant_coord_indices: Pre-seeded RNGs for constant dims
             num_dims: Total number of dimensions
             seed: Random seed
+            dim_split: Dimension the strata are taken along
+                (GenerateData._choose_split_dim)
             chunk_id: Chunk ID for parallel mode
-            dim_split: Dimension the strata are taken along. Required:
-                GenerateData sets it for every run (_choose_split_dim).
             lhs_shape: Global shape for LHS generation in parallel mode
             num_obs_global: Global observation count for validation
             div_points: Division points for chunk filtering in parallel mode
-            fixed_overlap: Whether each non-reference variable shares the
-                reference ordering
+            fixed_overlap: Per non-reference variable, whether it shares the
+                reference ordering (MultiVarOverlapConfig output). Multi-variable
+                only.
 
         Returns:
             Tuple of (records dict, actual overlap achieved)
-
-        Raises:
-            ValueError: If dim_split is None
         """
-        if dim_split is None:
-            raise ValueError(
-                "dim_split is required: placement is stratified along it. "
-                "GenerateData chooses it in _choose_split_dim."
-            )
         records = {}
         for var_idx in range(num_vars):
             var_name = f"var{var_idx}"
@@ -259,10 +185,7 @@ class MultiVarRecordGenerator:
                 targets = [float(value) for value in overlap]
             else:
                 targets = [float(overlap)] * (num_vars - 1)
-            if isinstance(fixed_overlap, bool):
-                flags = [fixed_overlap] * (num_vars - 1)
-            else:
-                flags = list(fixed_overlap)
+            flags = list(fixed_overlap)
 
             if chunk_id is not None and div_points is not None:
                 stratum_start = int(div_points[chunk_id])
@@ -307,15 +230,12 @@ class MultiVarRecordGenerator:
         # One variable: the multi-variable branch above returns for every
         # other case.
         records = MultiVarRecordGenerator.generate_without_overlap(
-            shape,
             records,
-            num_vars,
             var_num_obs,
-            var_constant_dims,
-            var_constant_coord_indices,
             seed,
-            chunk_id,
             dim_split,
+            shape,
+            chunk_id,
             lhs_shape,
             num_obs_global,
             div_points,
@@ -399,24 +319,16 @@ class MultiVarRecordGenerator:
         wanted_strata = (
             list(range(num_strata)) if strata is None else [int(j) for j in strata]
         )
-        plane, shared, home, counts = {}, {}, {}, {}
+        # Every variable varies along split_dim (_choose_split_dim), so every
+        # stratum offers each variable the same number of cells.
+        plane, shared, counts = {}, {}, {}
         for var_idx in range(1, num_vars):
             dims = [d for d in var_dims_indices[var_idx] if d != split_dim]
             shared[var_idx] = dims
             plane[var_idx] = int(np.prod([shape[d] for d in dims])) if dims else 1
-            if split_dim in var_dims_indices[var_idx]:
-                home[var_idx] = None  # lives in every stratum
-                weights = np.full(num_strata, plane[var_idx], dtype=np.int64)
-            else:
-                # constant on the split dimension: the variable exists in ONE
-                # stratum, so every other stratum places nothing for it
-                home[var_idx] = int(var_constant_coords[var_idx][split_dim])
-                weights = np.zeros(num_strata, dtype=np.int64)
-                weights[home[var_idx]] = plane[var_idx]
             counts[var_idx] = ChunkUtils.apportion(
                 int(var_num_obs[var_idx]),
-                weights,
-                weights,
+                np.full(num_strata, plane[var_idx], dtype=np.int64),
             )
 
         # --- per stratum ------------------------------------------------------
@@ -436,8 +348,10 @@ class MultiVarRecordGenerator:
                 sizes = [shape[d] for d in dims]
                 rng = stream(seed, Stream.VAR, var_idx, stratum)
 
-                # proj_j(S_0): reference cells seen through this variable's dims
-                if dims and ref_here[0].size:
+                # proj_j(S_0): reference cells seen through this variable's dims.
+                # Every stratum holds a reference site (LHS stage), so with no
+                # dims the projection is the single cell 0.
+                if dims:
                     proj = np.unique(
                         np.ravel_multi_index(
                             tuple(ref_here[d] for d in dims),
@@ -445,11 +359,7 @@ class MultiVarRecordGenerator:
                         )
                     )
                 else:
-                    proj = (
-                        np.zeros(1, dtype=np.int64)
-                        if ref_here[0].size
-                        else np.empty(0, dtype=np.int64)
-                    )
+                    proj = np.zeros(1, dtype=np.int64)
 
                 # How many of this variable's cells must, may, and ideally do
                 # land on the reference footprint.

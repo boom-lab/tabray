@@ -16,7 +16,7 @@ conda env create -f environment.yml && conda activate tabray
 # or
 pip install -e ".[dev]"          # dev = pytest, pytest-cov, pylint
 
-pytest                            # 484 tests, ~75s; -v and --tb=short come from pyproject
+pytest                            # 457 tests, ~75s; -v and --tb=short come from pyproject
 pytest tests/generators/test_overlap_calculator.py
 pytest tests/generators/test_coordinate_generator.py::TestGenerateDimensionCoords
 pytest -k "overlap"
@@ -77,7 +77,7 @@ The grid is always `num_dims`-dimensional. A variable with fewer dimensions vari
 
 Placement is per stratum: `MultiVarRecordGenerator.generate_multivar_stratified` takes `round(t_i * |proj_j(S0)|)` of each variable's sites from var0's footprint *within that hyperplane*, then fills the rest from cells held by neither variable, so the achieved overlap equals the target rather than picking up accidental coincidences. Where the target is unreachable — a reduced-dimension variable whose projected reference saturates — it warns and density takes precedence.
 
-`var0` is always the largest variable: `validate_reference_is_largest` rejects anything else, and `validate_density_refvar` forces `density[0]` to the maximum (mutating the caller's list, and collapsing a 2-element range to a single value).
+`var0` is always the largest variable: `validate_density_refvar` raises unless `density[0]` is the maximum, and `MultiVarSparsityConfig.compute_var_num_obs` scales every other count from it, so no later check is needed.
 
 `fixed_overlap` (per-variable bool) makes variables draw their overlapping sites from one shared permutation of the reference sites, so opted-in variables overlap each other as well as the reference; with `False` each variable draws independently.
 
@@ -148,7 +148,7 @@ untracked `docs/*.puml` diagrams. Read it before picking up that work; delete en
 
 ## Known drift in the docs
 
-`README.md` claims `from data_sparsity import GenerateData` and `342/426 tests passing`. Both are stale: `data_sparsity/__init__.py` is empty, so the import is `from data_sparsity.generate_data import GenerateData` (what the tests and notebook helpers use), and the suite is fully green at 484 tests. It also describes multi-variable data_vars as `record0, record1, …`; they are `var0, var1, …`.
+`README.md` claims `from data_sparsity import GenerateData` and `342/426 tests passing`. Both are stale: `data_sparsity/__init__.py` is empty, so the import is `from data_sparsity.generate_data import GenerateData` (what the tests and notebook helpers use), and the suite is fully green at 457 tests. It also describes multi-variable data_vars as `record0, record1, …`; they are `var0, var1, …`.
 
 # Claude Persona & Output Constraints
 

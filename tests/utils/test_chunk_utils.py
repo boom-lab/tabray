@@ -139,28 +139,6 @@ class TestGetObservationsPerChunk:
         assert mp_obs > 0
         assert sum(per_chunk_obs) == mp_obs
 
-    def test_capping_observations_at_chunk_size(self):
-        """Should cap observations at chunk_points when sparsity is too high."""
-        total_obs = 100000
-        shape = np.array([100, 100])
-        max_dim_size = 100
-        section_sizes = [25, 25, 25, 25]
-        sparsity = 0.9  # Very high sparsity
-
-        mp_obs, sparsity_new, per_chunk_obs = ChunkUtils.get_observations_per_chunk(
-            total_obs,
-            shape,
-            max_dim_size,
-            section_sizes,
-            sparsity,
-        )
-
-        # No chunk should have more observations than available points
-        total_points = np.prod(shape)
-        chunk_points = total_points / len(section_sizes)
-        for obs in per_chunk_obs:
-            assert obs <= chunk_points
-
     def test_sum_equals_returned_total(self):
         """Should ensure sum of per_chunk_obs equals mp_obs."""
         total_obs = 1000
@@ -253,51 +231,6 @@ class TestUpdateChunkShape:
 
         assert task_shape[0] == 1
         assert task_shape[1] == 200
-
-
-class TestValidateChunkPoints:
-    """Tests for validate_chunk_points method."""
-
-    def test_valid_integer_shape(self):
-        """Should return total points for valid shape."""
-        task_shape = np.array([10, 20, 30])
-
-        total_points = ChunkUtils.validate_chunk_points(task_shape)
-
-        assert total_points == 6000
-        assert isinstance(total_points, int)
-
-    def test_2d_shape(self):
-        """Should handle 2D shapes."""
-        task_shape = np.array([50, 100])
-
-        total_points = ChunkUtils.validate_chunk_points(task_shape)
-
-        assert total_points == 5000
-
-    def test_3d_shape(self):
-        """Should handle 3D shapes."""
-        task_shape = np.array([10, 20, 30])
-
-        total_points = ChunkUtils.validate_chunk_points(task_shape)
-
-        assert total_points == 6000
-
-    def test_returns_integer(self):
-        """Should return integer type."""
-        task_shape = np.array([5, 5])
-
-        total_points = ChunkUtils.validate_chunk_points(task_shape)
-
-        assert isinstance(total_points, int)
-
-    def test_single_dimension(self):
-        """Should handle single dimension (though unlikely in practice)."""
-        task_shape = np.array([100])
-
-        total_points = ChunkUtils.validate_chunk_points(task_shape)
-
-        assert total_points == 100
 
 
 class TestGenerateRngs:

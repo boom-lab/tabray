@@ -1849,7 +1849,7 @@ class TestHybridLHSSampling:
         shape = [5, 7, 5]
         n_s = max(shape)  # = 7; the longest axis needs 7 samples to use each coordinate
 
-        lhs_indices = RecordGenerator.generate_lhs_indices(shape, n_s, rng)
+        lhs_indices = RecordGenerator.generate_lhs_indices(shape, rng)
 
         # Check 1: Correct number of observations
         assert all(
@@ -1866,18 +1866,6 @@ class TestHybridLHSSampling:
             assert set(lhs_indices[dim].tolist()) == set(
                 range(5)
             ), f"Dimension {dim} (size 5) must use every coordinate"
-
-    def test_lhs_rejects_n_s_below_longest_axis(self):
-        """n_s below max(shape) cannot cover every axis, so it is refused.
-
-        An unused coordinate is a grid site carrying no information, so a
-        valid grid has none.
-        """
-        from data_sparsity.generators.record_generator import RecordGenerator
-
-        rng = np.random.default_rng(42)
-        with pytest.raises(ValueError, match=r"n_s .* < max\(shape\)"):
-            RecordGenerator.generate_lhs_indices([5, 7, 3], 5, rng)
 
     def test_stratified_rejects_too_few_observations(self):
         """Fewer observations than the longest axis cannot cover it."""
@@ -1899,7 +1887,7 @@ class TestHybridLHSSampling:
         shape = [5, 7, 3]
         n_s = 7  # = max(shape); dimension 2 (size 3) is shorter than n_s
 
-        lhs_indices = RecordGenerator.generate_lhs_indices(shape, n_s, rng)
+        lhs_indices = RecordGenerator.generate_lhs_indices(shape, rng)
 
         for dim, dim_size in enumerate(shape):
             assert len(lhs_indices[dim]) == n_s
@@ -1916,10 +1904,8 @@ class TestHybridLHSSampling:
         from data_sparsity.generators.record_generator import RecordGenerator
 
         for shape in ([4, 7, 10], [3, 3], [5, 5, 20], [2, 3, 5, 7], [12]):
-            n_s = max(shape)
             lhs_indices = RecordGenerator.generate_lhs_indices(
                 shape,
-                n_s,
                 np.random.default_rng(7),
             )
             for dim, dim_size in enumerate(shape):

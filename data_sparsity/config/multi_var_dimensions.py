@@ -13,12 +13,11 @@ from data_sparsity.utils.streams import Stream, stream
 class MultiVarDimensionsConfig:
     """Configuration manager for multi-variable dimensions.
 
-    This class processes the var_dims parameter which can be:
-    - An int: all variables have the same number of VARYING dimensions (which
-      are randomly selected)
-    - A list/tuple of ints: each var has a different number of VARYING dims
-      (which randomly selected)
-    - A list/tuple of lists/tuples: each var has explicitly specified VARYING dims
+    This class processes the var_dims parameter, one entry per variable
+    (ParameterValidator.validate_var_dims expands an int into this form). Each
+    entry is:
+    - An int: the number of VARYING dims, randomly selected
+    - A list/tuple: the VARYING dims, given explicitly
 
     VARYING dimensions are those dimensions along which the variable's record
     changes. Dimensions not in var_dims_indices are held constant for that
@@ -52,48 +51,6 @@ class MultiVarDimensionsConfig:
         var_rng = stream(seed, Stream.VAR_DIMS, var_idx)
         dims = sorted(var_rng.choice(num_dims, size=var_dims, replace=False).tolist())
         return dims
-
-    @staticmethod
-    def from_int(
-        var_dims: int,
-        num_vars: int,
-        num_dims: int,
-        seed: int,
-    ) -> List[List[int]]:
-        """Create dimension indices from integer specification.
-
-        All variables get the same number of varying dimensions,
-        but which ones vary is randomly selected per variable.
-
-        Args:
-            var_dims: Number of varying dimensions per variable
-            num_vars: Number of variables
-            num_dims: Total number of dimensions
-            seed: Base random seed
-
-        Returns:
-            List of dimension index lists, one per variable
-
-        Raises:
-            ValueError: If var_dims exceeds num_dims
-        """
-        if var_dims > num_dims:
-            raise ValueError(f"var_dims {var_dims} cannot exceed num_dims {num_dims}")
-
-        if var_dims == num_dims:
-            return [list(range(num_dims))] * num_vars
-
-        var_dims_indices = []
-        for var_idx in range(num_vars):
-            dims = MultiVarDimensionsConfig.select_random_dims(
-                num_dims,
-                var_dims,
-                seed,
-                var_idx,
-            )
-            var_dims_indices.append(dims)
-
-        return var_dims_indices
 
     @staticmethod
     def from_list_element(
@@ -218,7 +175,6 @@ class MultiVarDimensionsConfig:
     @staticmethod
     def preselect_constant_coord_indices(
         var_constant_dims: List[List[int]],
-        shape: List[int],
         seed: int,
     ) -> Dict[int, Dict[int, np.random.Generator]]:
         """Pre-select RNGs for constant coordinate indices.
@@ -228,7 +184,6 @@ class MultiVarDimensionsConfig:
 
         Args:
             var_constant_dims: Constant dimension indices per variable
-            shape: Shape of full coordinate space
             seed: Base random seed
 
         Returns:
@@ -256,10 +211,9 @@ class MultiVarDimensionsConfig:
 
     @staticmethod
     def setup_from_parameter(
-        var_dims: Union[int, List, Tuple],
+        var_dims: Union[List, Tuple],
         num_vars: int,
         num_dims: int,
-        shape: List[int],
         seed: int,
     ) -> Tuple[
         List[List[int]], List[List[int]], Dict[int, Dict[int, np.random.Generator]]
@@ -270,36 +224,20 @@ class MultiVarDimensionsConfig:
         complete configuration.
 
         Args:
-            var_dims: Dimension specification (int or list)
+            var_dims: One entry per variable (validate_var_dims output)
             num_vars: Number of variables
             num_dims: Total number of dimensions
-            shape: Shape of full coordinate space
             seed: Base random seed
 
         Returns:
             Tuple of (var_dims_indices, var_constant_dims, var_constant_coord_indices)
-
-        Raises:
-            TypeError: If var_dims is not a valid type
         """
-        if isinstance(var_dims, int):
-            var_dims_indices = MultiVarDimensionsConfig.from_int(
-                var_dims,
-                num_vars,
-                num_dims,
-                seed,
-            )
-        elif isinstance(var_dims, (list, tuple)):
-            var_dims_indices = MultiVarDimensionsConfig.from_list(
-                var_dims,
-                num_vars,
-                num_dims,
-                seed,
-            )
-        else:
-            raise TypeError(
-                f"var_dims must be int, list, or tuple, got {type(var_dims)}"
-            )
+        var_dims_indices = MultiVarDimensionsConfig.from_list(
+            var_dims,
+            num_vars,
+            num_dims,
+            seed,
+        )
 
         var_constant_dims = MultiVarDimensionsConfig.compute_constant_dims(
             var_dims_indices,
@@ -308,7 +246,6 @@ class MultiVarDimensionsConfig:
         var_constant_coord_indices = (
             MultiVarDimensionsConfig.preselect_constant_coord_indices(
                 var_constant_dims,
-                shape,
                 seed,
             )
         )

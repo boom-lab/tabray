@@ -121,11 +121,7 @@ class ParquetBuilder:
             )
             values.append(record[mask])
 
-        occupied = (
-            np.unique(np.concatenate(flat_indices))
-            if flat_indices
-            else np.empty(0, dtype=np.int64)
-        )
+        occupied = np.unique(np.concatenate(flat_indices))
         unravelled = np.unravel_index(occupied, reordered_shape)
 
         # Coordinate columns. unravelled[position] holds every row's index along

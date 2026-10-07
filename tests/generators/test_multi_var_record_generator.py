@@ -117,85 +117,6 @@ class TestSelectConstantCoords:
         assert 0 in result[1]
 
 
-class TestExpandToFullCoords:
-    """Tests for _expand_to_full_coords method."""
-
-    def test_constant_dims_filled_with_constant_value(self):
-        """Should fill constant dimensions with fixed values."""
-        multi_indices = (np.array([0, 1, 2]), np.array([3, 4, 5]))
-        var_constant_coords = {0: 7}
-        num_obs = 3
-
-        result = MultiVarRecordGenerator._expand_to_full_coords(
-            multi_indices,
-            var_constant_coords,
-            num_obs,
-        )
-
-        np.testing.assert_array_equal(result[0], [7, 7, 7])
-        np.testing.assert_array_equal(result[1], [3, 4, 5])
-
-    def test_varying_dims_unchanged(self):
-        """Should keep varying dimensions unchanged."""
-        multi_indices = (np.array([1, 2, 3]), np.array([4, 5, 6]))
-        var_constant_coords = {}
-        num_obs = 3
-
-        result = MultiVarRecordGenerator._expand_to_full_coords(
-            multi_indices,
-            var_constant_coords,
-            num_obs,
-        )
-
-        np.testing.assert_array_equal(result[0], [1, 2, 3])
-        np.testing.assert_array_equal(result[1], [4, 5, 6])
-
-    def test_correct_tuple_length(self):
-        """Should return tuple with correct length."""
-        multi_indices = (np.array([0]), np.array([1]), np.array([2]))
-        var_constant_coords = {1: 5}
-        num_obs = 1
-
-        result = MultiVarRecordGenerator._expand_to_full_coords(
-            multi_indices,
-            var_constant_coords,
-            num_obs,
-        )
-
-        assert len(result) == 3
-
-    def test_correct_array_lengths(self):
-        """Should return arrays with correct lengths."""
-        num_obs = 5
-        multi_indices = (np.array([0, 1, 2, 3, 4]), np.array([5, 6, 7, 8, 9]))
-        var_constant_coords = {0: 10}
-
-        result = MultiVarRecordGenerator._expand_to_full_coords(
-            multi_indices,
-            var_constant_coords,
-            num_obs,
-        )
-
-        assert len(result[0]) == num_obs
-        assert len(result[1]) == num_obs
-
-    def test_multiple_constant_dims(self):
-        """Should handle multiple constant dimensions."""
-        multi_indices = (np.array([0, 1]), np.array([2, 3]), np.array([4, 5]))
-        var_constant_coords = {0: 10, 2: 20}
-        num_obs = 2
-
-        result = MultiVarRecordGenerator._expand_to_full_coords(
-            multi_indices,
-            var_constant_coords,
-            num_obs,
-        )
-
-        np.testing.assert_array_equal(result[0], [10, 10])
-        np.testing.assert_array_equal(result[1], [2, 3])
-        np.testing.assert_array_equal(result[2], [20, 20])
-
-
 class TestGenerateWithoutOverlap:
     """Tests for generate_without_overlap, the single-variable placement."""
 
@@ -203,13 +124,10 @@ class TestGenerateWithoutOverlap:
     def _place(shape, num_obs, seed=42, **kwargs):
         records = {"var0": np.full(shape, np.nan)}
         return MultiVarRecordGenerator.generate_without_overlap(
-            shape,
             records,
-            1,
             np.array([num_obs]),
-            [[]],
-            {0: {}},
             seed,
+            shape=shape,
             **kwargs,
         )
 
@@ -226,30 +144,6 @@ class TestGenerateWithoutOverlap:
         result2 = self._place([10, 10], 10, dim_split=0)
 
         np.testing.assert_array_equal(result1["var0"], result2["var0"])
-
-    def test_rejects_several_variables(self):
-        """Several variables belong to generate_multivar_stratified."""
-        shape = [10, 10]
-        records = {
-            "var0": np.full(shape, np.nan),
-            "var1": np.full(shape, np.nan),
-        }
-        with pytest.raises(ValueError, match="one variable"):
-            MultiVarRecordGenerator.generate_without_overlap(
-                shape,
-                records,
-                2,
-                np.array([10, 10]),
-                [[], []],
-                {0: {}, 1: {}},
-                42,
-                dim_split=0,
-            )
-
-    def test_rejects_missing_dim_split(self):
-        """Placement is stratified, so it needs the split dimension."""
-        with pytest.raises(ValueError, match="dim_split"):
-            self._place([10, 10], 10)
 
 
 class TestGenerate:
@@ -313,6 +207,7 @@ class TestGenerate:
             num_dims,
             42,
             dim_split=0,
+            fixed_overlap=[False],
         )
 
         # Should complete without error
@@ -350,6 +245,7 @@ class TestGenerate:
             num_dims,
             42,
             dim_split=0,
+            fixed_overlap=[False],
         )
 
         # Should complete without error
@@ -381,6 +277,7 @@ class TestGenerate:
             num_dims=2,
             seed=42,
             dim_split=0,
+            fixed_overlap=[False, False],
         )
 
         assert isinstance(overlap_actual, np.ndarray)
@@ -394,15 +291,18 @@ class TestGenerate:
     def test_unequal_counts_with_constant_dims(self):
         """Each variable gets exactly its own count, also on fewer dimensions.
 
-        var1 is pinned on x2 (not the split dim) and var2 is pinned on x0, the
-        split dim, so var2 lives in a single stratum. Each takes a different
-        branch of the per-stratum apportioning.
+        var1 is pinned on x2 and var2 on x0. x1, the one dimension every
+        variable varies along, is the split dimension.
         """
         shape = [10, 10, 10]
         var_num_obs = np.array([300, 60, 40])
         var_dims_indices = [[0, 1, 2], [0, 1], [1, 2]]
         var_constant_dims = [[], [2], [0]]
-        var_constant_coord_indices = {0: {}, 1: {2: 4}, 2: {0: 7}}
+        var_constant_coord_indices = {
+            0: {},
+            1: {2: np.random.default_rng(4)},
+            2: {0: np.random.default_rng(7)},
+        }
 
         records, _ = MultiVarRecordGenerator.generate(
             shape=shape,
@@ -414,7 +314,8 @@ class TestGenerate:
             var_constant_coord_indices=var_constant_coord_indices,
             num_dims=3,
             seed=42,
-            dim_split=0,
+            dim_split=1,
+            fixed_overlap=[False, False],
         )
 
         for var_idx in range(3):
@@ -422,8 +323,8 @@ class TestGenerate:
             assert count == var_num_obs[var_idx]
         var1_sites = np.nonzero(~np.isnan(records["var1"]))
         var2_sites = np.nonzero(~np.isnan(records["var2"]))
-        assert set(var1_sites[2]) == {4}
-        assert set(var2_sites[0]) == {7}
+        assert len(set(var1_sites[2])) == 1
+        assert len(set(var2_sites[0])) == 1
 
     @staticmethod
     def _generate_two_vars(var_num_obs, overlap):
@@ -439,6 +340,7 @@ class TestGenerate:
             num_dims=2,
             seed=42,
             dim_split=0,
+            fixed_overlap=[False],
         )
 
     def test_unreachable_overlap_warns_and_keeps_density(self, capsys):
