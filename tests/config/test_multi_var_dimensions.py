@@ -58,54 +58,6 @@ class TestSelectRandomDims:
         assert result == [0, 1, 2, 3, 4]
 
 
-class TestFromInt:
-    """Tests for from_int method."""
-
-    def test_all_dims_all_variables_identical(self):
-        """All dims should give all variables identical dimension lists."""
-        result = MultiVarDimensionsConfig.from_int(3, 3, 3, 42)
-        assert len(result) == 3
-        for dims in result:
-            assert dims == [0, 1, 2]
-
-    def test_subset_dims_random_selection(self):
-        """Subset of dims should give random selection."""
-        result = MultiVarDimensionsConfig.from_int(2, 3, 5, 42)
-        assert len(result) == 3
-        for dims in result:
-            assert len(dims) == 2
-            assert all(0 <= d < 5 for d in dims)
-
-    def test_exceeds_num_dims_raises_value_error(self):
-        """var_dims > num_dims should raise ValueError."""
-        with pytest.raises(ValueError, match="cannot exceed"):
-            MultiVarDimensionsConfig.from_int(5, 2, 3, 42)
-
-    def test_single_dimension_per_variable(self):
-        """Single dimension per variable should work."""
-        result = MultiVarDimensionsConfig.from_int(1, 3, 5, 42)
-        assert len(result) == 3
-        for dims in result:
-            assert len(dims) == 1
-
-    def test_num_vars_copies_for_all_dims(self):
-        """All dims case should create num_vars copies."""
-        result = MultiVarDimensionsConfig.from_int(4, 3, 4, 42)
-        assert len(result) == 3
-
-    def test_length_matches_num_vars(self):
-        """Result length should match num_vars."""
-        for num_vars in [1, 3, 5, 10]:
-            result = MultiVarDimensionsConfig.from_int(2, num_vars, 5, 42)
-            assert len(result) == num_vars
-
-    def test_each_element_sorted(self):
-        """Each element should be sorted."""
-        result = MultiVarDimensionsConfig.from_int(3, 5, 5, 42)
-        for dims in result:
-            assert dims == sorted(dims)
-
-
 class TestFromListElement:
     """Tests for from_list_element method."""
 
@@ -249,10 +201,8 @@ class TestPreselectConstantCoordIndices:
     def test_creates_rng_for_each_constant_dim(self):
         """Should create RNG for each constant dim."""
         var_constant_dims = [[1, 2], [0]]
-        shape = (10, 10, 30)
         result = MultiVarDimensionsConfig.preselect_constant_coord_indices(
             var_constant_dims,
-            shape,
             42,
         )
         assert 0 in result
@@ -263,10 +213,8 @@ class TestPreselectConstantCoordIndices:
     def test_empty_dict_for_no_constant_dims(self):
         """No constant dims should give empty inner dicts."""
         var_constant_dims = [[], []]
-        shape = (10, 10, 30)
         result = MultiVarDimensionsConfig.preselect_constant_coord_indices(
             var_constant_dims,
-            shape,
             42,
         )
         assert result[0] == {}
@@ -275,10 +223,8 @@ class TestPreselectConstantCoordIndices:
     def test_correct_structure_returned(self):
         """Should return correct nested dict structure."""
         var_constant_dims = [[1]]
-        shape = (10, 10, 30)
         result = MultiVarDimensionsConfig.preselect_constant_coord_indices(
             var_constant_dims,
-            shape,
             42,
         )
         assert isinstance(result, dict)

@@ -18,7 +18,6 @@ class ChunkUtils:
     def apportion(
         total: int,
         weights: ArrayLike,
-        capacity: ArrayLike = None,
     ) -> np.ndarray:
         """Split an integer total across bins in proportion to weights.
 
@@ -29,16 +28,17 @@ class ChunkUtils:
         and a chunked run would then place a different number of observations
         than the serial run.
 
+        With ``total <= sum(weights)`` no bin exceeds its weight, so weights
+        double as capacities: bin i gets floor(total * w_i / W) <= w_i, plus
+        one only when that floor is below the exact share. Callers pass the
+        free sites per bin and never more observations than sites.
+
         Args:
             total: Integer amount to distribute
             weights: Relative weight of each bin
-            capacity: Optional per-bin upper bound. Units that do not fit are
-                redistributed to bins with room; if nothing has room the
-                returned total is short of ``total``.
 
         Returns:
-            Integer array summing to ``total`` (or to the total capacity, if
-            that is smaller)
+            Integer array summing to ``total``
         """
         weights = np.asarray(weights, dtype=float)
         total = int(total)
@@ -51,24 +51,7 @@ class ChunkUtils:
         if deficit > 0:
             for idx in np.argsort(raw - counts)[::-1][:deficit]:
                 counts[idx] += 1
-
-        if capacity is None:
-            return counts
-
-        cap = np.asarray(capacity, dtype=np.int64)
-        while True:
-            overflow = int(np.maximum(counts - cap, 0).sum())
-            counts = np.minimum(counts, cap)
-            if overflow <= 0:
-                return counts
-            room = cap - counts
-            if room.sum() <= 0:
-                return counts
-            counts = counts + ChunkUtils.apportion(
-                min(overflow, int(room.sum())),
-                room,
-                room,
-            )
+        return counts
 
     @staticmethod
     def get_observations_per_chunk(
@@ -116,16 +99,7 @@ class ChunkUtils:
             for chunk_idx in np.argsort(remainder)[::-1][:deficit]:
                 per_chunk_obs[chunk_idx] += 1
 
-        # A chunk cannot hold more observations than it has grid points. This
-        # applies only when num_obs exceeds the grid, which validation rejects.
-        per_chunk_obs = np.minimum(per_chunk_obs, chunk_points)
         mp_obs = int(per_chunk_obs.sum())
-        if mp_obs != int(total_obs):
-            print(
-                f"Chunk capacity limits observations to {mp_obs} "
-                f"(requested {total_obs})."
-            )
-
         density_new = mp_obs / total_points
         print(f"Observations per chunk: {per_chunk_obs.tolist()} (total {mp_obs}).")
         if not np.isclose(density_new, density):
@@ -161,18 +135,11 @@ class ChunkUtils:
             remainder = raw_counts - chunk_counts
             deficit = int(round(total_obs)) - int(chunk_counts.sum())
 
+            # deficit >= 0: the floors never sum above the total
             if deficit > 0:
                 order = np.argsort(remainder)[::-1]
                 for chunk_idx in order[:deficit]:
                     chunk_counts[chunk_idx] += 1
-            elif deficit < 0:
-                order = np.argsort(remainder)
-                for chunk_idx in order:
-                    if deficit == 0:
-                        break
-                    if chunk_counts[chunk_idx] > 0:
-                        chunk_counts[chunk_idx] -= 1
-                        deficit += 1
 
             per_var_counts.append(chunk_counts.astype(int))
 
@@ -223,13 +190,3 @@ class ChunkUtils:
         task_shape[dim_split] = task_size
 
         return task_shape
-
-    @staticmethod
-    def validate_chunk_points(task_shape: tuple) -> int:
-        """Validate that total chunk points are int"""
-
-        total_chunk_points = np.prod(task_shape)
-        if not total_chunk_points.is_integer():
-            raise ValueError("total_chunk_points must be an int")
-
-        return int(total_chunk_points)

@@ -22,18 +22,8 @@ class TestCheckOrCreateFolder:
         # Should not raise
         PathManager.check_or_create_folder(temp_dir)
 
-    def test_existing_non_empty_without_overwrite_raises(self, temp_dir):
-        """Should raise ValueError for non-empty folder without overwrite."""
-        # Create a file in the folder
-        test_file = os.path.join(temp_dir, "test.txt")
-        with open(test_file, "w") as f:
-            f.write("test")
-
-        with pytest.raises(ValueError, match="exists but is not empty"):
-            PathManager.check_or_create_folder(temp_dir, overwrite=False)
-
-    def test_existing_non_empty_with_overwrite_cleans(self, temp_dir):
-        """Should clean .nc and .parquet files with overwrite=True."""
+    def test_existing_non_empty_is_cleaned(self, temp_dir):
+        """Should clean .nc, .parquet and _metadata files."""
         # Create test files
         nc_file = os.path.join(temp_dir, "data.nc")
         pq_file = os.path.join(temp_dir, "data.parquet")
@@ -44,7 +34,7 @@ class TestCheckOrCreateFolder:
             with open(f, "w") as file:
                 file.write("test")
 
-        PathManager.check_or_create_folder(temp_dir, overwrite=True)
+        PathManager.check_or_create_folder(temp_dir)
 
         # .nc, .parquet, and _metadata should be removed
         assert not os.path.exists(nc_file)
@@ -59,7 +49,7 @@ class TestCheckOrCreateFolder:
         with open(nc_file, "w") as f:
             f.write("test")
 
-        PathManager.check_or_create_folder(temp_dir, overwrite=True)
+        PathManager.check_or_create_folder(temp_dir)
         assert not os.path.exists(nc_file)
 
     def test_removes_parquet_files(self, temp_dir):
@@ -68,7 +58,7 @@ class TestCheckOrCreateFolder:
         with open(pq_file, "w") as f:
             f.write("test")
 
-        PathManager.check_or_create_folder(temp_dir, overwrite=True)
+        PathManager.check_or_create_folder(temp_dir)
         assert not os.path.exists(pq_file)
 
     def test_removes_metadata_files(self, temp_dir):
@@ -77,7 +67,7 @@ class TestCheckOrCreateFolder:
         with open(meta_file, "w") as f:
             f.write("test")
 
-        PathManager.check_or_create_folder(temp_dir, overwrite=True)
+        PathManager.check_or_create_folder(temp_dir)
         assert not os.path.exists(meta_file)
 
     def test_keeps_other_files(self, temp_dir):
@@ -89,7 +79,7 @@ class TestCheckOrCreateFolder:
             with open(f, "w") as file:
                 file.write("test")
 
-        PathManager.check_or_create_folder(temp_dir, overwrite=True)
+        PathManager.check_or_create_folder(temp_dir)
         assert os.path.exists(txt_file)
         assert os.path.exists(csv_file)
 
@@ -116,44 +106,35 @@ class TestPrepareNetcdfPath:
     def test_adds_nc_extension(self, temp_dir):
         """Should add .nc extension if missing."""
         base_path = os.path.join(temp_dir, "data")
-        result = PathManager.prepare_netcdf_path(base_path, overwrite=False)
+        result = PathManager.prepare_netcdf_path(base_path)
         assert result.endswith(".nc")
 
     def test_keeps_nc_extension(self, temp_dir):
         """Should keep .nc extension if present."""
         path_with_nc = os.path.join(temp_dir, "data.nc")
-        result = PathManager.prepare_netcdf_path(path_with_nc, overwrite=False)
+        result = PathManager.prepare_netcdf_path(path_with_nc)
         assert result == path_with_nc
 
     def test_creates_parent_directory(self, temp_dir):
         """Should create parent directory if needed."""
         nested_path = os.path.join(temp_dir, "subdir", "data.nc")
-        PathManager.prepare_netcdf_path(nested_path, overwrite=False)
+        PathManager.prepare_netcdf_path(nested_path)
         assert os.path.exists(os.path.dirname(nested_path))
 
-    def test_existing_file_without_overwrite_raises(self, temp_dir):
-        """Should raise ValueError if file exists and overwrite=False."""
-        file_path = os.path.join(temp_dir, "data.nc")
-        with open(file_path, "w") as f:
-            f.write("test")
-
-        with pytest.raises(ValueError, match="exists already"):
-            PathManager.prepare_netcdf_path(file_path, overwrite=False)
-
-    def test_existing_file_with_overwrite_passes(self, temp_dir):
-        """Should pass if file exists and overwrite=True."""
+    def test_existing_file_passes(self, temp_dir):
+        """Should pass if the file exists: generate() replaces it."""
         file_path = os.path.join(temp_dir, "data.nc")
         with open(file_path, "w") as f:
             f.write("test")
 
         # Should not raise
-        result = PathManager.prepare_netcdf_path(file_path, overwrite=True)
+        result = PathManager.prepare_netcdf_path(file_path)
         assert result == file_path
 
     def test_returns_corrected_path(self, temp_dir):
         """Should return corrected path with .nc extension."""
         base_path = os.path.join(temp_dir, "data")
-        result = PathManager.prepare_netcdf_path(base_path, overwrite=False)
+        result = PathManager.prepare_netcdf_path(base_path)
         assert result == base_path + ".nc"
 
 

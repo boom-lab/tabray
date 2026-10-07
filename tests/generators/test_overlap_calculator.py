@@ -134,7 +134,7 @@ class TestComputeOverlapReport:
             records,
             num_vars=3,
             num_dims=2,
-            ref_var="var0",
+            var_dims_indices=[[0, 1]] * 3,
         )
 
         np.testing.assert_array_equal(report["f1"], np.array([1.0, 0.0]))
@@ -151,7 +151,7 @@ class TestComputeOverlapReport:
         records["var1"][0:2, 0:2] = 0.7  # 4 sites, all inside var0's
 
         report = OverlapCalculator.compute_overlap_report(
-            records, num_vars=2, num_dims=2
+            records, num_vars=2, num_dims=2, var_dims_indices=[[0, 1]] * 2
         )
 
         np.testing.assert_allclose(report["f1"], [4 / 6])
@@ -177,7 +177,7 @@ class TestComputeOverlapReport:
             records, num_vars=2, num_dims=2, var_dims_indices=[[0, 1], [1]]
         )
         full = OverlapCalculator.compute_overlap_report(
-            records, num_vars=2, num_dims=2
+            records, num_vars=2, num_dims=2, var_dims_indices=[[0, 1]] * 2
         )
 
         np.testing.assert_array_equal(projected["f1"], [1.0])

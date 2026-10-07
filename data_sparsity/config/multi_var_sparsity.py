@@ -47,21 +47,15 @@ class MultiVarSparsityConfig:
         variables are drawn uniformly from [min, max].
 
         Args:
-            density_list: List with exactly 2 elements [max, min]
+            density_list: List with exactly 2 elements [max, min]; the order is
+                checked by ParameterValidator.validate_density_refvar
             num_vars: Number of variables
             rng: Random number generator
 
         Returns:
             Array of density values, one per variable
         """
-        reference_density = density_list[0]
-        min_density = min(density_list)
-        if reference_density != max(density_list):
-            raise ValueError(
-                f"density[0]={reference_density} is not the largest of "
-                f"{list(density_list)}. var0 is the overlap reference and must "
-                "have the largest density, so list the largest value first."
-            )
+        reference_density, min_density = density_list
 
         # var0 takes the maximum and some other variable takes the minimum, so
         # both prescribed values appear; with two variables they are exactly
@@ -76,24 +70,16 @@ class MultiVarSparsityConfig:
         return np.concatenate([[reference_density], others])
 
     @staticmethod
-    def from_full_list(density_list: List[float], num_vars: int) -> np.ndarray:
+    def from_full_list(density_list: List[float]) -> np.ndarray:
         """Create density array from full list.
 
         Args:
-            density_list: List with one density per variable
-            num_vars: Number of variables
+            density_list: List with one density per variable (length checked
+                by setup_from_parameter)
 
         Returns:
             Array of density values, one per variable
-
-        Raises:
-            ValueError: If list length doesn't match num_vars
         """
-        if len(density_list) != num_vars:
-            raise ValueError(
-                f"density list must have {num_vars} elements, "
-                f"got {len(density_list)}"
-            )
         return np.array(density_list)
 
     @staticmethod
@@ -163,7 +149,8 @@ class MultiVarSparsityConfig:
         complete configuration.
 
         Args:
-            density: Density specification (scalar, 2-element, or full list)
+            density: Density specification (scalar, 2-element, or full list),
+                as returned by ParameterValidator.validate_density_refvar
             num_vars: Number of variables
             num_obs: Total observations for max density variable
             density_min: Minimum allowable density
@@ -173,7 +160,6 @@ class MultiVarSparsityConfig:
             Tuple of (var_densities array, var_num_obs array)
 
         Raises:
-            TypeError: If density is not a valid type
             ValueError: If density list has wrong length
         """
         if isinstance(density, (float, int)):
@@ -181,7 +167,7 @@ class MultiVarSparsityConfig:
                 float(density),
                 num_vars,
             )
-        elif isinstance(density, (list, tuple)):
+        else:
             density_list = list(density)
             if len(density_list) == 2:
                 var_densities = MultiVarSparsityConfig.from_two_element_list(
@@ -190,19 +176,12 @@ class MultiVarSparsityConfig:
                     rng,
                 )
             elif len(density_list) == num_vars:
-                var_densities = MultiVarSparsityConfig.from_full_list(
-                    density_list,
-                    num_vars,
-                )
+                var_densities = MultiVarSparsityConfig.from_full_list(density_list)
             else:
                 raise ValueError(
                     f"density list must have 2 or {num_vars} elements, "
                     f"got {len(density_list)}"
                 )
-        else:
-            raise TypeError(
-                f"density must be a scalar, list, or tuple, got {type(density)}"
-            )
 
         var_densities = MultiVarSparsityConfig.validate_and_clip(
             var_densities,

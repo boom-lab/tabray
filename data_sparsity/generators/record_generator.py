@@ -51,13 +51,12 @@ class RecordGenerator:
     @staticmethod
     def generate_lhs_indices(
         shape: List[int],
-        n_s: int,
         rng: np.random.Generator,
     ) -> Tuple[np.ndarray, ...]:
         """Generate Latin Hypercube Sample indices for base coverage.
 
-        Creates n_s observations ensuring each coordinate in each dimension
-        is used at least once.
+        Creates n_s = max(shape) observations, the fewest that use each
+        coordinate of each dimension at least once.
 
         For dimensions where size equals n_s, generates a full permutation
         ensuring each coordinate is used exactly once. For dimensions shorter
@@ -66,20 +65,15 @@ class RecordGenerator:
 
         Args:
             shape: Grid shape [n0, n1, ..., nk]
-            n_s: Number of LHS samples, at least max(shape)
             rng: Random number generator
 
         Returns:
-            Tuple of index arrays, one per dimension, each of length n_s
-
-        Raises:
-            ValueError: If n_s < max(shape)
+            Tuple of index arrays, one per dimension, each of length max(shape)
 
         Example:
             >>> rng = np.random.default_rng(42)
             >>> shape = [5, 7, 5]
-            >>> n_s = 7
-            >>> indices = RecordGenerator.generate_lhs_indices(shape, n_s, rng)
+            >>> indices = RecordGenerator.generate_lhs_indices(shape, rng)
             >>> len(indices)  # 3 dimensions
             3
             >>> all(len(idx) == 7 for idx in indices)  # Each has n_s=7 samples
@@ -89,17 +83,7 @@ class RecordGenerator:
             >>> len(set(indices[1].tolist()))  # Dimension 1 (size 7): all used
             7
         """
-        max_dim_size = max(shape)
-        if n_s < max_dim_size:
-            # One coordinate per axis per point, so n_s below the longest axis
-            # leaves some coordinate of it unused, and every coordinate of
-            # every axis must be used at least once.
-            raise ValueError(
-                f"n_s {n_s} < max(shape) {max_dim_size}: cannot cover every "
-                f"coordinate of every axis. n_s must be max(shape) so that "
-                f"each axis can be fully used at least once."
-            )
-
+        n_s = max(shape)
         indices = []
 
         for dim_size in shape:
@@ -134,8 +118,6 @@ class RecordGenerator:
         """
         local = np.asarray(ranks, dtype=np.int64)
         excluded_sorted = np.asarray(excluded_sorted, dtype=np.int64)
-        if excluded_sorted.size == 0:
-            return local
         offset = excluded_sorted - np.arange(excluded_sorted.size, dtype=np.int64)
         return local + np.searchsorted(offset, local, side="right")
 
@@ -194,7 +176,7 @@ class RecordGenerator:
             )
         n_s = max(shape)
         lhs_rng = stream(seed, Stream.LHS)
-        lhs = RecordGenerator.generate_lhs_indices(shape, n_s, lhs_rng)
+        lhs = RecordGenerator.generate_lhs_indices(shape, lhs_rng)
         lhs_split = np.asarray(lhs[split_dim], dtype=np.int64)
         if hyper_shape:
             lhs_local = np.ravel_multi_index(
@@ -211,7 +193,7 @@ class RecordGenerator:
         # --- apportion the fill across strata: global, O(num_strata) ------
         taken = np.bincount(lhs_split, minlength=num_strata)
         available = stratum_sites - taken
-        fill_counts = ChunkUtils.apportion(num_obs - n_s, available, available)
+        fill_counts = ChunkUtils.apportion(num_obs - n_s, available)
 
         # --- per-stratum draw ---------------------------------------------
         if strata is None:
@@ -239,9 +221,8 @@ class RecordGenerator:
             else:
                 fill_local = np.empty(0, dtype=np.int64)
 
+            # Never empty: the LHS stage puts a site in every stratum.
             local = np.concatenate([lhs_here, fill_local]).astype(np.int64)
-            if local.size == 0:
-                continue
 
             # values share the stratum stream, drawn after the sites so that
             # site i and value i stay paired however the strata are grouped
@@ -255,10 +236,6 @@ class RecordGenerator:
                 else:
                     per_dim[dim].append(hyper_idx[axis])
                     axis += 1
-
-        if not values:
-            empty = tuple(np.empty(0, dtype=np.int64) for _ in range(num_dims))
-            return empty, np.empty(0, dtype=float)
 
         indices = tuple(np.concatenate(parts) for parts in per_dim)
         return indices, np.concatenate(values)

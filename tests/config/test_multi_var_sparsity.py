@@ -71,8 +71,8 @@ class TestFromTwoElementList:
         """var0 takes the maximum for every seed.
 
         If the maximum went to a variable chosen at random, the seeds that give
-        it to another variable would produce a var0 that
-        validate_reference_is_largest rejects.
+        it to another variable would produce a var0 smaller than another
+        variable, which the overlap reference must never be.
         """
         for seed in range(50):
             result = MultiVarSparsityConfig.from_two_element_list(
@@ -95,11 +95,6 @@ class TestFromTwoElementList:
                 fixed_rng,
             )
             assert len(result) == num_vars
-
-    def test_ascending_input_raises(self, fixed_rng):
-        """[min, max] is rejected: the reference density must be listed first."""
-        with pytest.raises(ValueError, match="not the largest"):
-            MultiVarSparsityConfig.from_two_element_list([0.2, 0.8], 3, fixed_rng)
 
     def test_reproducible_with_same_seed(self):
         a = MultiVarSparsityConfig.from_two_element_list(
@@ -139,35 +134,15 @@ class TestFromFullList:
     def test_correct_length_matches(self):
         """Correct length should pass through."""
         sparsity_list = [0.2, 0.5, 0.8]
-        result = MultiVarSparsityConfig.from_full_list(sparsity_list, 3)
+        result = MultiVarSparsityConfig.from_full_list(sparsity_list)
         np.testing.assert_array_equal(result, sparsity_list)
 
     def test_values_preserved(self):
         """Values should be preserved exactly."""
         sparsity_list = [0.1, 0.3, 0.5, 0.7, 0.9]
-        result = MultiVarSparsityConfig.from_full_list(sparsity_list, 5)
+        result = MultiVarSparsityConfig.from_full_list(sparsity_list)
         for i, val in enumerate(sparsity_list):
             assert result[i] == val
-
-    def test_wrong_length_raises_value_error(self):
-        """Wrong length should raise ValueError."""
-        with pytest.raises(
-            ValueError, match=r"density list must have \d+ elements, got \d+"
-        ):
-            MultiVarSparsityConfig.from_full_list([0.2, 0.5], 3)
-
-    def test_empty_list_raises_value_error(self):
-        """Empty list should raise ValueError."""
-        with pytest.raises(
-            ValueError, match=r"density list must have \d+ elements, got \d+"
-        ):
-            MultiVarSparsityConfig.from_full_list([], 1)
-
-    def test_single_element_for_single_var(self):
-        """Single element for single var should work."""
-        result = MultiVarSparsityConfig.from_full_list([0.5], 1)
-        assert result[0] == 0.5
-
 
 class TestValidateAndClip:
     """Tests for validate_and_clip method."""

@@ -128,7 +128,7 @@ def generate_chunk(
     log.debug("task_size: %s", task_size)
     log.debug("task_shape: %s", task_shape)
 
-    total_chunk_points = ChunkUtils.validate_chunk_points(task_shape)
+    total_chunk_points = int(np.prod(task_shape))
     log.debug("total_chunk_points: %s", total_chunk_points)
 
     # Generate dimension-specific RNGs for coordinates (no chunk-specific parameters)
@@ -144,9 +144,7 @@ def generate_chunk(
     # and concatenating the chunks in order reproduces the serial axis.
     coordinates = CoordinateGenerator.generate_all_coords(
         list(shape),
-        rng=None,  # unused when dim_rngs is supplied
-        dim_ranges=None,
-        dim_rngs=coord_dim_rngs,
+        coord_dim_rngs,
     )
     split_dim_name = f"x{dim_split}"
     coordinates[split_dim_name] = coordinates[split_dim_name][

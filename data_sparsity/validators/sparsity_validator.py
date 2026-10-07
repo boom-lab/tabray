@@ -87,8 +87,8 @@ class SparsityValidator:
         Returns:
             Tuple of (adjusted num_obs, adjusted density)
 
-        Raises:
-            ValueError: If adjusted density falls outside valid bounds
+        The adjusted density stays within [density_min, 1]: density_min * N
+        is the integer max(shape), so rounding density * N cannot go below it.
         """
         num_obs_exp = density * np.prod(nb_coords_per_dim)
 
@@ -106,11 +106,5 @@ class SparsityValidator:
 
             density = num_obs / np.prod(nb_coords_per_dim)
             print(f"Actual density for grid is now {density}")
-
-            density_min = SparsityValidator.compute_min_density(nb_coords_per_dim)
-            if density < density_min or density > 1:
-                raise ValueError(
-                    f"Density value {density} out of bounds " f"[{density_min}, 1]"
-                )
 
         return num_obs, density

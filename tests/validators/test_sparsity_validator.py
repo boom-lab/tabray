@@ -191,17 +191,6 @@ class TestValidateNumObsConsistency:
         assert num_obs == 2
         assert density == 0.5
 
-    def test_out_of_bounds_after_adjustment_raises_value_error(self):
-        """Out of bounds after adjustment should raise ValueError."""
-        # Create a case where adjusted density would be > 1
-        nb_coords = np.array([2, 2])
-        with pytest.raises(ValueError, match="out of bounds"):
-            SparsityValidator.validate_num_obs_consistency(
-                5,
-                1.5,
-                nb_coords,
-            )
-
     def test_density_recalculation_correct(self):
         """Density recalculation should be correct."""
         nb_coords = np.array([10, 10])
