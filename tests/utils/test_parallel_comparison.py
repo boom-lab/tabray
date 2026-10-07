@@ -17,6 +17,7 @@ import os
 import glob
 import copy
 from data_sparsity.generate_data import GenerateData
+from data_sparsity.output.netcdf_builder import NetCDFBuilder
 from data_sparsity.utils.chunk_utils import ChunkUtils
 from data_sparsity.workers.parallel_worker import generate_chunk
 
@@ -670,6 +671,105 @@ class TestParallelSerialComparison:
                 80,
                 id="sparse-2d",
             ),
+            # multi-variable: reduced dims, overlap modes, density lists
+            pytest.param(
+                dict(
+                    num_obs=80,
+                    num_dims=3,
+                    ratio_dims=1,
+                    density=0.15,
+                    seed=42,
+                    num_vars=2,
+                    var_dims=2,
+                    overlap=[0.5],
+                    fixed_overlap=True,
+                ),
+                20,
+                id="mv-3d-vd2-fixed",
+            ),
+            pytest.param(
+                dict(
+                    num_obs=80,
+                    num_dims=3,
+                    ratio_dims=1,
+                    density=0.15,
+                    seed=42,
+                    num_vars=2,
+                    var_dims=2,
+                    overlap=[0.5],
+                    fixed_overlap=False,
+                ),
+                20,
+                id="mv-3d-vd2-free",
+            ),
+            pytest.param(
+                dict(
+                    num_obs=300,
+                    num_dims=3,
+                    ratio_dims=[3, 2, 1],
+                    density=0.2,
+                    seed=7,
+                    num_vars=3,
+                    overlap="random",
+                ),
+                80,
+                id="mv-3d-3v-random",
+            ),
+            pytest.param(
+                dict(
+                    num_obs=400,
+                    num_dims=2,
+                    ratio_dims=[4, 1],
+                    density=[0.5, 0.3, 0.2],
+                    seed=3,
+                    num_vars=3,
+                    overlap=[0.8, 0.2],
+                ),
+                100,
+                id="mv-2d-3v-density-list",
+            ),
+            pytest.param(
+                dict(
+                    num_obs=500,
+                    num_dims=4,
+                    ratio_dims=[2, 1, 1, 1],
+                    density=0.1,
+                    seed=11,
+                    num_vars=3,
+                    var_dims=[4, 3, 2],
+                    overlap=[0.6, 0.9],
+                    fixed_overlap=[True, True],
+                ),
+                120,
+                id="mv-4d-mixed-dims-split-x1",
+            ),
+            pytest.param(
+                dict(
+                    num_obs=120,
+                    num_dims=3,
+                    ratio_dims=[3, 1, 1],
+                    density=0.2,
+                    seed=9,
+                    num_vars=2,
+                    var_dims=[3, 1],
+                    overlap=[1.0],
+                ),
+                30,
+                id="mv-3d-vd1",
+            ),
+            pytest.param(
+                dict(
+                    num_obs=200,
+                    num_dims=2,
+                    ratio_dims=[2, 1],
+                    density=1.0,
+                    seed=1,
+                    num_vars=2,
+                    overlap=[1.0],
+                ),
+                50,
+                id="mv-2d-gridded",
+            ),
         ],
     )
     def test_parallel_reproduces_serial_exactly(self, temp_dir, params, max_obs):
@@ -698,10 +798,19 @@ class TestParallelSerialComparison:
 
         nc_files = sorted(glob.glob(os.path.join(nc_dir, "test_*.nc")))
         assert len(nc_files) > 1, "the run must actually be chunked"
-        dataarrays = [xr.open_dataarray(f) for f in nc_files]
-        da_parallel = xr.concat(dataarrays, dim=split_name).load()
-        for chunk in dataarrays:
-            chunk.close()
+        if gen_parallel.num_vars == 1:
+            dataarrays = [xr.open_dataarray(f) for f in nc_files]
+            da_parallel = xr.concat(dataarrays, dim=split_name).load()
+            for chunk in dataarrays:
+                chunk.close()
+        else:
+            # chunk files keep constant dims so they concatenate; squeeze them
+            # out as generate(merge_nc=True) does
+            with xr.open_mfdataset(nc_files) as chunks:
+                da_parallel = NetCDFBuilder.squeeze_constant_dims(
+                    chunks.load(),
+                    gen_parallel.var_constant_dims,
+                )
 
         # assert_equal compares coordinates and values but not attrs, which
         # record per-chunk metadata

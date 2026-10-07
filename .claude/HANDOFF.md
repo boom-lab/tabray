@@ -96,10 +96,6 @@ Of the serial/parallel workflow plan, **S6** and **A4** are the last two open.
 
 ## Documentation
 
-- **`.claude/CLAUDE.md` says 524 tests.** On this branch it is 496 (the 604
-  figure from earlier work belongs to the layout/encoding branches, which are
-  not checked out here). The "Known drift" section of that file lists the other
-  stale README claims.
 - **`docs/*.puml`** are untracked: `dataflow.puml` (the whole path from
   parameters to the two files) and two worked examples traced from real runs,
   `dataflow_example_single_var.puml` (tutorial1 `somehow_sparse_grid`) and
