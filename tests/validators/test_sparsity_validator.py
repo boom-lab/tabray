@@ -14,7 +14,7 @@ class TestComputeMinDensity:
     """
 
     def test_uniform_dimensions(self):
-        """On a cubic grid the bound is 1/(n^(d-1)), as derived by hand."""
+        """On a cubic grid the bound n/n^d reduces to 1/n^(d-1)."""
         nb_coords = np.array([10, 10, 10])
         result = SparsityValidator.compute_min_density(nb_coords)
         assert result == 1 / (10 ** (3 - 1))
@@ -52,10 +52,10 @@ class TestComputeMinDensity:
             assert round(min_obs) == max(shape)
 
     def test_never_stricter_than_the_old_bound(self):
-        """Every configuration accepted before is still accepted.
+        """The bound is never larger than 1/min(shape)**(d-1).
 
-        The old bound was 1/nmin**(d-1). Relaxing must not reject anything it
-        used to allow, so the new value is never larger.
+        1/min(shape)**(d-1) is the bound keyed to the shortest axis, so every
+        density it accepts is also accepted here.
         """
         for shape in (
             [10, 10, 10],
@@ -72,7 +72,7 @@ class TestComputeMinDensity:
             assert SparsityValidator.compute_min_density(nb_coords) <= old
 
     def test_agrees_with_the_old_bound_on_cubic_grids(self):
-        """The hand-derived formula was exact there, and stays exact."""
+        """On a cubic grid max(shape)/prod(shape) equals 1/n**(d-1)."""
         for n, d in ((10, 3), (7, 2), (4, 5), (32, 2)):
             nb_coords = np.array([n] * d)
             assert SparsityValidator.compute_min_density(nb_coords) == pytest.approx(

@@ -50,7 +50,8 @@ class NetCDFBuilder:
 
     # Which convention the `overlap_target` attribute uses. Written into every
     # multi-variable file so a dataset states what its own numbers mean --
-    # F1 and F2 are reciprocally related and either can be assumed by a reader.
+    # overlap can be divided by var0's sites or by the other variable's, and a
+    # reader may assume either.
     OVERLAP_CONVENTION = (
         "F1 = |proj(S0) & proj(Si)| / |proj(S0)|: share of var0's sites that "
         "also carry the variable, measured on the dimensions the two share"
@@ -66,11 +67,11 @@ class NetCDFBuilder:
         overlap_actual_f1=None,
         overlap_actual_f2=None,
     ) -> Dict:
-        """Build the multi-variable attributes, identically for both paths.
+        """Build the multi-variable attributes, identically for serial and parallel.
 
         A multi-variable dataset has no single density or observation count,
-        so the per-variable arrays are what actually describe it. Both paths
-        must write them, or the two disagree on what the file says.
+        so the per-variable arrays are what describe it. The serial and
+        parallel paths must both write them, or their files disagree.
 
         Args:
             num_vars: Number of variables

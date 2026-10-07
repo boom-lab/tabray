@@ -57,43 +57,43 @@ class RecordGenerator:
         """Generate Latin Hypercube Sample indices for base coverage.
 
         Creates n_s observations ensuring each coordinate in each dimension
-        is used at least once. This forms the LHS component of the hybrid
-        sampling approach.
+        is used at least once.
 
         For dimensions where size equals n_s, generates a full permutation
-        ensuring each coordinate is used exactly once. For dimensions larger
-        than n_s, randomly selects n_s unique coordinates.
+        ensuring each coordinate is used exactly once. For dimensions shorter
+        than n_s, tiles permutations of the axis and truncates to n_s, so every
+        coordinate is used at least once and the surplus is spread evenly.
 
         Args:
             shape: Grid shape [n0, n1, ..., nk]
-            n_s: Number of LHS samples (typically min(shape))
+            n_s: Number of LHS samples, at least max(shape)
             rng: Random number generator
 
         Returns:
             Tuple of index arrays, one per dimension, each of length n_s
 
         Raises:
-            ValueError: If any dimension size < n_s
+            ValueError: If n_s < max(shape)
 
         Example:
             >>> rng = np.random.default_rng(42)
             >>> shape = [5, 7, 5]
-            >>> n_s = 5
+            >>> n_s = 7
             >>> indices = RecordGenerator.generate_lhs_indices(shape, n_s, rng)
             >>> len(indices)  # 3 dimensions
             3
-            >>> all(len(idx) == 5 for idx in indices)  # Each has n_s=5 samples
+            >>> all(len(idx) == 7 for idx in indices)  # Each has n_s=7 samples
             True
-            >>> set(indices[0])  # Dimension 0 (size 5): all coords used
-            {0, 1, 2, 3, 4}
-            >>> len(set(indices[1]))  # Dimension 1 (size 7): 5 unique selected
-            5
+            >>> sorted(set(indices[0].tolist()))  # Dimension 0 (size 5): all used
+            [0, 1, 2, 3, 4]
+            >>> len(set(indices[1].tolist()))  # Dimension 1 (size 7): all used
+            7
         """
         max_dim_size = max(shape)
         if n_s < max_dim_size:
             # One coordinate per axis per point, so n_s below the longest axis
-            # leaves some coordinate of it unused, which docs/explainer.md
-            # excludes by definition.
+            # leaves some coordinate of it unused, and every coordinate of
+            # every axis must be used at least once.
             raise ValueError(
                 f"n_s {n_s} < max(shape) {max_dim_size}: cannot cover every "
                 f"coordinate of every axis. n_s must be max(shape) so that "
@@ -150,16 +150,15 @@ class RecordGenerator:
         """Place observations one hyperplane at a time, with values.
 
         The grid is partitioned into ``global_shape[split_dim]`` strata, one per
-        index along the split dimension. Two stages, mirroring
-        ``generate_hybrid_indices`` but decomposed:
+        index along the split dimension. Two stages:
 
-        * The LHS stage stays **global**. It is ``min(num_obs, max(shape))``
+        * The LHS stage stays **global**. It is ``max(shape)``
           points and its guarantee (every coordinate of every axis used)
           spans strata, so no stratum can enforce it alone. Every caller
           recomputes it identically for a few hundred bytes.
         * The fill stage is **per stratum**. Counts are apportioned globally,
           then each stratum draws its own sites and values from
-          ``(seed, STRATUM_STREAM, j)`` and nothing else.
+          ``stream(seed, Stream.STRATUM, j)`` and nothing else.
 
         Because a stratum depends only on that triple, any caller producing a
         subset of strata produces exactly the slices a caller producing all of
@@ -186,7 +185,7 @@ class RecordGenerator:
         stratum_sites = int(np.prod(hyper_shape)) if hyper_shape else 1
         num_obs = int(num_obs)
 
-        # --- LHS stage: global, O(min(shape)) -----------------------------
+        # --- LHS stage: global, O(max(shape)) -----------------------------
         if num_obs < max(shape):
             raise ValueError(
                 f"num_obs {num_obs} < max(shape) {max(shape)}: every "

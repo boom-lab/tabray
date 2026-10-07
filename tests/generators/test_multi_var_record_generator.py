@@ -464,11 +464,10 @@ class TestGenerate:
         var2 asks for half of var1's overlap, so with a shared ordering its
         sites are a prefix of var1's and therefore a subset.
 
-        Exercises the stratified path (dim_split given), which is what
-        GenerateData uses. The previous version called the pre-stratified path,
-        where the non-overlapping fill can land on var0 by accident (A3) and
-        inflate both sets -- the subset property held there for one lucky seed
-        and fails for 30 others.
+        Uses the stratified path (dim_split given), the path GenerateData
+        uses. It draws the non-overlapping fill from cells held by neither
+        variable, so each overlap set holds only the sites taken from var0's
+        ordering and the subset property can be tested.
         """
         shape = [20, 20]
         records, _ = MultiVarRecordGenerator.generate(

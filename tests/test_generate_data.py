@@ -331,7 +331,8 @@ class TestMultiVariableGeneration:
                 0.06,
                 0.04,
                 0.05,
-            ],  # Adjusted: non-ref vars get ~70,50,60 obs
+            ],  # on the 13x13x13 grid: var1-var3 get 132, 88 and 110 obs, below
+            # the 169 cells of their 2-D subgrid
             seed=42,
             num_vars=4,
             var_dims=2,
@@ -353,7 +354,8 @@ class TestMultiVariableGeneration:
                 0.20,
                 0.07,
                 0.05,
-            ],  # Adjusted: var1~60 obs, var2~43 obs (well < 81)
+            ],  # on the 9x9x9 grid: var1 gets 51 obs and var2 36, below the 81
+            # cells of their 2-D subgrid
             seed=42,
             num_vars=3,
             var_dims=2,
@@ -605,8 +607,10 @@ class TestMultiVariableEdgeCases:
         assert len(var1_varying_dims) == 3
         assert len(var1_constant_dims) == 1
 
-        # F1 per non-reference variable; forced up to 0.8667 here because the
-        # projected reference leaves too few free cells for a lower value
+        # One value per non-reference variable: the share of var0's sites,
+        # projected onto the dimensions the two share, that also carry the
+        # variable. It rises to 0.8667 here because the projected reference
+        # leaves too few free cells for a lower value.
         assert gen.overlap_actual.shape == (1,)
         assert 0.8 <= gen.overlap_actual[0] <= 1.0
 
@@ -1363,8 +1367,8 @@ class TestScenarios:
         assert len(dataframe) == 5, "DataFrame should have 5 rows"
 
         # Check 2b: 'x0' and 'x1' have each 5 unique values
-        assert len(dataframe["x0"].unique()) == 5, "'x0' should have at 5 unique values"
-        assert len(dataframe["x1"].unique()) == 5, "'x1' should have at 5 unique values"
+        assert len(dataframe["x0"].unique()) == 5, "'x0' should have 5 unique values"
+        assert len(dataframe["x1"].unique()) == 5, "'x1' should have 5 unique values"
 
         # Check 4: Each row has a unique combination of x0 and x1 values
         unique_combinations = dataframe[["x0", "x1"]].drop_duplicates()
@@ -1835,15 +1839,15 @@ class TestScenarios:
 
 
 class TestHybridLHSSampling:
-    """Tests for Hybrid LHS + Random sampling implementation."""
+    """Tests for the Latin hypercube (LHS) stage and stratified placement."""
 
     def test_lhs_base_coverage(self):
-        """LHS component should cover every coordinate of every dimension."""
+        """The Latin hypercube (LHS) stage uses every coordinate of every dimension."""
         from data_sparsity.generators.record_generator import RecordGenerator
 
         rng = np.random.default_rng(42)
         shape = [5, 7, 5]
-        n_s = max(shape)  # = 7; sized by the LONGEST axis, not the shortest
+        n_s = max(shape)  # = 7; the longest axis needs 7 samples to use each coordinate
 
         lhs_indices = RecordGenerator.generate_lhs_indices(shape, n_s, rng)
 
@@ -1866,8 +1870,8 @@ class TestHybridLHSSampling:
     def test_lhs_rejects_n_s_below_longest_axis(self):
         """n_s below max(shape) cannot cover every axis, so it is refused.
 
-        An unused coordinate is a grid site carrying no information, which
-        docs/explainer.md excludes from the definition of a grid.
+        An unused coordinate is a grid site carrying no information, so a
+        valid grid has none.
         """
         from data_sparsity.generators.record_generator import RecordGenerator
 
@@ -1885,9 +1889,9 @@ class TestHybridLHSSampling:
     def test_lhs_covers_axes_shorter_than_n_s(self):
         """Axes shorter than n_s are tiled so every coordinate is still used.
 
-        n_s used to be capped at min(shape) and a shorter axis raised. It is now
-        sized by max(shape), because covering an axis of length L needs at least
-        L points, so short axes must repeat coordinates rather than fail.
+        n_s is max(shape), because an axis of length L needs at least L points
+        for every coordinate to be used. Axes shorter than n_s therefore repeat
+        coordinates.
         """
         from data_sparsity.generators.record_generator import RecordGenerator
 
@@ -1906,9 +1910,8 @@ class TestHybridLHSSampling:
     def test_lhs_covers_every_coordinate_of_every_axis(self):
         """The guarantee that makes a grid legitimate: no unused coordinate.
 
-        docs/explainer.md only considers grids where every coordinate is
-        occupied at least once; an unused coordinate carries no information and
-        should not be part of the grid.
+        A valid grid has every coordinate occupied at least once; an unused
+        coordinate carries no information and should not be part of the grid.
         """
         from data_sparsity.generators.record_generator import RecordGenerator
 
@@ -1936,10 +1939,8 @@ class TestHybridLHSSampling:
     def test_stratified_uses_every_coordinate(self, shape, num_obs, split_dim):
         """Placement must put every coordinate of every axis to use.
 
-        An unused coordinate is stored without describing a data point, which
-        docs/explainer.md excludes from the definition of a grid. The removed
-        hybrid sampler was tested for this property; the stratified placement
-        replaced it and carries the same guarantee.
+        An unused coordinate is stored without describing a data point, so a
+        valid grid has none.
         """
         from data_sparsity.generators.record_generator import RecordGenerator
 
@@ -1958,10 +1959,10 @@ class TestHybridLHSSampling:
 
 
 class TestHybridLHSIntegration:
-    """Integration tests for hybrid LHS with GenerateData."""
+    """Integration tests for coordinate coverage through GenerateData."""
 
     def test_scenario_2b_with_hybrid(self):
-        """test_scenario_2b should now pass with hybrid approach."""
+        """Scenario 2b at minimum density uses each coordinate exactly once."""
         gen = GenerateData(
             num_obs=5,
             num_dims=2,
@@ -1971,15 +1972,15 @@ class TestHybridLHSIntegration:
         )
         dataarray, dataframe = gen.generate()
 
-        # At minimum sparsity, hybrid approach = pure LHS
-        # All coordinates should be used exactly once
+        # At minimum density every observation comes from the LHS stage,
+        # so each coordinate is used exactly once
         for dim_idx, dim_name in enumerate(["x0", "x1"]):
             used_coords = dataframe[dim_name].unique()
             expected_count = dataarray.shape[dim_idx]
 
             assert len(used_coords) == expected_count, (
-                f"Hybrid LHS should guarantee all {expected_count} coordinates "
-                f"in {dim_name} are used, found {len(used_coords)}"
+                f"All {expected_count} coordinates in {dim_name} should be "
+                f"used, found {len(used_coords)}"
             )
 
             # Each coordinate used exactly once at minimum sparsity
@@ -1990,7 +1991,7 @@ class TestHybridLHSIntegration:
             )
 
     def test_coordinate_coverage_at_multiple_sparsity_levels(self):
-        """Hybrid LHS should guarantee coverage at all sparsity levels."""
+        """Every coordinate is used at every density level."""
         scenarios = [
             {"num_obs": 5, "sparsity": 0.2, "desc": "minimum"},
             {"num_obs": 10, "sparsity": 0.4, "desc": "above minimum"},
@@ -2013,13 +2014,13 @@ class TestHybridLHSIntegration:
                 expected = 5  # Grid is 5×5
 
                 assert len(used_coords) == expected, (
-                    f"Hybrid LHS should guarantee all {expected} coordinates "
-                    f"in {dim_name} are used at {scenario['desc']} sparsity "
+                    f"All {expected} coordinates in {dim_name} should be "
+                    f"used at {scenario['desc']} density "
                     f"(num_obs={scenario['num_obs']}), found {len(used_coords)}"
                 )
 
     def test_scenario_3a_strengthened(self):
-        """test_scenario_3a should have stronger guarantees with hybrid."""
+        """Scenario 3a on a [7, 5] grid uses the coordinates of both axes."""
         gen = GenerateData(
             num_obs=10,
             num_dims=2,
@@ -2029,21 +2030,19 @@ class TestHybridLHSIntegration:
         )
         dataarray, dataframe = gen.generate()
 
-        # With hybrid approach, minimum dimension coordinates ALL used
-        # For shape [7, 5], min(shape) = 5
-        # So x1 (size 5) guarantees all coordinates used
-        # x0 (size 7) guarantees at least 5 unique coordinates used
+        # The LHS stage takes max(shape) = 7 samples, so both axes have every
+        # coordinate used. The x0 check below asserts a lower bound of 5.
 
-        # Check x1 (minimum dimension): all coordinates used
+        # Check x1 (size 5): all coordinates used
         x1_used = dataframe["x1"].unique()
         assert len(x1_used) == 5, (
-            f"Hybrid LHS guarantees all 5 coordinates in x1 are used, "
+            f"All 5 coordinates in x1 should be used, "
             f"found {len(x1_used)}"
         )
 
-        # Check x0 (larger dimension): at least min(shape) coordinates used
+        # Check x0 (size 7): at least 5 coordinates used
         x0_used = dataframe["x0"].unique()
         assert len(x0_used) >= 5, (
-            f"Hybrid LHS guarantees at least 5 coordinates in x0 are used, "
+            f"At least 5 coordinates in x0 should be used, "
             f"found {len(x0_used)}"
         )

@@ -99,7 +99,7 @@ def generate_chunk(
         var_dims_indices: List of dimension indices per variable (multi-var only)
         var_constant_dims: List of constant dimensions per variable (multi-var only)
         var_constant_coord_indices: Dict of constant coordinates (multi-var only)
-        overlap_target: Target overlap fraction or 'maximal' (multi-var only)
+        overlap_target: Target overlap, as a share of var0's sites (multi-var only)
         fixed_overlap: Whether overlapping sites should be shared across
             variables that opt in
         dim_split: Dimension along which to split chunks
@@ -108,7 +108,8 @@ def generate_chunk(
         netcdf_filepath: Base path for NetCDF output
         parquet_tmp: Scratch directory for the temporary parquet chunks
         ntasks: Total number of tasks (for formatting)
-        num_obs_global: Total observations globally (for LHS filtering and RNG advancement)
+        num_obs_global: Total observations over the whole grid; the chunk's
+            strata take their share of this global count
         log_dir: Directory for this worker's log, used only when
             TABRAY_WORKER_LOG is set
 

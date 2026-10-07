@@ -62,8 +62,8 @@ def datasets_are_identical(ds1, ds2, variable="record"):
         if c1.shape != c2.shape:
             return False, f"Coordinate {coord} shape differs"
 
-        # x0 values are not compared here; parallel now reproduces them
-        # exactly, which test_parallel_reproduces_serial_exactly checks
+        # x0 values are not compared here;
+        # test_parallel_reproduces_serial_exactly compares them
         if c1.name == "x0":
             continue
 
@@ -143,7 +143,8 @@ def dataframes_coordinate_nan_match(df1, df2, coordinates, variable="record"):
     """Compare two dataframes for coordinate and NaN position equivalence.
 
     Verifies that:
-    - x0 can differ between dataframes (values don't need to match)
+    - x0 values are not compared here (test_parallel_reproduces_serial_exactly
+      compares them)
     - For each combination of other coordinates (x1, x2, etc.), the number
       of occurrences and NaN patterns must be identical in both dataframes
     - The overall structure (excluding x0 values) must be equivalent

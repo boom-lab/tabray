@@ -91,12 +91,9 @@ class ParquetBuilder:
         One row per occupied coordinate, with a column per variable and NaN
         where a variable has no value there.
 
-        Rows are ordered by coordinate, ``order_dim`` slowest. The previous
-        implementation emitted them in the order coordinates were discovered
-        while looping over variables, which is not a function of the data, so
-        serial and chunked runs produced different orderings of the same rows.
-        It also re-masked the whole record array once per row, costing
-        O(num_obs x grid_points); this is vectorised.
+        Rows are ordered by coordinate, ``order_dim`` slowest. The order is a
+        function of the data alone, so serial and chunked runs produce the
+        same rows in the same order.
 
         Args:
             records: Dictionary mapping variable names to record arrays

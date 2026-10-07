@@ -26,7 +26,8 @@ class ChunkUtils:
         exact share, then the leftover units go to the bins with the largest
         fractional parts. The result sums to ``total`` exactly, which matters
         here because rounding each bin independently would change ``num_obs``,
-        and ``num_obs`` seeds the index draw.
+        and a chunked run would then place a different number of observations
+        than the serial run.
 
         Args:
             total: Integer amount to distribute
@@ -85,9 +86,9 @@ class ChunkUtils:
         apportionment, as used by get_multi_var_observations_per_chunk).
 
         Rounding each chunk independently would move ``num_obs``, and with it
-        ``density``, away from the serial value. That matters more than the one
-        or two observations involved: ``num_obs`` seeds the global index draw,
-        so a difference of one changes roughly half the occupied sites.
+        ``density``, away from the serial value. Placement apportions
+        ``num_obs`` across strata, so a different total changes the per-stratum
+        counts and the chunked output no longer matches the serial output.
 
         Args:
             total_obs: Global number of observations to distribute
@@ -116,7 +117,7 @@ class ChunkUtils:
                 per_chunk_obs[chunk_idx] += 1
 
         # A chunk cannot hold more observations than it has grid points. This
-        # only bites when num_obs exceeds the grid, which validation rejects.
+        # applies only when num_obs exceeds the grid, which validation rejects.
         per_chunk_obs = np.minimum(per_chunk_obs, chunk_points)
         mp_obs = int(per_chunk_obs.sum())
         if mp_obs != int(total_obs):

@@ -70,9 +70,9 @@ class OverlapCalculator:
     ) -> Dict[str, np.ndarray]:
         """Measure overlap against the reference variable, both conventions.
 
-        Overlap is measured on the dimensions the two variables share, as
-        docs/explainer_multivar.md defines it, so a variable that varies along
-        fewer dimensions is compared through its projection.
+        Overlap is measured on the dimensions the two variables share, so a
+        variable that varies along fewer dimensions is compared through its
+        projection.
 
             F1 = |proj(S_0) & proj(S_i)| / |proj(S_0)|   <- what the generator targets
             F2 = |proj(S_0) & proj(S_i)| / |proj(S_i)|
@@ -137,8 +137,11 @@ class OverlapCalculator:
     ) -> None:
         """Print achieved overlap in both conventions.
 
-        Both are shown because either can be the one a reader expects, and the
-        two differ by more than a relabelling: F1 is what the generator targets.
+        F1 is the share of var0's sites that also carry the variable, the
+        quantity the generator targets; F2 is the share of the variable's sites
+        that also carry var0. Both are shown because either can be the one a
+        reader expects, and they are not interchangeable: they differ by the
+        ratio of the projected set sizes.
         """
         if report["f1"].size == 0:
             return
