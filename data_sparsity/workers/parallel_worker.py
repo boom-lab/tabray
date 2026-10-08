@@ -126,7 +126,11 @@ def generate_chunk(
     """
     log = _configure_worker_logging(chunk_id, log_dir)
     var_encodings = VariableEncoding.per_variable(
-        var_dtypes, var_packs, var_fill_values, num_vars, var_value_ranges
+        var_dtypes,
+        var_packs,
+        var_fill_values,
+        num_vars,
+        var_value_ranges,
     )
     log.debug("######------ NEW CHUNK ------######")
 

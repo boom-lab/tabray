@@ -123,10 +123,10 @@ class RecordGenerator:
 
     @staticmethod
     def stratum_counts(
-            global_shape: List[int],
-            num_obs: int,
-            seed: int,
-            split_dim: int,
+        global_shape: List[int],
+        num_obs: int,
+        seed: int,
+        split_dim: int,
     ) -> np.ndarray:
         """How many observations the reference variable puts in each stratum.
 
@@ -158,7 +158,8 @@ class RecordGenerator:
         n_s = max(shape)
         lhs = RecordGenerator.generate_lhs_indices(shape, stream(seed, Stream.LHS))
         taken = np.bincount(
-            np.asarray(lhs[split_dim], dtype=np.int64), minlength=num_strata
+            np.asarray(lhs[split_dim], dtype=np.int64),
+            minlength=num_strata,
         )
         available = stratum_sites - taken
         return taken + ChunkUtils.apportion(num_obs - n_s, available)

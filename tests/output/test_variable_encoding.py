@@ -77,7 +77,10 @@ class TestPacking:
 
     def test_scale_derives_from_declared_range_not_data(self):
         """A parallel chunk never sees the whole array, so it cannot measure."""
-        a, b = VariableEncoding("float64", "int16"), VariableEncoding("float64", "int16")
+        a, b = VariableEncoding("float64", "int16"), VariableEncoding(
+            "float64",
+            "int16",
+        )
         assert (a.scale_factor, a.add_offset) == (b.scale_factor, b.add_offset)
 
     def test_custom_value_range(self):
@@ -97,13 +100,16 @@ class TestQuantize:
         rng = np.random.default_rng(0)
         v = np.full(500, np.nan)
         v[:300] = rng.uniform(0, 1, 300)
-        v[0], v[1] = 0.0, 1.0          # the exact extremes
+        v[0], v[1] = 0.0, 1.0  # the exact extremes
         return v
 
     def test_float64_is_unchanged(self):
         v = self.values()
-        assert np.array_equal(VariableEncoding("float64").to_stored(v), v,
-                              equal_nan=True)
+        assert np.array_equal(
+            VariableEncoding("float64").to_stored(v),
+            v,
+            equal_nan=True,
+        )
 
     def test_nan_is_preserved(self):
         for pack in (None, "int16", "int8"):
@@ -155,13 +161,16 @@ class TestNetCDFEncoding:
 class TestPandasDtype:
     """What parquet stores: the decoded type, not the packed one."""
 
-    @pytest.mark.parametrize("dtype,pack,expected", [
-        ("float64", None, "float64"),
-        ("float32", None, "float32"),
-        ("float64", "int16", "float32"),
-        ("float64", "int8", "float32"),
-        ("float64", "int32", "float64"),
-    ])
+    @pytest.mark.parametrize(
+        "dtype,pack,expected",
+        [
+            ("float64", None, "float64"),
+            ("float32", None, "float32"),
+            ("float64", "int16", "float32"),
+            ("float64", "int8", "float32"),
+            ("float64", "int32", "float64"),
+        ],
+    )
     def test_decoded_types(self, dtype, pack, expected):
         assert VariableEncoding(dtype, pack).pandas_dtype() == expected
 
@@ -174,14 +183,19 @@ class TestPerVariable:
 
     def test_sequence_gives_one_each(self):
         encs = VariableEncoding.per_variable(
-            ["float64", "float64", "float32"], ["int16", None, None],
-            [None, None, 99999.0], 3)
+            ["float64", "float64", "float32"],
+            ["int16", None, None],
+            [None, None, 99999.0],
+            3,
+        )
         assert [e.storage_dtype for e in encs] == ["int16", "float64", "float32"]
         assert encs[2].fill_value == 99999.0
 
     def test_none_means_float64(self):
-        assert all(e.dtype == "float64"
-                   for e in VariableEncoding.per_variable(None, None, None, 2))
+        assert all(
+            e.dtype == "float64"
+            for e in VariableEncoding.per_variable(None, None, None, 2)
+        )
 
     def test_wrong_length_raises(self):
         with pytest.raises(ValueError, match="one per variable"):
@@ -200,14 +214,17 @@ class TestRoundTripThroughNetCDF:
         v.flat[idx[0]], v.flat[idx[1]] = 0.0, 1.0
         return v
 
-    @pytest.mark.parametrize("dtype,pack,fill,on_disk,in_memory", [
-        ("float64", None, None, "float64", "float64"),
-        ("float32", None, None, "float32", "float32"),
-        ("float32", None, 99999.0, "float32", "float32"),
-        ("float64", "int16", None, "int16", "float32"),
-        ("float64", "int8", None, "int8", "float32"),
-        ("float64", "int32", None, "int32", "float64"),
-    ])
+    @pytest.mark.parametrize(
+        "dtype,pack,fill,on_disk,in_memory",
+        [
+            ("float64", None, None, "float64", "float64"),
+            ("float32", None, None, "float32", "float32"),
+            ("float32", None, 99999.0, "float32", "float32"),
+            ("float64", "int16", None, "int16", "float32"),
+            ("float64", "int8", None, "int8", "float32"),
+            ("float64", "int32", None, "int32", "float64"),
+        ],
+    )
     def test_round_trip(self, tmp_path, dtype, pack, fill, on_disk, in_memory):
         enc = VariableEncoding(dtype, pack, fill)
         values = enc.to_stored(self.values())
@@ -267,7 +284,9 @@ class TestIntegerValues:
         """The knob that matters for storage: a narrow range is flag-like
         data, which both formats encode very differently from noise."""
         narrow = VariableEncoding("int16", value_range=(0, 4)).to_stored(self.draws())
-        wide = VariableEncoding("int32", value_range=(0, 50_000)).to_stored(self.draws())
+        wide = VariableEncoding("int32", value_range=(0, 50_000)).to_stored(
+            self.draws()
+        )
         assert len(np.unique(narrow[~np.isnan(narrow)])) == 5
         assert len(np.unique(wide[~np.isnan(wide)])) > 10_000
 
@@ -280,8 +299,11 @@ class TestIntegerValues:
         rng.integers: a different RNG method consumes the stream differently,
         which would move the occupied sites and compare different datasets."""
         u = self.draws(1000)
-        for enc in (VariableEncoding("float64"), VariableEncoding("int16"),
-                    VariableEncoding("float64", "int16")):
+        for enc in (
+            VariableEncoding("float64"),
+            VariableEncoding("int16"),
+            VariableEncoding("float64", "int16"),
+        ):
             assert np.array_equal(np.isnan(enc.to_stored(u)), np.isnan(u))
 
     def test_fill_defaults_outside_the_range(self):

@@ -388,10 +388,12 @@ class TestGenerate:
 
         ref_coords = OverlapCalculator.extract_coordinate_set(records["var0"], 2)
         overlap1 = ref_coords & OverlapCalculator.extract_coordinate_set(
-            records["var1"], 2
+            records["var1"],
+            2,
         )
         overlap2 = ref_coords & OverlapCalculator.extract_coordinate_set(
-            records["var2"], 2
+            records["var2"],
+            2,
         )
 
         assert len(overlap2) < len(
@@ -422,10 +424,12 @@ class TestGenerate:
 
         ref_coords = OverlapCalculator.extract_coordinate_set(records["var0"], 2)
         overlap1 = ref_coords & OverlapCalculator.extract_coordinate_set(
-            records["var1"], 2
+            records["var1"],
+            2,
         )
         overlap2 = ref_coords & OverlapCalculator.extract_coordinate_set(
-            records["var2"], 2
+            records["var2"],
+            2,
         )
 
         assert not overlap2.issubset(overlap1)
@@ -591,8 +595,15 @@ class TestOverlapIsApportionedAcrossStrata:
     """
 
     @staticmethod
-    def achieved(shape, obs, target, seed=12345, num_vars=2, var_dims=None,
-                 split_dim=0):
+    def achieved(
+        shape,
+        obs,
+        target,
+        seed=12345,
+        num_vars=2,
+        var_dims=None,
+        split_dim=0,
+    ):
         """Generate, then measure F1 from the occupancy masks."""
         num_dims = len(shape)
         dims = var_dims or [list(range(num_dims))] * num_vars
@@ -647,30 +658,48 @@ class TestOverlapIsApportionedAcrossStrata:
         the reference landed -- a worker cannot know it for strata it does not
         own. Falling back keeps serial and parallel identical."""
         records = MultiVarRecordGenerator.generate_multivar_stratified(
-            global_shape=[3, 3], num_vars=2, var_num_obs=np.array([8, 3]),
+            global_shape=[3, 3],
+            num_vars=2,
+            var_num_obs=np.array([8, 3]),
             var_dims_indices=[[0, 1], [1]],
-            var_constant_coords={0: {}, 1: {0: 1}},   # var1 sits on x0 index 1
-            overlap_targets=[1 / 8], fixed_overlap_flags=[False],
-            seed=12345, split_dim=1)                  # every variable varies along x1
+            var_constant_coords={0: {}, 1: {0: 1}},  # var1 sits on x0 index 1
+            overlap_targets=[1 / 8],
+            fixed_overlap_flags=[False],
+            seed=12345,
+            split_dim=1,
+        )  # every variable varies along x1
         indices, _ = records["var1"]
-        assert len(indices[0]) == 3                  # it ran, and placed its own
-        assert set(np.asarray(indices[0])) == {1}    # all on its pinned x0
+        assert len(indices[0]) == 3  # it ran, and placed its own
+        assert set(np.asarray(indices[0])) == {1}  # all on its pinned x0
 
     def test_serial_and_parallel_agree(self):
         """The counts come from globally known quantities, so a worker holding
         two strata derives the same numbers as a serial run."""
         shape, obs = [6, 6], 32
         whole = MultiVarRecordGenerator.generate_multivar_stratified(
-            global_shape=shape, num_vars=2, var_num_obs=np.array([obs, obs]),
+            global_shape=shape,
+            num_vars=2,
+            var_num_obs=np.array([obs, obs]),
             var_dims_indices=[[0, 1], [0, 1]],
-            var_constant_coords={0: {}, 1: {}}, overlap_targets=[7 / 8],
-            fixed_overlap_flags=[False], seed=7, split_dim=0)
+            var_constant_coords={0: {}, 1: {}},
+            overlap_targets=[7 / 8],
+            fixed_overlap_flags=[False],
+            seed=7,
+            split_dim=0,
+        )
         pieces = [
             MultiVarRecordGenerator.generate_multivar_stratified(
-                global_shape=shape, num_vars=2, var_num_obs=np.array([obs, obs]),
+                global_shape=shape,
+                num_vars=2,
+                var_num_obs=np.array([obs, obs]),
                 var_dims_indices=[[0, 1], [0, 1]],
-                var_constant_coords={0: {}, 1: {}}, overlap_targets=[7 / 8],
-                fixed_overlap_flags=[False], seed=7, split_dim=0, strata=chunk)
+                var_constant_coords={0: {}, 1: {}},
+                overlap_targets=[7 / 8],
+                fixed_overlap_flags=[False],
+                seed=7,
+                split_dim=0,
+                strata=chunk,
+            )
             for chunk in ([0, 1, 2], [3, 4, 5])
         ]
         for var in ("var0", "var1"):
@@ -684,16 +713,27 @@ class TestOverlapIsApportionedAcrossStrata:
 class TestStratumCounts:
     """The helper a worker uses to learn counts for strata it does not hold."""
 
-    @pytest.mark.parametrize("shape,obs", [
-        ([3, 3], 8), ([3, 3], 3), ([6, 6], 32), ([30, 30], 800), ([100, 40], 1500),
-    ])
+    @pytest.mark.parametrize(
+        "shape,obs",
+        [
+            ([3, 3], 8),
+            ([3, 3], 3),
+            ([6, 6], 32),
+            ([30, 30], 800),
+            ([100, 40], 1500),
+        ],
+    )
     def test_matches_what_placement_produces(self, shape, obs):
         """If these drift apart, the apportioned overlap counts are wrong."""
         from data_sparsity.generators.record_generator import RecordGenerator
 
         counts = RecordGenerator.stratum_counts(shape, obs, 12345, 0)
         indices, _ = RecordGenerator.generate_stratified_indices(
-            global_shape=shape, num_obs=obs, seed=12345, split_dim=0)
+            global_shape=shape,
+            num_obs=obs,
+            seed=12345,
+            split_dim=0,
+        )
         placed = np.bincount(np.asarray(indices[0]), minlength=shape[0])
         assert np.array_equal(counts, placed)
         assert counts.sum() == obs

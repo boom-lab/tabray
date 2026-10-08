@@ -360,7 +360,10 @@ class MultiVarRecordGenerator:
                 overlap_counts[var_idx] = None
                 continue
             p_all = RecordGenerator.stratum_counts(
-                shape, int(var_num_obs[0]), seed, split_dim
+                shape,
+                int(var_num_obs[0]),
+                seed,
+                split_dim,
             )
             n_all = np.asarray(counts[var_idx], dtype=np.int64)
             free_all = plane[var_idx] - p_all
@@ -370,10 +373,11 @@ class MultiVarRecordGenerator:
             room = hi_all - lo_all
             spare = goal - int(lo_all.sum())
             if spare <= 0:
-                chosen = lo_all.copy()          # the forced minimum already exceeds it
+                chosen = lo_all.copy()  # the forced minimum already exceeds it
             else:
                 chosen = lo_all + ChunkUtils.apportion(
-                    min(spare, int(room.sum())), room
+                    min(spare, int(room.sum())),
+                    room,
                 )
             overlap_counts[var_idx] = chosen
             if int(chosen.sum()) != goal:
