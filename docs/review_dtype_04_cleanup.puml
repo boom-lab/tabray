@@ -1,0 +1,100 @@
+@startuml review_dtype_04_cleanup
+' Review unit 04 of 04 -- see docs/review_dtype.md for the series.
+' State AFTER commit 8ac3fa4 (commits 420d224, 78cc3e0, 8ac3fa4;
+' src +89/-57, tests +110/-48, docs +129/-104, most of it formatting and docs).
+' Every number below is from a run of the cases at commit 8ac3fa4.
+' Render: plantuml docs/review_dtype_04_cleanup.puml
+
+title Unit 04 -- dead parameter, CLAUDE.md trimmed, black formatting (3b23ae6..8ac3fa4)
+
+skinparam shadowing false
+skinparam defaultFontName Monospaced
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam activity {
+  BackgroundColor #FCFCFC
+  BorderColor #777777
+  DiamondBackgroundColor #F2F2F2
+  DiamondBorderColor #777777
+}
+skinparam partition {
+  BorderColor #8899AA
+  FontColor #33495E
+}
+skinparam note {
+  BackgroundColor #FFFDF0
+  BorderColor #C8C08A
+}
+
+start
+
+partition "the call -- unchanged" {
+  :cases A/B, E, P, O and the single variable,
+  exactly as in units 00 to 03;
+}
+
+partition "GenerateData.__init__" {
+  #FFCDD2:_configure_multi_var(density_for_grid)
+  the argument was never read;
+  #C8E6C9:_configure_multi_var();
+  note right
+    420d224 was written before the rebase, against
+    a main that still carried generate_with_overlap,
+    generate_hybrid_indices and the threaded
+    max_dim_size / lhs_rng. Main had already removed
+    them, so this unused parameter is what the
+    commit still changes.
+  end note
+}
+
+partition "validate, configure, place -- unchanged" {
+  :shape [4, 8, 8], var_num_obs 102 and 26, dim_split 1
+  apportioned overlap from unit 03;
+}
+
+partition "write" {
+  #C8E6C9:VariableEncoding.netcdf_encoding reads
+  <b>storage_dtype</b> (pack if packed, else dtype)
+  in place of three separate dtype / pack lookups;
+}
+
+#FFF9C4:no file changes: every case, serial and parallel, writes
+netCDF and parquet byte-identical to unit 03
+(A 15729 / 6265 B, E 13681 / 5510 B, P 13681 / 5606 B,
+ O 17777 / 6297 B, single 14061 / 5396 B);
+
+partition "docs (78cc3e0)" {
+  #C8E6C9:.claude/CLAUDE.md: one rule per line, each pointing
+  to where the reasoning lives, plus a per-variable encoding section,
+  the compression section removed with the feature;
+  #C8E6C9:docs/variable_encoding.md (NEW): GLORYS vs Argo, why dtype
+  and pack are separate, the integer transform, the reserved
+  fill code, the float32 scale parameters;
+}
+
+partition "formatting (8ac3fa4)" {
+  #C8E6C9:black --target-version py312 on the 10 Python files the
+  branch touches, plus a trailing comma in every bracket of
+  more than one element that spans several lines, the rule
+  main got in 1a98731. No code change;
+}
+
+stop
+
+legend right
+  |<#C8E6C9> green |= added or changed by THIS unit |
+  |<#FFCDD2> red |= removed by THIS unit |
+  |<#FFE0B2> orange |= single-variable flow touched by THIS unit |
+  |<#FFF9C4> yellow |= generated data or file that changed as a result |
+  | plain | unchanged since unit 03 |
+
+  <b>What to review in unit 04</b>
+  * 420d224 only: 10 lines of code
+  * 78cc3e0: whether the trimmed CLAUDE.md still says
+    everything an agent needs, and where the rest went
+  * 8ac3fa4 can be skimmed: layout and trailing commas only
+  <b>Verified</b>: output byte-identical to unit 03 for all
+  ten runs; serial equals parallel; 536 tests pass.
+end legend
+
+@enduml

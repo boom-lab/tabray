@@ -1,0 +1,120 @@
+@startuml review_dtype_00_baseline
+' Review unit 00 of 04 -- see docs/review_dtype.md for the series.
+' State AT commit 088efdd, the point feat/add-dtype-param-option branches from main.
+' Every number below is from a run of the cases at commit 088efdd.
+' Render: plantuml docs/review_dtype_00_baseline.puml
+
+title Unit 00 -- baseline: the data flow when the branch was created (088efdd)
+
+skinparam shadowing false
+skinparam defaultFontName Monospaced
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam activity {
+  BackgroundColor #FCFCFC
+  BorderColor #777777
+  DiamondBackgroundColor #F2F2F2
+  DiamondBorderColor #777777
+}
+skinparam partition {
+  BorderColor #8899AA
+  FontColor #33495E
+}
+skinparam note {
+  BackgroundColor #FFFDF0
+  BorderColor #C8C08A
+}
+
+start
+
+partition "the call" {
+  :GenerateData(
+     num_obs=100, num_dims=3, ratio_dims=[1, 2, 2],
+     density=[0.4, 0.1], seed=77,
+     num_vars=2, var_dims=[3, 2],
+     overlap=0.5, fixed_overlap=False,
+     <b>case A</b>: max_obs=None      <b>case B</b>: max_obs=40)
+  .generate(netcdf_filepath, parquet_filepath,
+     parquet_tmp, merge_nc=True);
+  note right
+    No dtype, pack, fill_value or value_range
+    keyword exists yet: passing dtype raises
+    <b>TypeError: GenerateData.__init__() got an
+    unexpected keyword argument 'dtype'</b>
+  end note
+}
+
+partition "validate and configure" {
+  :ParameterValidator, DimensionValidator, SparsityValidator
+  -> shape [4, 8, 8] (256 sites), num_obs corrected to 102;
+  :MultiVarSparsityConfig -> var_num_obs 102 and 26
+  MultiVarDimensionsConfig -> var0 on (x0, x1, x2),
+     var1 on (x1, x2), pinned to one x0 coordinate
+  MultiVarOverlapConfig -> overlap_target 0.5;
+  :_choose_split_dim -> <b>dim_split 1</b>, 8 strata
+  _multiprocessing_setup -> NTASKS 1 (A) or 3 (B);
+}
+
+partition "place (one hyperplane at a time)" {
+  :<b>var0</b> = RecordGenerator.generate_stratified_indices
+  LHS stage, n_s = max(shape) = 8, then apportion the rest
+  over strata; values = rng.uniform(0, 1) per stratum;
+  :<b>var1</b>, per stratum j:
+  n_overlap = clip(round(target * |proj_j(S0)|), lo, hi)
+  the rest from cells held by neither variable;
+  :OverlapCalculator.compute_overlap_report
+  F1 0.4561, F2 1.0
+  WARNING var1: overlap target not reachable in 5 of 8 strata;
+  note right
+    var1 drops x0, so its projection of var0
+    covers almost every (x1, x2) cell: the
+    target is over-determined and density wins.
+  end note
+}
+
+:values reach the writers as raw float64 uniform(0, 1) draws;
+
+partition "write" {
+  :NetCDFBuilder.save_to_file(data, path)
+  to_netcdf(path) with <b>no encoding</b>:
+  float64, _FillValue NaN;
+  :ParquetBuilder.save_to_file(df, path)
+  float64 columns, NaN for vacant;
+}
+
+if (NTASKS) then (== 1  -- CASE A, serial)
+  #FFF9C4:A: ds.nc 15729 B, parquet 6265 B, 116 rows
+  var0 102 values in [0.00698, 0.982], var1 26 values;
+else (== 3  -- CASE B, parallel)
+  :three workers, generate_chunk(**args), each writing
+  its strata; chunk parquet merged, chunk netCDF merged
+  one variable at a time (merge_nc=True);
+  #FFF9C4:B: ds.nc 13558 B, parquet 5965 B, 116 rows
+  decoded netCDF and parquet identical to case A;
+endif
+
+partition "two more cases the later units change" {
+  :<b>case O</b>: same call with var_dims=[3, 3], overlap=0.05
+  both variables vary along every dimension, so the
+  per-stratum rule applies everywhere:
+  round(0.05 * 12 or 13) = 1 in each of 8 strata
+  -> 8 shared sites of 102, <b>F1 0.0784</b> for a target of 0.05;
+  :<b>single variable</b>: num_vars=1, density=0.4
+  102 values, ds.nc 14061 B, parquet 5396 B, 102 rows;
+}
+
+stop
+
+legend right
+  |<#C8E6C9> green |= added or changed by THIS unit |
+  |<#FFCDD2> red |= removed by THIS unit |
+  |<#FFE0B2> orange |= single-variable flow touched by THIS unit |
+  |<#FFF9C4> yellow |= generated data or file that changed as a result |
+  | plain | unchanged since the previous unit |
+
+  <b>Unit 00 is the reference</b>, not a change:
+  every later diagram compares against these numbers.
+  Serial equals parallel for every case here.
+end legend
+
+@enduml

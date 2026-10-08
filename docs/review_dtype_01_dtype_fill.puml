@@ -1,0 +1,145 @@
+@startuml review_dtype_01_dtype_fill
+' Review unit 01 of 04 -- see docs/review_dtype.md for the series.
+' State AFTER commit b6776f5 (src +361/-9, tests +201, docs +22).
+' Every number below is from a run of the cases at commit b6776f5.
+' Render: plantuml docs/review_dtype_01_dtype_fill.puml
+
+title Unit 01 -- on-disk dtype and fill value per variable (088efdd..b6776f5)
+
+skinparam shadowing false
+skinparam defaultFontName Monospaced
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam activity {
+  BackgroundColor #FCFCFC
+  BorderColor #777777
+  DiamondBackgroundColor #F2F2F2
+  DiamondBorderColor #777777
+}
+skinparam partition {
+  BorderColor #8899AA
+  FontColor #33495E
+}
+skinparam note {
+  BackgroundColor #FFFDF0
+  BorderColor #C8C08A
+}
+
+start
+
+partition "the call" {
+  #C8E6C9:GenerateData(
+     num_obs=100, num_dims=3, ratio_dims=[1, 2, 2],
+     density=[0.4, 0.1], seed=77,
+     num_vars=2, var_dims=[3, 2], overlap=0.5,
+     <b>case E</b>: dtype=["int16", "float32"],
+             fill_value=[None, 99999.0],
+     max_obs=None (serial) or 40 (parallel));
+  note right #C8E6C9
+    NEW keywords <b>dtype</b> and <b>fill_value</b>:
+    one value for all variables, or one each.
+    dtype: float64 (default), float32, int8,
+    int16, int32. An integer dtype is PACKED.
+  end note
+}
+
+partition "__init__" {
+  #C8E6C9:<b>VariableEncoding.per_variable</b>(dtype, fill_value, num_vars)
+  -> self.var_encodings
+  var0: int16 packed, scale 1.5259e-05, offset 0.49999, fill -32767
+  var1: float32, fill 99999.0;
+  note right #C8E6C9
+    Packing reserves the fill code:
+    scale = (vmax - vmin) / (imax - (fill + 1))
+    = 1 / 65533, so the minimum value cannot
+    land on -32767 and read back as missing.
+    scale_factor and add_offset are float32
+    (headroom > 16x float32 spacing), so xarray
+    decodes to float32. int32 would keep float64.
+  end note
+}
+
+partition "validate, configure, place -- unchanged" {
+  :shape [4, 8, 8], num_obs 102, var_num_obs 102 and 26, dim_split 1
+  per-stratum placement, F1 0.4561, the same warning as unit 00;
+}
+
+partition "GenerateData._quantize  (NEW, before either writer)" {
+  #C8E6C9:records[varN] = var_encodings[N].quantize(records[varN])
+  float64: unchanged
+  float32: round-trip through float32
+  packed:  code = rint((v - offset) / scale), clipped to
+           fill+1 .. imax, value = offset + scale * code;
+  note right
+    One quantisation, so netCDF and parquet hold
+    the same numbers. The scale comes from
+    VALUE_RANGE = (0, 1), never from the data:
+    a parallel chunk never sees the whole array.
+  end note
+}
+
+if (NTASKS) then (== 1  -- serial)
+  partition "write" {
+    #C8E6C9:NetCDFBuilder.build_encoding(data, var_encodings)
+    -> to_netcdf(path, encoding=...);
+    #C8E6C9:ParquetBuilder.cast_values(df, var_encodings)
+    a packed column is stored DECODED, as float32;
+  }
+else (== 3  -- parallel)
+  partition "workers/generate_chunk" {
+    #C8E6C9:args gain var_dtypes, var_fill_values;
+    #C8E6C9:the worker rebuilds VariableEncoding.per_variable,
+    quantises var0 on the single-variable path and every
+    variable on the multi-variable path, and passes
+    var_encodings to both save_to_file calls;
+  }
+  #C8E6C9:_merge_netcdf_files passes the same per-variable
+  encoding to each to_netcdf call;
+endif
+
+#FFF9C4:<b>case E</b>, serial
+ds.nc <b>13681 B</b> (float64 default: 15729 B)
+  var0 int16, scale 1.5259e-05 (float32), _FillValue -32767,
+       decodes to float32, 102 values, max error 7.56e-06 = scale / 2
+  var1 float32, _FillValue 99999.0, 26 values
+parquet <b>5688 B</b> (default: 6265 B), var0 and var1 float32, 116 rows;
+#FFF9C4:<b>case E</b>, parallel
+ds.nc 11872 B, parquet 5388 B; decoded data equal to serial;
+
+partition "unchanged output" {
+  :<b>case A/B</b> (no dtype passed): ds.nc 15729 B and parquet 6265 B,
+  byte-identical to unit 00. float64 + NaN emits NO encoding entry;
+  :<b>case O</b>: F1 0.0784, as in unit 00;
+}
+
+partition "the single-variable flow (num_vars=1, density=0.4)" {
+  #FFE0B2:generate_chunk quantises records["var0"] before writing,
+  and save_to_file / save_to_parquet take var_encodings.
+  With the default dtype the output is unchanged: ds.nc 14061 B,
+  parquet 5396 B, 102 rows;
+}
+
+stop
+
+legend right
+  |<#C8E6C9> green |= added or changed by THIS unit |
+  |<#FFCDD2> red |= removed by THIS unit |
+  |<#FFE0B2> orange |= single-variable flow touched by THIS unit |
+  |<#FFF9C4> yellow |= generated data or file that changed as a result |
+  | plain | unchanged since unit 00 |
+
+  <b>New files</b>: data_sparsity/output/variable_encoding.py (213),
+  tests/output/test_variable_encoding.py (201)
+  <b>What to review in unit 01</b>
+  * the reserved fill code in _packing
+  * float32 vs float64 scale parameters, and the int32 case
+  * build_encoding and cast_values: the same encoding in
+    serial, in each worker, and in the merge
+  * default float64 writes no encoding at all
+  <b>Verified</b>: default output byte-identical to unit 00;
+  serial equals parallel for case E.
+  <b>Size</b>: +584/-9 in one commit, over the 400 target;
+  201 of the lines are the new test file.
+end legend
+
+@enduml

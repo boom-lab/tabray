@@ -1,0 +1,122 @@
+@startuml review_dtype_03_overlap_apportion
+' Review unit 03 of 04 -- see docs/review_dtype.md for the series.
+' State AFTER commit 3b23ae6 (src +105/-4, tests +119/-1, docs +135/-1).
+' Every number below is from a run of the cases at commit 3b23ae6.
+' Render: plantuml docs/review_dtype_03_overlap_apportion.puml
+
+title Unit 03 -- apportion the overlap count across strata (e482c4b..3b23ae6)
+
+skinparam shadowing false
+skinparam defaultFontName Monospaced
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam activity {
+  BackgroundColor #FCFCFC
+  BorderColor #777777
+  DiamondBackgroundColor #F2F2F2
+  DiamondBorderColor #777777
+}
+skinparam partition {
+  BorderColor #8899AA
+  FontColor #33495E
+}
+skinparam note {
+  BackgroundColor #FFFDF0
+  BorderColor #C8C08A
+}
+
+start
+
+partition "the call" {
+  :<b>case O</b>: GenerateData(
+     num_obs=100, num_dims=3, ratio_dims=[1, 2, 2],
+     density=[0.4, 0.1], seed=77,
+     num_vars=2, <b>var_dims=[3, 3]</b>, <b>overlap=0.05</b>,
+     max_obs=None (serial) or 40 (parallel));
+  note right
+    No new keyword. Both variables vary along
+    every dimension, which is the case this unit
+    changes. Target: 0.05 * 102 = 5.1 shared sites.
+  end note
+}
+
+partition "validate, configure -- unchanged" {
+  :shape [4, 8, 8], var_num_obs 102 and 26, dim_split 1, 8 strata;
+}
+
+partition "MultiVarRecordGenerator.generate_multivar_stratified" {
+  :var0 placed per stratum, as in unit 00
+  per-stratum counts p_j = 12 12 13 13 13 13 13 13;
+
+  if (var_i varies along every dimension?) then (yes -- NEW path)
+    #C8E6C9:p_all = <b>RecordGenerator.stratum_counts</b>(shape, num_obs, seed, split_dim)
+    var0's per-stratum counts, rederived from the global LHS
+    and the global apportionment without placing anything;
+    note right #C8E6C9
+      A worker holding strata 0-2 can compute
+      the counts of strata 3-7 this way, so the
+      total is the same in every process.
+    end note
+    #C8E6C9:goal = round(t_i * sum_j p_j) = round(0.05 * 102) = 5
+    lo_j, hi_j = forced minimum, min(n_j, p_j) per stratum
+    overlap_counts = lo + ChunkUtils.apportion(goal - sum(lo), hi - lo)
+    largest remainder: <b>0 0 0 1 1 1 1 1</b>;
+    #C8E6C9:if sum(overlap_counts) != goal:
+      print "WARNING varN: overlap target not reachable
+      (wanted g of p reference cells, used u)";
+  else (no -- drops a dimension)
+    :per stratum: clip(round(t_i * |proj_j(S0)|), lo, hi)
+    as before. |proj_j(S0)| counts distinct PROJECTED cells,
+    which depends on where var0 landed, so a worker cannot
+    know it for strata it does not own;
+  endif
+
+  :per stratum j: take n_overlap_j cells from var0's footprint,
+  the rest from cells held by neither variable;
+}
+
+#FFF9C4:<b>case O</b>, serial
+shared sites per stratum: unit 02 <b>1 1 1 1 1 1 1 1</b> = 8
+                          unit 03 <b>0 0 0 1 1 1 1 1</b> = 5
+F1 0.0784 -> <b>0.0490</b> (5 of 102)   F2 0.3077 -> 0.1923
+ds.nc 17777 B (same size, different content), parquet 6279 -> 6297 B;
+#FFF9C4:<b>case O</b>, parallel: equal to serial;
+
+partition "unchanged output" {
+  :<b>case A/B</b>: var1 drops x0, so it keeps the per-stratum rule.
+  F1 0.4561, the same "5 of 8 strata" warning, files byte-identical
+  to unit 02;
+  :cases E and P: byte-identical to unit 02;
+}
+
+partition "the single-variable flow" {
+  :untouched. RecordGenerator.generate_stratified_indices
+  computes the same counts as before; stratum_counts repeats
+  that arithmetic, and a test compares the two;
+}
+
+stop
+
+legend right
+  |<#C8E6C9> green |= added or changed by THIS unit |
+  |<#FFCDD2> red |= removed by THIS unit |
+  |<#FFE0B2> orange |= single-variable flow touched by THIS unit |
+  |<#FFF9C4> yellow |= generated data or file that changed as a result |
+  | plain | unchanged since unit 02 |
+
+  <b>Why</b>: rounding t * p_j in every stratum and summing is not
+  rounding the total. Here each stratum rounds 0.6 or 0.65 up
+  to 1, so 8 strata give 8 shared sites for a target of 5.1.
+  <b>What to review in unit 03</b>
+  * stratum_counts matches generate_stratified_indices
+  * lo/hi bounds per stratum and the apportion of the spare
+  * the fallback for variables that drop a dimension
+  * the unreachable warning (added during the rebase onto main,
+    whose test expects a warning on this path)
+  <b>Verified</b>: case O F1 0.0784 -> 0.0490; serial equals
+  parallel; cases A, B, E, P unchanged.
+  <b>Also in this unit</b>: docs/generation_report_plan.md (84)
+  and diagnostics notes (46), not code.
+end legend
+
+@enduml
