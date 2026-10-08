@@ -165,11 +165,15 @@ for any case that does not.
 
 ## Report rows to add
 
-* the achieved layout, as a measurable: the fraction of occupied cells whose neighbour along the
-  padded axis is also occupied. Scattered and padded separate sharply on this, so it confirms the
-  parameter did what was asked.
-* occupancy against the variable's own grid alongside the requested density.
-* achieved F1 under padded, which is derived rather than requested.
+* which minimum-density bound applied (built: the `minimum density` row).
+* occupancy against the variable's own grid alongside the requested density (the existing
+  density row).
+* achieved F1 under padded, which is derived rather than requested (the existing overlap row
+  only appears when a target is set).
+
+Not built: a row measuring the achieved layout (the share of occupied cells whose neighbour along
+the padded axis is also occupied). It checks that the placement code did its job, which the tests
+do; it is not information about the data.
 
 ## Stages
 

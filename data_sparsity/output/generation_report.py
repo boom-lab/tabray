@@ -146,6 +146,23 @@ class GenerationReport:
         )
 
     @staticmethod
+    def _add_minimum_density(report, gen) -> None:
+        """Which minimum-density bound applied, and its value.
+
+        - scattered: max(shape) / prod(shape), the LHS covering every axis
+        - padded: (lines + n_padded - 1) / prod(shape), one observation per
+          line plus one line running the full length
+        """
+        bound = getattr(gen, "density_zero", None)
+        if bound is None:
+            return
+        if getattr(gen, "layout", "scattered") == "padded":
+            rule = "padded: (lines + n_padded - 1) / sites"
+        else:
+            rule = "scattered: max(shape) / sites"
+        report.add("minimum density", None, rule, round(float(bound), 6), MATCH)
+
+    @staticmethod
     def project(mask: xr.DataArray, keep) -> xr.DataArray:
         drop = [d for d in mask.dims if d not in keep]
         return mask.any(dim=drop) if drop else mask
@@ -181,6 +198,7 @@ class GenerationReport:
             "validation rounds the grid to whole coordinates",
             adjusted=True,
         )
+        cls._add_minimum_density(report, gen)
 
         # --- per variable -----------------------------------------------
         for index, name in enumerate(names):
@@ -355,6 +373,7 @@ class GenerationReport:
             "validation and chunk rounding both move this",
             adjusted=True,
         )
+        cls._add_minimum_density(report, gen)
         if not summaries:
             return report
 

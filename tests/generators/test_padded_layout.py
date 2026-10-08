@@ -272,3 +272,9 @@ class TestEveryVariableIsPadded:
         assert parallel.NTASKS > 1
         for name in ("var0", "var1"):
             np.testing.assert_array_equal(ser[name].values, par[name].values)
+
+    def test_the_report_states_the_bound(self, tmp_path):
+        gen, _ = self.build(tmp_path, "c", var_dims=[3, [1, 2]], **self.PARAMS)
+        row = next(r for r in gen.report.rows if r["property"] == "minimum density")
+        assert row["requested"].startswith("padded")
+        assert row["achieved"] == pytest.approx(gen.density_zero, abs=1e-6)
