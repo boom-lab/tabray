@@ -78,7 +78,12 @@ class TestMeasuredFromTheData:
         assert rows["observations"]["achieved"] == 0
         assert rows["observations"]["status"] == "differs"
 
-    def test_clean_run_has_no_differences(self, tmp_path):
+    def test_clean_run_differs_only_by_rounding(self, tmp_path):
+        """Validation rounds the grid, so densities miss by a little.
+
+        That always reads "differs": the report shows the rounding rather
+        than hiding it behind a tolerance. Nothing else differs.
+        """
         gen = generate(
             tmp_path,
             "b",
@@ -90,14 +95,36 @@ class TestMeasuredFromTheData:
             num_vars=3,
             overlap=[0.5, 0.3],
         )
-        assert gen.report.differences == []
+        for row in gen.report.differences:
+            assert row["property"] == "density"
+            assert row["achieved"] == pytest.approx(row["requested"], abs=1e-3)
         assert any(r["status"] == "adjusted" for r in gen.report.rows)
+
+    def test_single_variable_rounding_reads_differs(self, tmp_path):
+        """Single and multi-variable runs report rounding the same way.
+
+        Validation turns 100 observations at 0.4 into 102 on a 256-site grid;
+        the row compares against the 0.4 that was asked for.
+        """
+        gen = generate(
+            tmp_path,
+            "sv",
+            num_obs=100,
+            num_dims=3,
+            ratio_dims=[1, 2, 2],
+            density=0.4,
+            seed=77,
+        )
+        row = next(r for r in gen.report.rows if r["property"] == "density")
+        assert row["requested"] == 0.4
+        assert row["achieved"] == pytest.approx(102 / 256, abs=1e-6)
+        assert row["status"] == "differs"
 
     def test_reduced_dimension_density_is_on_its_own_grid(self, tmp_path):
         """A density is a share of the variable's own grid.
 
         var2 and var3 vary along three of four dimensions: 0.14 of their own
-        grid, not of the full one, so the density rows match.
+        grid, not of the full one, up to the validator's rounding.
         """
         gen = generate(
             tmp_path,
@@ -117,7 +144,6 @@ class TestMeasuredFromTheData:
             if r["property"] == "density"
         }
         for name in ("var2", "var3"):
-            assert rows[("density", name)]["status"] == "match"
             assert rows[("density", name)]["achieved"] == pytest.approx(0.14, abs=1e-3)
 
     def test_the_two_formats_are_cross_checked(self, tmp_path):
