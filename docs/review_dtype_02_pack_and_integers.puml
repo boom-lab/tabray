@@ -1,0 +1,138 @@
+@startuml review_dtype_02_pack_and_integers
+' Review unit 02 of 04 -- see docs/review_dtype.md for the series.
+' State AFTER commit e482c4b (commits 261ef73, e482c4b; src +202/-53, tests +174/-46).
+' Every number below is from a run of the cases at commit e482c4b.
+' Render: plantuml docs/review_dtype_02_pack_and_integers.puml
+
+title Unit 02 -- pack separated from dtype; integer variables from a value range (b6776f5..e482c4b)
+
+skinparam shadowing false
+skinparam defaultFontName Monospaced
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam activity {
+  BackgroundColor #FCFCFC
+  BorderColor #777777
+  DiamondBackgroundColor #F2F2F2
+  DiamondBorderColor #777777
+}
+skinparam partition {
+  BorderColor #8899AA
+  FontColor #33495E
+}
+skinparam note {
+  BackgroundColor #FFFDF0
+  BorderColor #C8C08A
+}
+
+start
+
+partition "the call" {
+  #C8E6C9:GenerateData(
+     num_obs=100, num_dims=3, ratio_dims=[1, 2, 2],
+     density=[0.4, 0.1], seed=77,
+     num_vars=2, var_dims=[3, 2], overlap=0.5,
+     <b>case P</b>: dtype=["float32", "int16"],
+             pack=["int16", None],
+             value_range=[None, (0, 8)],
+     max_obs=None (serial) or 40 (parallel));
+  note right #C8E6C9
+    NEW keywords <b>pack</b> and <b>value_range</b>.
+    dtype = what a variable HOLDS (float or integer);
+    pack  = how a FLOAT is compacted on disk.
+    Two axes because a file holds both kinds:
+    Argo has TEMP as plain float32 and
+    CYCLE_NUMBER as plain int32.
+  end note
+}
+
+partition "__init__" {
+  #C8E6C9:VariableEncoding.per_variable(dtype, pack, fill_value,
+                                     num_vars, value_range)
+  var0: float32 packed into int16, value_range (0, 1)
+  var1: <b>int16 plain</b>, value_range (0, 8), fill -32767;
+  #C8E6C9:checks in the constructor:
+  pack on an integer dtype -> ValueError
+  value_range must be ordered and fit the integer dtype
+  an integer fill_value inside value_range -> ValueError
+  (it would read back as missing);
+  #FFCDD2:dtype="int16" no longer means "packed float".
+  The unit-01 call (case E) still runs, with a new meaning:
+  var0 becomes an integer variable;
+}
+
+partition "validate, configure, place -- unchanged" {
+  :shape [4, 8, 8], num_obs 102, var_num_obs 102 and 26, dim_split 1
+  F1 0.4561, placement draws the same as in unit 00;
+}
+
+partition "GenerateData._to_stored  (was _quantize)" {
+  #C8E6C9:records[varN] = var_encodings[N].to_stored(records[varN])
+  integer: lo + floor(u * (hi - lo + 1)), clipped to lo..hi
+  float, range not (0, 1): lo + (hi - lo) * u
+  then float32 round-trip or packing, as in unit 01;
+  note right #C8E6C9
+    Integers TRANSFORM the uniform draw; they never
+    call rng.integers. A different RNG method would
+    consume the stream differently and move every
+    later site. floor over hi - lo + 1 bins gives
+    every value equal width; rounding over hi - lo
+    would halve the frequency of the two extremes.
+  end note
+}
+
+partition "write" {
+  #C8E6C9:netcdf_encoding: an integer variable gets
+  {"dtype": int16, "_FillValue": -32767} and no scale,
+  a packed float gets dtype = pack, as before;
+  #C8E6C9:pandas_dtype: an integer column is NULLABLE ("Int16"),
+  so a vacant site is a null instead of turning the column float;
+  #C8E6C9:workers receive var_packs and var_value_ranges as well;
+}
+
+#FFF9C4:<b>case P</b>, serial
+ds.nc 13681 B; var0 int16 packed, decodes to float32, 102 values,
+  max error 7.56e-06 against the float64 draw
+var1 int16 plain, 26 values in 0..8, 7 distinct,
+  each equal to floor(u * 9) of the float64 draw
+parquet 5606 B: var0 float32, <b>var1 Int16</b>, 116 rows;
+#FFF9C4:<b>case P</b>, parallel: ds.nc 11724 B, parquet 5306 B,
+decoded data equal to serial;
+#FFF9C4:<b>case E</b> (unit-01 call) now: var0 int16 PLAIN, values 0..99,
+60 distinct, parquet Int16; ds.nc 13681 B, parquet 5510 B;
+
+:<b>placement check</b>: the occupied sites of var0 and var1 are
+identical in case A, case E and case P. dtype changes the
+values and leaves the sites where they were;
+
+partition "unchanged output" {
+  :case A/B: byte-identical to unit 00
+  case O: F1 0.0784, as in unit 00;
+}
+
+partition "the single-variable flow (num_vars=1, density=0.4)" {
+  #FFE0B2:generate_chunk calls to_stored instead of quantize,
+  default output unchanged: ds.nc 14061 B, parquet 5396 B;
+}
+
+stop
+
+legend right
+  |<#C8E6C9> green |= added or changed by THIS unit |
+  |<#FFCDD2> red |= removed by THIS unit |
+  |<#FFE0B2> orange |= single-variable flow touched by THIS unit |
+  |<#FFF9C4> yellow |= generated data or file that changed as a result |
+  | plain | unchanged since unit 01 |
+
+  <b>What to review in unit 02</b>
+  * the integer transform and its bin widths
+  * fill-outside-range and pack-on-integer checks
+  * storage_dtype vs dtype in netcdf_encoding
+  * nullable Int16 in parquet vs int16 + _FillValue in netCDF
+  * the meaning change of dtype="int16" between units 01 and 02
+    (the intermediate commit 261ef73 refused integer dtypes)
+  <b>Verified</b>: same occupied sites for every dtype;
+  serial equals parallel for cases A, E and P.
+end legend
+
+@enduml
