@@ -72,10 +72,11 @@ GenerateData.generate  ->  generators/   CoordinateGenerator, MultiVarRecordGene
 
 `layout` (`"scattered"` default, or `"padded"`) and `padded_dim` set where occupied cells sit; `density` sets how many. Reasons and measurements: `docs/layout_plan.md`.
 
-- `padded`: `RecordGenerator.generate_padded_indices`. A line (one combination of the dims other than split and padded) holds positions `0..k-1` of the padded axis.
+- One layout per dataset. var0: `RecordGenerator.generate_padded_indices`; other variables with the padded axis: `MultiVarRecordGenerator._padded_cells` per stratum; a variable without the padded axis stays scattered.
+- A line (one combination of the dims other than split and padded) holds positions `0..k-1` of the padded axis.
 - Coverage comes from the construction, not the LHS stage, which `padded` skips: every line holds an observation; one line runs the full length.
 - Minimum density = `(prod(shape)/n_padded + n_padded - 1) / prod(shape)` (`compute_min_density(..., padded_dim)`).
-- `overlap` raises under `padded`: every variable fills a prefix of one axis, so F1 is the ratio of the densities.
+- `overlap` raises under `padded`: the variables fill prefixes of one axis, so F1 follows from the densities.
 - The padded axis cannot be `dim_split` (`_choose_split_dim` excludes it).
 - Stratum counts: `padded_stratum_counts`, lognormal weights capped per stratum (`ChunkUtils.apportion(..., capacity)`), one stratum raised to carry the full-length line.
 

@@ -287,13 +287,15 @@ dataset, df = gen.generate()
   here. For packed dtypes the fill code is reserved, so no real value can collide with it.
 - **layout** (str, optional): How the occupied cells are arranged — `"scattered"` (default,
   uniformly at random) or `"padded"` (each line fills positions `0..k-1` of one axis, as Argo and
-  CrocoLake profiles do). `density` says how many cells are occupied and nothing about where they
-  sit, and at a fixed density the arrangement changes compressed array size by 2.3× and reverses
-  which format is smaller. `docs/layout_plan.md` has the measurements.
+  CrocoLake profiles do). One layout for the whole dataset: every variable that varies along the
+  padded axis is padded; a variable without that axis is scattered. `density` says how many cells
+  are occupied and nothing about where they sit; compressed with DEFLATE, the arrangement changes
+  array size by 2.3× at a fixed density and reverses which format is smaller (this package writes
+  uncompressed files). `docs/layout_plan.md` has the measurements.
 - **padded_dim** (int, optional): The axis the prefixes run along under `layout="padded"`
   (default: the last dimension). It cannot be the split dimension, so the split is chosen from the
-  remaining axes. `overlap` cannot be set alongside `layout="padded"`: with every variable filling
-  a prefix of the same axis the achieved F1 is the ratio of the densities, so no target can be
+  remaining axes. `overlap` cannot be set alongside `layout="padded"`: with the variables filling
+  prefixes of the same axis the achieved F1 follows from the densities, so no target can be
   honoured. Note the minimum density is higher under `padded` — every line needs an observation
   and one line must run the full length.
 - **num_vars** (int, optional): Number of variables in the dataset (default: 1)

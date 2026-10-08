@@ -179,7 +179,8 @@ for any case that does not.
 2. The report rows.
 3. **Declined.** The mask, for the reasons above. `docs/explainer.md` needs no change as a
    result, since nothing else can strand a coordinate.
-4. Optional: a `layout` per variable rather than one for the dataset.
+4. **Decided: one layout for the dataset.** Every variable that varies along the padded axis is
+   padded; one without that axis (Argo's per-profile scalars) is scattered.
 
 ## Open questions
 
@@ -194,8 +195,8 @@ for any case that does not.
   reference datasets needs it -- Argo and CrocoLake pad one axis, GLORYS pads none -- so this is
   recorded rather than built. A spectral instrument sampling variable wavelengths at variable
   depths would be the case that asks for it.
-* Should `layout` be per variable? Argo has both kinds in one file -- padded measurements beside
-  per-profile scalars that are fully occupied. Stage 4, unless it turns out to be needed earlier.
+* Settled: `layout` is one per dataset, not per variable (stage 4). Argo's
+  per-profile scalars lack the padded axis, so they are scattered under either layout.
 * What distribution for `k`? Argo's levels per profile have median 70 and maximum 1042, so a
   lognormal is closer than a uniform. The measured quartiles are worth copying.
 
