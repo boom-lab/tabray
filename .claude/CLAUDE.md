@@ -6,13 +6,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Synthetic-data generator used to compare read/manipulation performance of **array** storage (netCDF/xarray) against **tabular** storage (parquet/pandas) across a range of grid occupancies, from purely gridded to maximally sparse. `docs/explainer.md` and `docs/explainer_multivar.md` define the terminology the code uses (site, density/sparsity, gridded vs irregular, overlap) — read them before changing generation semantics.
 
-The distribution is named `tabray` (`pyproject.toml`); the import package is `data_sparsity`.
+The distribution and the import package are both named `data_sparsity` (`pyproject.toml`). The repository and the local conda env are named `tabray`.
 
 ## Commands
 
 ```bash
 # environment (conda, installs the package editable via pip)
-conda env create -f environment.yml && conda activate tabray
+conda env create -f environment.yml -n tabray && conda activate tabray   # the file names it data_sparsity
 # or
 pip install -e ".[dev]"          # dev = pytest, pytest-cov, pylint
 
@@ -103,8 +103,8 @@ No tuple contains a chunk id, which is what makes parallel chunks reproduce seri
 and every worker derive the same generator for the same purpose. Chunks differ only in *which*
 strata they generate, so a chunk slices the global sorted coordinate axis by index rather than
 advancing a stream. Any change to a tag value, or to the order in which draws are taken, changes
-the data — `tests/test_scenarios_parallel.py` mirrors the serial scenarios specifically to catch
-divergence.
+the data. `test_parallel_reproduces_serial_exactly` in `tests/utils/test_parallel_comparison.py`
+compares parallel and serial output for exact equality, single- and multi-variable, to catch it.
 
 Streams used to be derived by adding offsets to the seed (`seed + dim_idx * 1000` for coordinates
 and so on). That collided: `seed + 0*1000` is `seed`, so the x0 axis and the density range were
@@ -114,9 +114,13 @@ values are visible, rather than picking an offset and hoping it misses.
 
 `seed` has a default of `None` in the signature but is required; passing nothing raises `TypeError`.
 
-### Parallel path (experimental)
+### Parallel path
 
-`max_obs` set below `num_obs` switches `NTASKS > 1`. The grid is split along its largest dimension, chunks run in a `ProcessPoolExecutor` (spawn context, at most 4 workers) via the module-level `generate_chunk`, which takes every parameter explicitly so nothing needs to pickle `GenerateData`. Each chunk writes its own netCDF file (`<base>_<zero-padded chunk_id>.nc`) and a temporary parquet chunk into the scratch directory named by `parquet_tmp`; worker logs are off unless `TABRAY_WORKER_LOG=debug` is set, and then go to `generate(log_dir=...)` (default `./logs`), never a data directory; `_consolidate_parquet_files` then merges the parquet chunks with dask into one 300MB-partitioned dataset and deletes the temporaries. In this mode `generate()` returns `(None, None)` — results exist only on disk. Chunking rounds observation counts per chunk, so it also rewrites `self.num_obs` and `self.density`.
+`max_obs` set below `num_obs` switches `NTASKS > 1`. The grid is split along `dim_split`, the longest dimension every variable varies along (`_choose_split_dim`), and `NTASKS` cannot exceed its length. Chunks run in a `ProcessPoolExecutor` (spawn context; workers = `min(NTASKS, max_workers or os.cpu_count())`) via the module-level `generate_chunk`, which takes every parameter explicitly so nothing needs to pickle `GenerateData`. Each chunk writes its own netCDF file (`<base>_<zero-padded chunk_id>.nc`) and a temporary parquet chunk into the scratch directory named by `parquet_tmp`; worker logs are off unless `TABRAY_WORKER_LOG=debug` is set, and then go to `generate(log_dir=...)` (default `./logs`), never a data directory; `_consolidate_parquet_files` then merges the parquet chunks with dask into one 300MB-partitioned dataset and deletes the temporaries. In this mode `generate()` returns `(None, None)` — results exist only on disk. For a single variable, `_generate_par` recomputes the per-chunk counts and rewrites `self.num_obs` and `self.density` from them.
+
+Chunk netCDF files keep every dimension (`build_dataset(squeeze_constant_dims=False)`) so they concatenate: a reduced-dimension variable sits on the full grid, NaN off its pinned coordinate. Apply `NetCDFBuilder.squeeze_constant_dims` before comparing with serial output; `merge_nc=True` does this.
+
+Because of spawn, a script that runs parallel generation needs an `if __name__ == "__main__":` guard, or each worker re-runs it on import and Python raises `RuntimeError` ("...before the current process has finished its bootstrapping phase"). Notebooks and pytest are unaffected. The README does not mention this yet.
 
 `generate(merge_nc=True)` concatenates the chunk netCDF files into one and deletes them; the
 default `False` leaves the per-chunk files, which is the only option for output too large to
@@ -143,12 +147,11 @@ memory than all of them at once.
 
 `.claude/HANDOFF.md` lists what an earlier session left unfinished: lint exceptions
 still to agree, black not declared as a dependency, the per-format compression
-design that replaces the removed matched-codec setting, diagnostics S6 and A4, and the
-untracked `docs/*.puml` diagrams. Read it before picking up that work; delete entries as they are done.
+design that replaces the removed matched-codec setting, and diagnostics S6 and A4. Read it before picking up that work; delete entries as they are done.
 
 ## Known drift in the docs
 
-`README.md` claims `from data_sparsity import GenerateData` and `342/426 tests passing`. Both are stale: `data_sparsity/__init__.py` is empty, so the import is `from data_sparsity.generate_data import GenerateData` (what the tests and notebook helpers use), and the suite is fully green. It also describes multi-variable data_vars as `record0, record1, …`; they are `var0, var1, …`.
+`README.md`, "Repository structure", mentions a `benchmark` folder that does not exist.
 
 # Claude Persona & Output Constraints
 
