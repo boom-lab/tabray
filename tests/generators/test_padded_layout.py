@@ -6,10 +6,15 @@ array size by 2.3x and reverses which format is smaller. See
 docs/layout_plan.md.
 """
 
+import contextlib
+import io
+
 import numpy as np
+import xarray as xr
 import pytest
 
 from data_sparsity.generators.record_generator import RecordGenerator
+from data_sparsity.generate_data import GenerateData
 from data_sparsity.validators import SparsityValidator
 
 
@@ -208,3 +213,62 @@ class TestPaddedMinimumDensity:
             shape,
             padded_dim=2,
         ) == pytest.approx((4 * 5 + 6 - 1) / 120)
+
+
+class TestEveryVariableIsPadded:
+    """layout applies to the whole dataset, not to var0 alone."""
+
+    PARAMS = dict(
+        num_obs=100,
+        num_dims=3,
+        ratio_dims=[1, 2, 2],
+        seed=77,
+        density=[0.4, 0.2],
+        num_vars=2,
+        layout="padded",
+    )
+
+    @staticmethod
+    def build(tmp_path, tag, max_obs=None, **kwargs):
+        out = tmp_path / tag
+        with contextlib.redirect_stdout(io.StringIO()):
+            gen = GenerateData(**kwargs, max_obs=max_obs)
+            extra = {}
+            if max_obs:
+                extra = dict(parquet_tmp=str(out / "tmp"), merge_nc=True)
+            gen.generate(
+                netcdf_filepath=str(out / "d.nc"),
+                parquet_filepath=str(out / "pq" / "d.parquet"),
+                **extra,
+            )
+        dataset = xr.open_dataset(out / "d.nc")
+        return gen, dataset
+
+    @staticmethod
+    def all_prefixes(values, axis):
+        occupied = np.moveaxis(~np.isnan(values), axis, -1)
+        rows = occupied.reshape(-1, occupied.shape[-1])
+        lengths = rows.sum(axis=1)
+        return all(row[:k].all() and not row[k:].any() for row, k in zip(rows, lengths))
+
+    def test_a_variable_with_the_padded_axis_fills_prefixes(self, tmp_path):
+        gen, dataset = self.build(tmp_path, "a", var_dims=[3, [1, 2]], **self.PARAMS)
+        var1 = dataset["var1"]
+        assert "x2" in var1.dims
+        assert int(var1.notnull().sum()) == gen.var_num_obs[1]
+        assert self.all_prefixes(var1.values, var1.get_axis_num("x2"))
+
+    def test_a_variable_without_it_keeps_its_count(self, tmp_path):
+        """No padded axis to fill: the variable is placed as under scattered."""
+        gen, dataset = self.build(tmp_path, "b", var_dims=[3, [0, 1]], **self.PARAMS)
+        var1 = dataset["var1"]
+        assert "x2" not in var1.dims
+        assert int(var1.notnull().sum()) == gen.var_num_obs[1]
+
+    def test_serial_and_parallel_agree(self, tmp_path):
+        params = dict(var_dims=[3, [1, 2]], **self.PARAMS)
+        serial, ser = self.build(tmp_path, "s", **params)
+        parallel, par = self.build(tmp_path, "p", max_obs=40, **params)
+        assert parallel.NTASKS > 1
+        for name in ("var0", "var1"):
+            np.testing.assert_array_equal(ser[name].values, par[name].values)

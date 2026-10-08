@@ -264,6 +264,50 @@ class MultiVarRecordGenerator:
         return records, overlap_actual
 
     @staticmethod
+    def _padded_cells(
+        count: int,
+        sizes: List[int],
+        padded_axis: int,
+        rng: np.random.Generator,
+        sigma: float = 0.8,
+    ) -> np.ndarray:
+        """A non-reference variable's cells in one stratum, as prefixes.
+
+        - line: one combination of the variable's stratum dims other than
+          the padded one; each holds positions 0..k-1 of the padded axis
+        - k per line: count apportioned by lognormal weights, capped at the
+          padded axis length; a line may stay empty (no coverage guarantee
+          for non-reference variables)
+
+        Args:
+            count: Cells to place in this stratum
+            sizes: Sizes of the variable's dims within the stratum
+            padded_axis: Position of the padded dim within ``sizes``
+            rng: The variable's stream for this stratum
+            sigma: Spread of the lognormal weights
+
+        Returns:
+            Cell indices, raveled over ``sizes``
+        """
+        n_padded = sizes[padded_axis]
+        line_sizes = [n for axis, n in enumerate(sizes) if axis != padded_axis]
+        lines = int(np.prod(line_sizes)) if line_sizes else 1
+        weights = rng.lognormal(0.0, sigma, size=lines)
+        lengths = ChunkUtils.apportion(
+            count,
+            weights,
+            np.full(lines, n_padded, dtype=np.int64),
+        )
+        line_index = np.repeat(np.arange(lines, dtype=np.int64), lengths)
+        positions = np.concatenate(
+            [np.arange(k, dtype=np.int64) for k in lengths]
+            or [np.empty(0, dtype=np.int64)],
+        )
+        line_axes = list(np.unravel_index(line_index, line_sizes)) if line_sizes else []
+        line_axes.insert(padded_axis, positions)
+        return np.ravel_multi_index(tuple(line_axes), sizes)
+
+    @staticmethod
     def generate_multivar_stratified(
         global_shape: List[int],
         num_vars: int,
@@ -451,7 +495,19 @@ class MultiVarRecordGenerator:
                             (stratum, ideal, n_overlap, proj.size, free_cells)
                         )
 
-                if n_overlap is None:
+                if n_overlap is None and layout == "padded" and padded_dim in dims:
+                    # the dataset's layout applies to every variable that has
+                    # the padded axis: each line holds a prefix of it
+                    cells = MultiVarRecordGenerator._padded_cells(
+                        n_here,
+                        sizes,
+                        dims.index(padded_dim),
+                        rng,
+                    )
+                    chosen = cells
+                    outside = np.empty(0, dtype=np.int64)
+                    n_overlap = 0
+                elif n_overlap is None:
                     # draw from the whole cell space, ignoring the reference
                     cells = rng.choice(plane[var_idx], size=n_here, replace=False)
                     chosen = cells
