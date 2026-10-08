@@ -161,12 +161,12 @@ class TestValidateAndClip:
         assert result[1] == 0.5
         assert result[2] == 0.8
 
-    def test_multiple_values_clipped(self):
-        """Multiple values below minimum should be clipped."""
+    def test_only_the_reference_is_clipped(self):
+        """The minimum is var0's coverage bound; the others keep their density."""
         sparsities = np.array([0.05, 0.08, 0.5])
         result = MultiVarSparsityConfig.validate_and_clip(sparsities, 0.1)
         assert result[0] == 0.1
-        assert result[1] == 0.1
+        assert result[1] == 0.08
         assert result[2] == 0.5
 
     def test_value_greater_than_one_raises_value_error(self):

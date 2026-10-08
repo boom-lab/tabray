@@ -157,9 +157,9 @@ class GenerationReport:
         if bound is None:
             return
         if getattr(gen, "layout", "scattered") == "padded":
-            rule = "padded: (lines + n_padded - 1) / sites"
+            rule = "var0 coverage, padded: (lines + n_padded - 1) / sites"
         else:
-            rule = "scattered: max(shape) / sites"
+            rule = "var0 coverage, scattered: max(shape) / sites"
         report.add("minimum density", None, rule, round(float(bound), 6), MATCH)
 
     @staticmethod
