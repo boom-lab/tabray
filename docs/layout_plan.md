@@ -2,7 +2,7 @@
 
 `density` says how many sites are occupied. It says nothing about where they sit, and the
 generator scatters them uniformly. Every real dataset in this repository is arranged some other
-way: Argo and CrocoLake fill a prefix of each profile's levels, GLORYS leaves continents empty.
+way: Argo and CrocoLake fill the first k levels of each profile, GLORYS leaves continents empty.
 
 ## Why it matters
 
@@ -49,8 +49,8 @@ variable-length sequences -- rather than oceanographic ones.
 ## Padded
 
 Implemented as the distribution the **fill** stage draws from inside a stratum. Today that draw
-is uniform over the stratum's free cells; padded biases it to a prefix along one named axis, so
-each stratum fills positions `0..k-1`.
+is uniform over the stratum's free cells; padded biases it so each line fills its first k cells along one
+named axis, positions `0..k-1`.
 
 This fits the stratum model without disturbing it. A stratum is already one profile's worth of
 cells when the split runs along the profile axis, its count is already apportioned, and `k`
@@ -58,11 +58,11 @@ follows from `(seed, stratum)` -- so serial still equals parallel by constructio
 exact because the layout chooses where the apportioned count goes, not how much.
 
 **The padded axis cannot be the split dimension.** A stratum holds one index of the split
-dimension, so a prefix along it is meaningless. `_choose_split_dim` picks the split axis on its
+dimension, so a line along it is a single cell. `_choose_split_dim` picks the split axis on its
 own, so the two can collide; the constructor should resolve or refuse it rather than generate
 something silently wrong.
 
-**Overlap must raise.** With both variables filling a prefix of the same axis, the intersection
+**Overlap must raise.** With both variables filling the first k cells of each line of the same axis, the intersection
 in a stratum is `min(k_0, k_i)`, so `F1 = n_i / n_0` and nothing is left to choose. Argo confirms
 this: NITRATE sits at occupancy 0.161 against TEMP's 0.986 and its measured F1 is 0.163, the
 density ratio. Passing `overlap` alongside `layout="padded"` should raise, the way packing an
@@ -70,8 +70,8 @@ integer dtype does, because the target cannot be honoured. The achieved value st
 generation report.
 
 **Coverage comes from the layout, not from the LHS.** Keeping the LHS would place `max(shape)`
-points wherever coverage demands, which is outside the prefix, leaving a padded dataset with a
-thin scatter through it -- 0.6% of the cells on CrocoLake's shape, 5.1% on Argo's. A prefix
+points wherever coverage demands, which is outside the filled cells, leaving a padded dataset with a
+thin scatter through it -- 0.6% of the cells on CrocoLake's shape, 5.1% on Argo's. Filling the first k cells
 construction can guarantee coverage on its own, so the LHS stage is skipped under `padded`.
 
 Within a stratum, call each combination of the remaining axes a **line**, and fill positions
@@ -81,7 +81,7 @@ Within a stratum, call each combination of the remaining axes a **line**, and fi
   other than the padded one, since each line is one combination of them.
 * one line somewhere reaches the last coordinate, `k = n_padded`. This covers the padded axis.
 
-Both are constraints on the vector of prefix lengths, which is what the layout is choosing
+Both are constraints on the vector of k per line, which is what the layout is choosing
 anyway, so coverage costs nothing extra and no cell sits outside the pattern.
 
 The full-length line has to be chosen without the workers talking to each other. Take the stratum
@@ -99,7 +99,7 @@ and carry a correction on top.
 
 Two knock-ons, neither large but both real:
 
-* **The minimum density rises.** Coverage under a prefix needs `n_lines + n_padded - 1`
+* **The minimum density rises.** Coverage when every line fills its first k cells needs `n_lines + n_padded - 1`
   observations, against `max(shape)` for scattered. On Argo's shape that is 539 rather than 520;
   on CrocoLake's, 3,041 rather than 2,000. `compute_min_density` needs a padded variant, and the
   generation report should state which bound applied.
@@ -177,7 +177,7 @@ do; it is not information about the data.
 
 ## Stages
 
-1. `layout="padded"`: the prefix construction with its own coverage guarantee, the padded
+1. `layout="padded"`: filling the first k cells of each line, with its own coverage guarantee, the padded
    variants of `compute_min_density` and `stratum_counts`, the split-dimension conflict, and the
    `overlap` refusal.
 2. The report rows.
@@ -189,10 +189,10 @@ do; it is not information about the data.
 ## Open questions
 
 * Which axis is padded by default? Argo and CrocoLake want the level axis, which is the non-split
-  one. On more than two dimensions a prefix along one axis inside a hyperplane generalises, but
+  one. On more than two dimensions, filling the first k cells along one axis inside a hyperplane generalises, but
   the default needs stating.
-* **One padded axis only, for now.** Two would nest: a prefix along A, then within each filled
-  position of A a prefix along B, so the occupied set is `{(i, j, l) : j < k_i, l < m_ij}` and the
+* **One padded axis only, for now.** Two would nest: the first k cells along A, then within each filled
+  position of A the first m cells along B, so the occupied set is `{(i, j, l) : j < k_i, l < m_ij}` and the
   counts need two levels of apportionment rather than one. It also needs
   `n_dims >= n_padded + 1`, since the split dimension cannot be padded, so two padded axes means
   at least three dimensions and two dimensions can never have both padded. None of the three

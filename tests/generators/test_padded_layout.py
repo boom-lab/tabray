@@ -1,6 +1,6 @@
 """Tests for layout="padded".
 
-Argo and CrocoLake fill a prefix of each profile's levels; the generator's
+Argo and CrocoLake fill the first k levels of each profile; the generator's
 default scatters its occupancy, which at a fixed density changes compressed
 array size by 2.3x and reverses which format is smaller. See
 docs/layout_plan.md.
@@ -117,7 +117,7 @@ class TestPaddedPlacement:
             others = tuple(d for d in range(len(shape)) if d != dim)
             assert grid.any(axis=others).all(), f"axis {dim} left a coordinate unused"
 
-    def test_every_run_is_a_prefix(self):
+    def test_every_line_fills_its_first_k_cells(self):
         shape, obs = [2000, 1042], 310516
         indices, _ = RecordGenerator.generate_padded_indices(shape, obs, 7, 0, 1)
         grid = occupancy(shape, indices)
@@ -245,18 +245,18 @@ class TestEveryVariableIsPadded:
         return gen, dataset
 
     @staticmethod
-    def all_prefixes(values, axis):
+    def fills_first_k(values, axis):
         occupied = np.moveaxis(~np.isnan(values), axis, -1)
         rows = occupied.reshape(-1, occupied.shape[-1])
         lengths = rows.sum(axis=1)
         return all(row[:k].all() and not row[k:].any() for row, k in zip(rows, lengths))
 
-    def test_a_variable_with_the_padded_axis_fills_prefixes(self, tmp_path):
+    def test_a_variable_with_the_padded_axis_fills_its_first_k_cells(self, tmp_path):
         gen, dataset = self.build(tmp_path, "a", var_dims=[3, [1, 2]], **self.PARAMS)
         var1 = dataset["var1"]
         assert "x2" in var1.dims
         assert int(var1.notnull().sum()) == gen.var_num_obs[1]
-        assert self.all_prefixes(var1.values, var1.get_axis_num("x2"))
+        assert self.fills_first_k(var1.values, var1.get_axis_num("x2"))
 
     def test_a_variable_without_it_keeps_its_count(self, tmp_path):
         """No padded axis to fill: the variable is placed as under scattered."""

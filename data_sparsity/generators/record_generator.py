@@ -204,7 +204,7 @@ class RecordGenerator:
         padded_dim: int,
         strata: Optional[Iterable[int]] = None,
     ) -> Tuple[Tuple[np.ndarray, ...], np.ndarray]:
-        """Place observations as a prefix along one axis, with values.
+        """Place observations so each line fills its first k cells, with values.
 
         Each combination of the dimensions other than the split and the padded
         one is a **line**, and a line holds positions ``0..k-1`` of the padded
@@ -225,7 +225,7 @@ class RecordGenerator:
             num_obs: Total observations across the whole grid
             seed: Base random seed
             split_dim: Dimension indexing the strata
-            padded_dim: Dimension the prefixes run along
+            padded_dim: Dimension whose first k cells each line fills
             strata: Which strata to generate (default: all of them)
 
         Returns:
@@ -239,7 +239,7 @@ class RecordGenerator:
         if padded_dim == split_dim:
             raise ValueError(
                 f"padded_dim and split_dim are both {split_dim}: a stratum "
-                "holds one index of the split dimension, so a prefix along it "
+                "holds one index of the split dimension, so a line along it "
                 "would be a single cell."
             )
         n_padded = shape[padded_dim]
@@ -266,7 +266,7 @@ class RecordGenerator:
             if count == 0:
                 continue
             rng = stream(seed, Stream.STRATUM, stratum)
-            lengths = RecordGenerator._prefix_lengths(
+            lengths = RecordGenerator._first_occupied_per_line(
                 count, lines, n_padded, rng, full_line=(stratum == carrier)
             )
 
@@ -308,7 +308,7 @@ class RecordGenerator:
         """Observations per stratum under the padded layout, and which stratum
         carries the full-length line.
 
-        No LHS stage: coverage comes from the prefix construction, so the
+        No LHS stage: coverage comes from filling the first k cells of each line, so the
         counts are a plain apportionment over stratum capacity with a floor of
         one observation per line. One line has to reach the last coordinate of
         the padded axis, or that coordinate goes unused; the stratum with the
@@ -323,7 +323,7 @@ class RecordGenerator:
             num_obs: Total observations across the whole grid
             seed: Base random seed
             split_dim: Dimension indexing the strata
-            padded_dim: Dimension the prefixes run along
+            padded_dim: Dimension whose first k cells each line fills
             sigma: Spread of the lognormal weighting the strata. 1.5 puts the
                 median near CrocoLake's, whose profiles run 1 / 70 / 155 / 1042
                 for minimum, median, mean and maximum levels; the generated
@@ -375,7 +375,7 @@ class RecordGenerator:
             )
         # Lognormal weights rather than uniform, because on a two-dimensional
         # grid each stratum is one line and the profile-to-profile variation in
-        # length comes from here, not from _prefix_lengths. Uniform weights
+        # length comes from here, not from _first_occupied_per_line. Uniform weights
         # gave every profile the same length: median 155 of a maximum 1042,
         # where Argo's median is 70.
         weights = stream(seed, Stream.PADDED).lognormal(0.0, sigma, num_strata)
@@ -399,7 +399,7 @@ class RecordGenerator:
         return counts, carrier
 
     @staticmethod
-    def _prefix_lengths(
+    def _first_occupied_per_line(
         count: int,
         lines: int,
         n_padded: int,
@@ -424,7 +424,7 @@ class RecordGenerator:
             sigma: Spread of the lognormal
 
         Returns:
-            Array of ``lines`` prefix lengths, each between 1 and n_padded
+            Array of ``lines`` values k, each line filling its first k cells (1..n_padded)
         """
         weights = rng.lognormal(0.0, sigma, size=lines)
         lengths = np.ones(lines, dtype=np.int64)
@@ -477,8 +477,8 @@ class RecordGenerator:
             split_dim: Dimension indexing the strata
             strata: Which strata to generate (default: all of them)
             layout: ``scattered``, the Latin hypercube plus uniform fill, or
-                ``padded``, a prefix along ``padded_dim`` in every line
-            padded_dim: The axis the prefixes run along, required for
+                ``padded``, every line filling its first k cells of ``padded_dim``
+            padded_dim: The axis whose first k cells each line fills, required for
                 ``padded``
 
         Returns:
@@ -493,7 +493,7 @@ class RecordGenerator:
         if layout == "padded":
             if padded_dim is None:
                 raise ValueError(
-                    "layout='padded' needs padded_dim: the axis the prefixes "
+                    "layout='padded' needs padded_dim: the axis whose first k cells "
                     "run along."
                 )
             return RecordGenerator.generate_padded_indices(
