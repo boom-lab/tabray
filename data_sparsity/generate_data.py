@@ -132,7 +132,11 @@ class GenerateData:
         # convention -- GLORYS packs everything to int16, Argo writes plain
         # float32 -- so this is per variable, defaulting to float64.
         self.var_encodings = VariableEncoding.per_variable(
-            dtype, pack, fill_value, self.num_vars, value_range
+            dtype,
+            pack,
+            fill_value,
+            self.num_vars,
+            value_range,
         )
         self._resolve_density_input()
 
@@ -555,7 +559,10 @@ class GenerateData:
         attrs.update({"overlap_target": "random", "fixed_overlap": []})
 
         self._dataarray = NetCDFBuilder.build_dataarray(
-            self._records["var0"], self._coordinates, "record", attrs
+            self._records["var0"],
+            self._coordinates,
+            "record",
+            attrs,
         )
         return self._dataarray
 
@@ -588,7 +595,10 @@ class GenerateData:
         )
 
         self._dataset = NetCDFBuilder.build_dataset(
-            self._records, self._coordinates, attrs, self.var_constant_dims
+            self._records,
+            self._coordinates,
+            attrs,
+            self.var_constant_dims,
         )
         return self._dataset
 
@@ -637,8 +647,10 @@ class GenerateData:
             dataarray = self._dataset if self.num_vars > 1 else self._dataarray
 
         NetCDFBuilder.save_to_file(
-            dataarray, filepath, overwrite,
-            var_encodings=self.var_encodings
+            dataarray,
+            filepath,
+            overwrite,
+            var_encodings=self.var_encodings,
         )
 
     def save_to_parquet(
@@ -660,8 +672,11 @@ class GenerateData:
             dataframe = self._dataframe
 
         ParquetBuilder.save_to_file(
-            dataframe, filepath, overwrite, chunk_id,
-            var_encodings=self.var_encodings
+            dataframe,
+            filepath,
+            overwrite,
+            chunk_id,
+            var_encodings=self.var_encodings,
         )
 
     def generate(
@@ -931,7 +946,10 @@ class GenerateData:
         merged.attrs["description"] = merged.attrs.get(
             "description",
             "",
-        ).replace(" (chunk)", "")
+        ).replace(
+            " (chunk)",
+            "",
+        )
         merged.attrs["num_obs"] = int(self.var_num_obs[0])
         merged.attrs["density"] = float(self.var_num_obs[0] / self.total_grid_points)
         if self.num_vars > 1:

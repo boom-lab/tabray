@@ -234,8 +234,11 @@ class NetCDFBuilder:
         for position, name in enumerate(names):
             entry = {}
             if var_encodings:
-                index = (int(name[3:]) if name.startswith("var") and
-                         name[3:].isdigit() else position)
+                index = (
+                    int(name[3:])
+                    if name.startswith("var") and name[3:].isdigit()
+                    else position
+                )
                 if index < len(var_encodings):
                     entry.update(var_encodings[index].netcdf_encoding())
             encoding[name] = entry

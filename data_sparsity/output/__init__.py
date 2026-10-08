@@ -6,8 +6,8 @@ from data_sparsity.output.path_manager import PathManager
 from data_sparsity.output.variable_encoding import VariableEncoding
 
 __all__ = [
-    'NetCDFBuilder',
-    'ParquetBuilder',
-    'PathManager',
-    'VariableEncoding',
+    "NetCDFBuilder",
+    "ParquetBuilder",
+    "PathManager",
+    "VariableEncoding",
 ]

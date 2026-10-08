@@ -47,11 +47,11 @@ class VariableEncoding:
     INT_FILL = {"int8": -127, "int16": -32767, "int32": -2147483647}
 
     def __init__(
-            self,
-            dtype: str = "float64",
-            pack: Optional[str] = None,
-            fill_value: Optional[float] = None,
-            value_range: Optional[Tuple[float, float]] = None,
+        self,
+        dtype: str = "float64",
+        pack: Optional[str] = None,
+        fill_value: Optional[float] = None,
+        value_range: Optional[Tuple[float, float]] = None,
     ) -> None:
         """Resolve one variable's encoding.
 
@@ -103,14 +103,12 @@ class VariableEncoding:
 
         if self.packed:
             self.fill_value = (
-                int(fill_value) if fill_value is not None
-                else self.INT_FILL[pack]
+                int(fill_value) if fill_value is not None else self.INT_FILL[pack]
             )
             self.scale_factor, self.add_offset = self._packing()
         elif self.integer:
             self.fill_value = (
-                int(fill_value) if fill_value is not None
-                else self.INT_FILL[dtype]
+                int(fill_value) if fill_value is not None else self.INT_FILL[dtype]
             )
             self.scale_factor = self.add_offset = None
             self._validate_fill_outside_range()
@@ -235,9 +233,7 @@ class VariableEncoding:
 
         occupied = ~np.isnan(values)
         out = values.copy()
-        codes = np.rint(
-            (values[occupied] - self.add_offset) / self.scale_factor
-        )
+        codes = np.rint((values[occupied] - self.add_offset) / self.scale_factor)
         codes = np.clip(codes, self.fill_value + 1, np.iinfo(self.pack).max)
         out[occupied] = self.add_offset + self.scale_factor * codes
         return out
@@ -245,8 +241,10 @@ class VariableEncoding:
     def netcdf_encoding(self) -> dict:
         """The per-variable part of xarray's ``encoding``."""
         if self.integer:
-            return {"dtype": self.storage_dtype,
-                    "_FillValue": np.dtype(self.dtype).type(self.fill_value)}
+            return {
+                "dtype": self.storage_dtype,
+                "_FillValue": np.dtype(self.dtype).type(self.fill_value),
+            }
         if not self.packed and self.dtype == "float64" and self.fill_value is None:
             # The default. Say nothing, so xarray writes as it would without
             # an encoding argument at all.
@@ -284,23 +282,29 @@ class VariableEncoding:
             fill = "NaN" if self.fill_value is None else self.fill_value
             span = f", range={self.value_range}" if self.integer else ""
             return f"VariableEncoding({self.dtype}{span}, fill={fill})"
-        return (f"VariableEncoding({self.dtype} -> {self.pack}, "
-                f"scale={self.scale_factor:.6g}, fill={self.fill_value})")
+        return (
+            f"VariableEncoding({self.dtype} -> {self.pack}, "
+            f"scale={self.scale_factor:.6g}, fill={self.fill_value})"
+        )
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, VariableEncoding):
             return NotImplemented
         return (self.dtype, self.pack, self.fill_value, self.value_range) == (
-            other.dtype, other.pack, other.fill_value, other.value_range)
+            other.dtype,
+            other.pack,
+            other.fill_value,
+            other.value_range,
+        )
 
     @classmethod
     def per_variable(
-            cls,
-            dtype: Union[str, Sequence[str], None],
-            pack: Union[str, Sequence, None],
-            fill_value: Union[float, Sequence, None],
-            num_vars: int,
-            value_range: Union[Tuple, Sequence, None] = None,
+        cls,
+        dtype: Union[str, Sequence[str], None],
+        pack: Union[str, Sequence, None],
+        fill_value: Union[float, Sequence, None],
+        num_vars: int,
+        value_range: Union[Tuple, Sequence, None] = None,
     ) -> List["VariableEncoding"]:
         """Resolve one encoding per variable.
 
@@ -323,6 +327,7 @@ class VariableEncoding:
         Raises:
             ValueError: If a sequence has the wrong length
         """
+
         def spread(value, name, atom=(str, int, float)):
             if value is None or isinstance(value, atom):
                 return [value] * num_vars
@@ -340,8 +345,9 @@ class VariableEncoding:
         # A bare (min, max) applies to every variable; a sequence of pairs
         # gives one each.
         if value_range is not None and not (
-                len(value_range) == 2
-                and all(isinstance(v, (int, float)) for v in value_range)):
+            len(value_range) == 2
+            and all(isinstance(v, (int, float)) for v in value_range)
+        ):
             ranges = spread(list(value_range), "value_range", atom=())
         else:
             ranges = [value_range] * num_vars
