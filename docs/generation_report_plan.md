@@ -86,3 +86,18 @@ golden baseline, so it belongs in a later opt-in step rather than as a side effe
 * **Noise.** See the `adjusted` status above.
 * **Circularity.** See the first section. If the report ever starts reading internal state for
   convenience, it stops being a check.
+
+## For PR 25
+
+- `describe_dataset`: statistics of any netCDF or parquet file, read lazily. Grid, grid
+  validity (every coordinate used at least once), per variable its dimensions, own grid,
+  occupied cells and density, pairwise overlap, encoding. Parquet needs its coordinate columns
+  named by the caller.
+- `GenerationReport` becomes the requested-vs-achieved layer on top of it. `from_arrays`,
+  `measure_chunk` and `from_chunks` go; the parallel output is measured from the files, so
+  serial and parallel share one measurement.
+- Requested densities live on `GenerateData`. Validation overwrites a scalar density with the
+  rounded figure (`self.density = density_for_grid`), so `GenerationReport.requested_density`
+  rebuilds it from `_requested`. It is wrong for several variables with a scalar density:
+  `var_densities` is built from the rounded value and the row reads `match`. Store
+  `requested_densities` per variable before validation rounds anything and read it directly.
