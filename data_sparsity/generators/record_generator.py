@@ -122,6 +122,48 @@ class RecordGenerator:
         return local + np.searchsorted(offset, local, side="right")
 
     @staticmethod
+    def _global_stage(
+        shape: List[int],
+        num_obs: int,
+        seed: int,
+        split_dim: int,
+    ) -> Tuple[Tuple[np.ndarray, ...], np.ndarray, np.ndarray]:
+        """The global part of stratified placement: LHS, then fill counts.
+
+        - LHS: ``max(shape)`` points from ``stream(seed, Stream.LHS)``
+        - fill: ``num_obs - max(shape)`` apportioned over strata by free sites
+
+        Args:
+            shape: Full grid shape
+            num_obs: Total observations across the whole grid
+            seed: Base random seed
+            split_dim: Dimension indexing the strata
+
+        Returns:
+            (LHS multi-indices, LHS points per stratum, fill per stratum)
+
+        Raises:
+            ValueError: If num_obs < max(shape)
+        """
+        if num_obs < max(shape):
+            raise ValueError(
+                f"num_obs {num_obs} < max(shape) {max(shape)}: every "
+                f"coordinate of every axis must be used at least once, which "
+                f"needs at least max(shape) observations."
+            )
+        num_strata = shape[split_dim]
+        hyper_shape = [size for dim, size in enumerate(shape) if dim != split_dim]
+        stratum_sites = int(np.prod(hyper_shape)) if hyper_shape else 1
+
+        lhs = RecordGenerator.generate_lhs_indices(shape, stream(seed, Stream.LHS))
+        taken = np.bincount(
+            np.asarray(lhs[split_dim], dtype=np.int64),
+            minlength=num_strata,
+        )
+        fill_counts = ChunkUtils.apportion(num_obs - max(shape), stratum_sites - taken)
+        return lhs, taken, fill_counts
+
+    @staticmethod
     def stratum_counts(
         global_shape: List[int],
         num_obs: int,
@@ -130,15 +172,10 @@ class RecordGenerator:
     ) -> np.ndarray:
         """How many observations the reference variable puts in each stratum.
 
-        The same figure ``generate_stratified_indices`` derives, without
-        placing anything. Both stages behind it are global: the Latin
-        hypercube draws from ``stream(seed, Stream.LHS)``, and the fill is
-        apportioned across all strata at once. So a worker holding one chunk
-        can still learn the counts of strata it does not own, at the cost of
-        one LHS draw of ``max(shape)`` points.
-
-        This is what lets the overlap target be apportioned globally rather
-        than rounded in each stratum.
+        Global stage of ``generate_stratified_indices`` only, nothing placed:
+        a worker learns the counts of strata it does not own for one LHS draw
+        of ``max(shape)`` points. Lets the overlap target be apportioned
+        globally rather than rounded in each stratum.
 
         Args:
             global_shape: Full grid shape
@@ -150,19 +187,13 @@ class RecordGenerator:
             Array of length ``global_shape[split_dim]`` summing to ``num_obs``
         """
         shape = [int(size) for size in global_shape]
-        num_strata = shape[split_dim]
-        hyper_shape = [size for dim, size in enumerate(shape) if dim != split_dim]
-        stratum_sites = int(np.prod(hyper_shape)) if hyper_shape else 1
-        num_obs = int(num_obs)
-
-        n_s = max(shape)
-        lhs = RecordGenerator.generate_lhs_indices(shape, stream(seed, Stream.LHS))
-        taken = np.bincount(
-            np.asarray(lhs[split_dim], dtype=np.int64),
-            minlength=num_strata,
+        _, taken, fill_counts = RecordGenerator._global_stage(
+            shape,
+            int(num_obs),
+            seed,
+            split_dim,
         )
-        available = stratum_sites - taken
-        return taken + ChunkUtils.apportion(num_obs - n_s, available)
+        return taken + fill_counts
 
     @staticmethod
     def generate_stratified_indices(
@@ -210,16 +241,14 @@ class RecordGenerator:
         stratum_sites = int(np.prod(hyper_shape)) if hyper_shape else 1
         num_obs = int(num_obs)
 
-        # --- LHS stage: global, O(max(shape)) -----------------------------
-        if num_obs < max(shape):
-            raise ValueError(
-                f"num_obs {num_obs} < max(shape) {max(shape)}: every "
-                f"coordinate of every axis must be used at least once, which "
-                f"needs at least max(shape) observations."
-            )
+        # --- global stage: LHS and fill counts, shared with stratum_counts --
         n_s = max(shape)
-        lhs_rng = stream(seed, Stream.LHS)
-        lhs = RecordGenerator.generate_lhs_indices(shape, lhs_rng)
+        lhs, _, fill_counts = RecordGenerator._global_stage(
+            shape,
+            num_obs,
+            seed,
+            split_dim,
+        )
         lhs_split = np.asarray(lhs[split_dim], dtype=np.int64)
         if hyper_shape:
             lhs_local = np.ravel_multi_index(
@@ -232,14 +261,6 @@ class RecordGenerator:
             )
         else:
             lhs_local = np.zeros(n_s, dtype=np.int64)
-
-        # --- apportion the fill across strata: global, O(num_strata) ------
-        taken = np.bincount(lhs_split, minlength=num_strata)
-        available = stratum_sites - taken
-        fill_counts = ChunkUtils.apportion(num_obs - n_s, available)
-        # Same arithmetic as stratum_counts, which a worker calls to learn the
-        # counts of strata it does not own. Kept in step by the test that
-        # compares the two.
 
         # --- per-stratum draw ---------------------------------------------
         if strata is None:
