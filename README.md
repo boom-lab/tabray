@@ -297,7 +297,7 @@ dataset, df = gen.generate()
   remaining axes. `overlap` cannot be set alongside `layout="padded"`: with the variables filling
   prefixes of the same axis the achieved F1 follows from the densities, so no target can be
   honoured. Note the minimum density is higher under `padded` — every line needs an observation
-  and one line must run the full length.
+  and one line must run the full length — and the generation report states which bound applied.
 - **num_vars** (int, optional): Number of variables in the dataset (default: 1)
 - **var_dims** (int, list, or tuple, optional): 
   - Int: Number of dimensions for each variable (randomly selected if less than num_dims)
