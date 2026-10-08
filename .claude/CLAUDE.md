@@ -79,7 +79,7 @@ GenerateData.generate  ->  generators/   CoordinateGenerator, MultiVarRecordGene
 - `overlap` raises under `padded`: the variables fill prefixes of one axis, so F1 follows from the densities.
 - The padded axis cannot be `dim_split` (`_choose_split_dim` excludes it).
 - Stratum counts: `padded_stratum_counts`, lognormal weights capped per stratum (`ChunkUtils.apportion(..., capacity)`), one stratum raised to carry the full-length line.
-- Report: a `minimum density` row states which bound applied.
+- Report: a `minimum density` row states which bound applied (var0's coverage bound).
 
 ### Per-variable encoding
 

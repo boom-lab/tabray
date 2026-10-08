@@ -276,5 +276,5 @@ class TestEveryVariableIsPadded:
     def test_the_report_states_the_bound(self, tmp_path):
         gen, _ = self.build(tmp_path, "c", var_dims=[3, [1, 2]], **self.PARAMS)
         row = next(r for r in gen.report.rows if r["property"] == "minimum density")
-        assert row["requested"].startswith("padded")
+        assert "padded" in row["requested"]
         assert row["achieved"] == pytest.approx(gen.density_zero, abs=1e-6)

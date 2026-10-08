@@ -87,14 +87,19 @@ class MultiVarSparsityConfig:
         var_densities: np.ndarray,
         density_min: float,
     ) -> np.ndarray:
-        """Validate density values and clip to minimum if needed.
+        """Validate density values; clip var0 to the minimum if needed.
+
+        - every density must lie in [0, 1]
+        - density_min is var0's coverage bound (every coordinate of every
+          axis used), so only var0 is clipped to it; the other variables
+          have no coverage requirement and keep the density they asked for
 
         Args:
-            var_densities: Array of density values
-            density_min: Minimum allowable density
+            var_densities: Array of density values, var0 first
+            density_min: Minimum allowable density for var0
 
         Returns:
-            Validated and clipped array
+            Validated array, var0 clipped
 
         Raises:
             ValueError: If any density is outside [0, 1]
@@ -104,7 +109,7 @@ class MultiVarSparsityConfig:
                 raise ValueError(
                     f"Variable {j} density {density} must be between 0 and 1"
                 )
-            if density < density_min:
+            if j == 0 and density < density_min:
                 print(
                     f"WARNING: Variable {j} density {density} is below minimum "
                     f"{density_min}, clipping to minimum"
