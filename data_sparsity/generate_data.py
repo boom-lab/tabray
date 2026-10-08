@@ -181,7 +181,7 @@ class GenerateData:
             ):
                 raise ValueError(
                     "overlap cannot be set with layout='padded'. With every "
-                    "variable filling a prefix of the same axis the "
+                    "line filling its first k cells of the same axis the "
                     "intersection is min(k_0, k_i), so F1 is the ratio of the "
                     "densities and no target can be honoured. The achieved "
                     "value is in the generation report."
@@ -406,7 +406,7 @@ class GenerateData:
         for varying in self.var_dims_indices:
             shared &= set(varying)
         # A stratum holds one index of the split dimension, so the padded
-        # axis cannot be it -- a prefix along it would be a single cell.
+        # axis cannot be it -- a line along it would be a single cell.
         if getattr(self, "layout", "scattered") == "padded":
             shared -= {self.padded_dim}
         if not shared:

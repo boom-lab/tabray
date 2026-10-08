@@ -82,7 +82,7 @@ class MultiVarRecordGenerator:
             num_obs_global: Global observation count in parallel mode
             div_points: Division points for chunk filtering in parallel mode
             layout: ``scattered`` or ``padded``
-            padded_dim: The axis prefixes run along under ``padded``
+            padded_dim: The axis whose first k cells each line fills under ``padded``
 
         Returns:
             Dictionary with the filled var0 record
@@ -168,7 +168,7 @@ class MultiVarRecordGenerator:
                 reference ordering (MultiVarOverlapConfig output). Multi-variable
                 only.
             layout: ``scattered`` or ``padded``
-            padded_dim: The axis prefixes run along under ``padded``
+            padded_dim: The axis whose first k cells each line fills under ``padded``
 
         Returns:
             Tuple of (records dict, actual overlap achieved)
@@ -271,7 +271,7 @@ class MultiVarRecordGenerator:
         rng: np.random.Generator,
         sigma: float = 0.8,
     ) -> np.ndarray:
-        """A non-reference variable's cells in one stratum, as prefixes.
+        """A non-reference variable's cells in one stratum; each line fills its first k cells.
 
         - line: one combination of the variable's stratum dims other than
           the padded one; each holds positions 0..k-1 of the padded axis
@@ -364,7 +364,7 @@ class MultiVarRecordGenerator:
             split_dim: Dimension indexing the strata
             strata: Which strata to generate (default: all)
             layout: ``scattered`` or ``padded``, passed to var0's placement
-            padded_dim: The axis prefixes run along under ``padded``
+            padded_dim: The axis whose first k cells each line fills under ``padded``
 
         Returns:
             var_name -> (multi-indices in GLOBAL space, values)
@@ -497,7 +497,7 @@ class MultiVarRecordGenerator:
 
                 if n_overlap is None and layout == "padded" and padded_dim in dims:
                     # the dataset's layout applies to every variable that has
-                    # the padded axis: each line holds a prefix of it
+                    # the padded axis: each line fills its first k cells
                     cells = MultiVarRecordGenerator._padded_cells(
                         n_here,
                         sizes,

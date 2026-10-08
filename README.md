@@ -292,10 +292,10 @@ dataset, df = gen.generate()
   are occupied and nothing about where they sit; compressed with DEFLATE, the arrangement changes
   array size by 2.3× at a fixed density and reverses which format is smaller (this package writes
   uncompressed files). `docs/layout_plan.md` has the measurements.
-- **padded_dim** (int, optional): The axis the prefixes run along under `layout="padded"`
+- **padded_dim** (int, optional): The axis whose first k cells each line fills under `layout="padded"`
   (default: the last dimension). It cannot be the split dimension, so the split is chosen from the
-  remaining axes. `overlap` cannot be set alongside `layout="padded"`: with the variables filling
-  prefixes of the same axis the achieved F1 follows from the densities, so no target can be
+  remaining axes. `overlap` cannot be set alongside `layout="padded"`: with every line filling
+  its first k cells of the same axis the achieved F1 follows from the densities, so no target can be
   honoured. Note the minimum density is higher under `padded` — every line needs an observation
   and one line must run the full length — and the generation report states which bound applied.
 - **num_vars** (int, optional): Number of variables in the dataset (default: 1)

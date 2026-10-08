@@ -128,7 +128,7 @@ def generate_chunk(
         var_fill_values: Fill value per variable, or one for all
         var_value_ranges: (min, max) per variable, or one for all
         layout: How the occupied cells are arranged
-        padded_dim: The axis prefixes run along under layout='padded'
+        padded_dim: The axis whose first k cells each line fills under layout='padded'
 
     Returns:
         Tuple of (chunk_id, total_observations, parquet_chunk_path,
