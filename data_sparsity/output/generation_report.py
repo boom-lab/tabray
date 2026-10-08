@@ -125,6 +125,27 @@ class GenerationReport:
         return float(densities[index])
 
     @staticmethod
+    def _add_coverage(report, name: str, unused: List[str]) -> None:
+        """Coverage row for the reference variable.
+
+        The LHS stage uses every coordinate of every axis for var0, so an
+        unused one means placement broke that guarantee.
+        """
+        report.add(
+            "coverage",
+            name,
+            "every coordinate used",
+            "yes" if not unused else f"unused on {','.join(unused)}",
+            MATCH if not unused else DIFFERS,
+            (
+                ""
+                if not unused
+                else "the LHS stage should use every coordinate of every "
+                "axis for the reference variable"
+            ),
+        )
+
+    @staticmethod
     def project(mask: xr.DataArray, keep) -> xr.DataArray:
         drop = [d for d in mask.dims if d not in keep]
         return mask.any(dim=drop) if drop else mask
@@ -194,24 +215,15 @@ class GenerationReport:
                 "rounds the grid to whole coordinates",
             )
 
-            unused = [
-                str(dim)
-                for dim in mask.dims
-                if not mask.any(dim=[d for d in mask.dims if d != dim]).all()
-            ]
-            report.add(
-                "coverage",
-                name,
-                "every coordinate used",
-                "yes" if not unused else f"unused on {','.join(unused)}",
-                MATCH if not unused else DIFFERS,
-                (
-                    ""
-                    if not unused
-                    else "fewer observations than the longest axis, or placement "
-                    "constrained by the overlap target"
-                ),
-            )
+            # Coverage is guaranteed for the reference only, by the LHS stage;
+            # the other variables are placed without that promise.
+            if index == 0:
+                unused = [
+                    str(dim)
+                    for dim in mask.dims
+                    if not mask.any(dim=[d for d in mask.dims if d != dim]).all()
+                ]
+                cls._add_coverage(report, name, unused)
 
         # --- overlap ------------------------------------------------------
         targets = getattr(gen, "overlap_target", None)
@@ -300,14 +312,17 @@ class GenerationReport:
             "offset": int(stratum_offset),
         }
 
-        for index, name in enumerate(names):
-            mask = masks[name]
-            summary["occupied"][name] = int(mask.sum())
-            used = {}
-            for dim in range(mask.ndim):
-                others = tuple(d for d in range(mask.ndim) if d != dim)
-                used[dim] = mask.any(axis=others).tolist()
-            summary["axis_used"][name] = used
+        for name in names:
+            summary["occupied"][name] = int(masks[name].sum())
+
+        # coverage is checked for the reference only (see from_arrays)
+        reference_mask = masks[names[0]]
+        summary["axis_used"][names[0]] = {
+            dim: reference_mask.any(
+                axis=tuple(d for d in range(reference_mask.ndim) if d != dim),
+            ).tolist()
+            for dim in range(reference_mask.ndim)
+        }
 
         reference = names[0]
         for index, name in enumerate(names[1:], start=1):
@@ -364,33 +379,21 @@ class GenerationReport:
                 "chunking round the counts",
             )
 
-            # coverage: union the per-axis vectors, the split axis by offset
-            unused = []
-            for dim in range(len(shape)):
-                if dim == gen.dim_split:
+            # coverage, reference only: union the per-axis vectors, the split
+            # axis placed by each chunk's offset
+            if index == 0:
+                unused = []
+                for dim in range(len(shape)):
                     seen = np.zeros(shape[dim], dtype=bool)
                     for s in summaries:
                         local = np.asarray(s["axis_used"][name][dim], dtype=bool)
-                        seen[s["offset"] : s["offset"] + local.size] |= local
-                else:
-                    seen = np.zeros(shape[dim], dtype=bool)
-                    for s in summaries:
-                        seen |= np.asarray(s["axis_used"][name][dim], dtype=bool)
-                if not seen.all():
-                    unused.append(f"x{dim}")
-            report.add(
-                "coverage",
-                name,
-                "every coordinate used",
-                "yes" if not unused else f"unused on {','.join(unused)}",
-                MATCH if not unused else DIFFERS,
-                (
-                    ""
-                    if not unused
-                    else "fewer observations than the longest axis, or placement "
-                    "constrained by the overlap target"
-                ),
-            )
+                        if dim == gen.dim_split:
+                            seen[s["offset"] : s["offset"] + local.size] |= local
+                        else:
+                            seen |= local
+                    if not seen.all():
+                        unused.append(f"x{dim}")
+                cls._add_coverage(report, name, unused)
 
         targets = getattr(gen, "overlap_target", None)
         if targets is not None and len(names) > 1:

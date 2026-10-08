@@ -172,6 +172,28 @@ class TestMeasuredFromTheData:
         rows = [r for r in gen.report.rows if r["property"] == "coverage"]
         assert rows and rows[0]["achieved"] == "yes"
 
+    def test_coverage_is_checked_for_the_reference_only(self, tmp_path):
+        """Only var0's coverage is guaranteed, by the LHS stage.
+
+        var1 has 6 sites on an 8 x 8 grid and cannot use every coordinate;
+        that is not a fault, so it gets no coverage row.
+        """
+        gen = generate(
+            tmp_path,
+            "cov",
+            num_obs=100,
+            num_dims=3,
+            ratio_dims=[1, 2, 2],
+            density=[0.4, 0.1],
+            seed=77,
+            num_vars=2,
+            var_dims=[3, 2],
+            overlap=0.5,
+        )
+        rows = [r for r in gen.report.rows if r["property"] == "coverage"]
+        assert [r["variable"] for r in rows] == ["var0"]
+        assert rows[0]["status"] == "match"
+
 
 class TestSerialAndParallelAgree:
     """The chunked path measures in the workers and sums; it must agree."""

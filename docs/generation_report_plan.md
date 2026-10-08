@@ -23,7 +23,7 @@ do not, list the candidates rather than choose.
 | `num_obs` per variable | count of non-fill cells | differs from the request |
 | `density` per variable | occupied / grid | differs from the request |
 | `overlap` per variable | F1 and F2 from the occupancy masks | differs from the target |
-| coverage | coordinates used per axis | any coordinate unused |
+| coverage | coordinates used per axis, reference variable only (the one the LHS stage guarantees) | any coordinate unused |
 | row consistency | parquet values against occupied cells, per variable | the two formats disagree |
 
 Not covered yet: `dtype` and `fill_value` read back from the file. The row check is
