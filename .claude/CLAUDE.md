@@ -4,139 +4,110 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Synthetic-data generator used to compare read/manipulation performance of **array** storage (netCDF/xarray) against **tabular** storage (parquet/pandas) across a range of grid occupancies, from purely gridded to maximally sparse. `docs/explainer.md` and `docs/explainer_multivar.md` define the terminology the code uses (site, density/sparsity, gridded vs irregular, overlap) — read them before changing generation semantics.
+Synthetic-data generator that compares **array** storage (netCDF/xarray) against **tabular** storage (parquet/pandas) across grid occupancies, from gridded to maximally sparse. `docs/explainer.md` and `docs/explainer_multivar.md` define the terms the code uses (site, density/sparsity, gridded vs irregular, overlap); read them before changing generation semantics.
 
-The distribution and the import package are both named `data_sparsity` (`pyproject.toml`). The repository and the local conda env are named `tabray`.
+Distribution and import package: `data_sparsity`. Repository and local conda env: `tabray`.
 
 ## Commands
 
 ```bash
-# environment (conda, installs the package editable via pip)
 conda env create -f environment.yml -n tabray && conda activate tabray   # the file names it data_sparsity
-# or
-pip install -e ".[dev]"          # dev = pytest, pytest-cov, pylint
+pip install -e ".[dev]"          # alternative; dev = pytest, pytest-cov, pylint
 
-pytest                            # full suite, ~85s; -v and --tb=short come from pyproject
+pytest                            # full suite, ~85s
 pytest tests/generators/test_overlap_calculator.py
-pytest tests/generators/test_coordinate_generator.py::TestGenerateDimensionCoords
 pytest -k "overlap"
-bash tests/run_all_tests.sh       # full suite + HTML/terminal coverage
+bash tests/run_all_tests.sh       # suite + coverage
 
 pylint data_sparsity/<module>.py  # every file must score >= 8
 ```
 
-Notebooks under `notebooks/` must be run with `notebooks/` as the working directory: `run_case(..., base_dir="./tutorial1")` writes into `notebooks/tutorial1/<case>/{netCDF,parquet}/`.
-
-`tests/diagnostic_coordinate_identity*.py` are standalone scripts, not collected by pytest (they don't match `test_*.py`). Run them with `python` when investigating serial/parallel coordinate divergence.
+- Notebooks run with `notebooks/` as the working directory.
+- `tests/diagnostic_coordinate_identity*.py` are standalone scripts, not collected by pytest.
 
 ## Architecture
 
-`GenerateData` (`data_sparsity/generate_data.py`, the only user-facing class) is an orchestrator. It holds no generation logic; it validates, configures, then delegates:
+`GenerateData` (`data_sparsity/generate_data.py`, the only user-facing class) validates, configures, then delegates; it holds no generation logic:
 
 ```
 GenerateData.__init__  ->  validators/   ParameterValidator, DimensionValidator, SparsityValidator
                        ->  config/       MultiVarSparsityConfig, MultiVarDimensionsConfig, MultiVarOverlapConfig
 GenerateData.generate  ->  generators/   CoordinateGenerator, MultiVarRecordGenerator (-> RecordGenerator,
                                          ObservationGenerator, OverlapCalculator)
-                       ->  output/       NetCDFBuilder, ParquetBuilder, PathManager
+                       ->  output/       NetCDFBuilder, ParquetBuilder, PathManager, VariableEncoding
                        ->  workers/      generate_chunk  (parallel path only)
 ```
 
-### Minimum density
+### Validation
 
-`SparsityValidator.compute_min_density` returns `max(shape) / prod(shape)`: the sparsest grid in
-which every coordinate on every axis is still used at least once. Each observation supplies one
-coordinate per axis, so the LONGEST axis sets the floor, and `max(shape)` observations can reach
-it (the LHS stage takes `n_s = max(shape)` for exactly this reason). `density=0.0` raises in
-`ParameterValidator.validate_density_type`: the grid size is `num_obs / density`, so zero cannot
-select the minimum. `docs/explainer.md`, "Minimum density, on any grid", derives it; the README documents it
-under the `density` parameter.
+- Unusable inputs raise; rounding-level inconsistencies are corrected and printed.
+- Read `num_obs`, `density`, `shape` from post-validation instance attributes, not constructor arguments.
+- Minimum density = `max(shape) / prod(shape)` (`SparsityValidator.compute_min_density`): the longest axis sets it. `density=0.0` raises. Derivation: `docs/explainer.md`, "Minimum density, on any grid".
+- `seed` defaults to `None` in the signature but is required.
 
-This was `1 / nmin**(d-1)`, keyed to the SHORTEST axis. The two agree on cubic grids
-(`n**d / n**(d-1) = n`), where the old formula was hand-derived and exact. Off cubic they diverge,
-and the old one refused achievable densities: 5.6x too strict on a GLORYS12-shaped grid, and on any
-grid with an axis of length 1 it returned 1.0, so such grids could only be generated fully gridded.
+### Naming baked into the data
 
-Validation is deliberately part-hard, part-soft: unusable inputs raise, rounding-level inconsistencies are silently corrected and the corrected configuration is printed (`_print_input_config` / `_print_updated_config`). Code that reads back `num_obs`, `density`, or `shape` must read the post-validation instance attributes, not the constructor arguments.
+- Dimensions `x0 … x{num_dims-1}`, variables `var0 … var{num_vars-1}`, hardcoded across generators, parquet builder and overlap calculator.
+- Single-variable netCDF DataArray is named `record`; its record dict key is still `var0`.
 
-### Naming conventions baked into the data
+### One generation path
 
-Dimensions are `x0 … x{num_dims-1}`, variables are `var0 … var{num_vars-1}`. These strings are hardcoded across the generators, the parquet builder, and the overlap calculator; renaming requires touching all of them. A single-variable netCDF DataArray is named `record`, but its record dict key is still `var0`.
-
-### Single variable is a special case of multi-variable
-
-There is one generation path. `generate()` calls `_generate_multi_var_records` for every case, which calls `MultiVarRecordGenerator.generate`; with `num_vars=1` all dimensions vary and there are no constant dims. Do not reintroduce a separate single-variable placement routine. `num_vars == 1` only changes the output type: `xr.DataArray` + per-observation DataFrame, versus `xr.Dataset` + one-row-per-coordinate DataFrame with a column per variable.
-
-### Variables on fewer dimensions
-
-The grid is always `num_dims`-dimensional. A variable with fewer dimensions varies along `var_dims_indices[i]` and is pinned to a single coordinate on each dimension in `var_constant_dims[i]`. `generate_multivar_stratified` draws a variable's sites on its varying dims and writes its pinned coordinate on each constant dim straight into the full-grid indices; `NetCDFBuilder.build_dataset` drops and squeezes those dims back out on write.
+- `generate()` → `_generate_multi_var_records` → `MultiVarRecordGenerator.generate` for every case. Do not add a separate single-variable routine.
+- `num_vars == 1` changes only the output type: `xr.DataArray` + per-observation DataFrame, versus `xr.Dataset` + one row per coordinate.
+- The grid is always `num_dims`-dimensional. A variable on fewer dims varies along `var_dims_indices[i]` and is pinned to one coordinate on each of `var_constant_dims[i]`; `NetCDFBuilder.build_dataset` squeezes those dims out on write.
 
 ### Overlap
 
-`var0` is the reference variable, placed first. Overlap is **F1**, the definition in `docs/explainer_multivar.md`: `|proj(S0) & proj(Si)| / |proj(S0)|`, the share of *var0's* sites that also carry variable i, measured on the dimensions the two share. `OverlapCalculator.compute_overlap_report` is the single entry point: it returns `f1`, `f2` and the set sizes behind them.
+- `var0` is the reference, placed first, and must be the largest variable (`validate_density_refvar` raises otherwise).
+- Overlap is **F1** (`docs/explainer_multivar.md`): `|proj(S0) & proj(Si)| / |proj(S0)|`. Single entry point: `OverlapCalculator.compute_overlap_report`.
+- Placement is per stratum (`generate_multivar_stratified`): overlap cells from var0's footprint in each hyperplane, the rest from cells held by neither. Unreachable target → warning, density wins.
+- Overlap count per stratum:
+  - variable on all dims: total `round(t_i * sum_j p_j)`, apportioned across strata by largest remainder (`RecordGenerator.stratum_counts` rederives var0's counts under chunking);
+  - variable that drops a dim: `round(t_i * p_j)` per stratum, because `p_j` depends on where var0 landed and a worker cannot see other chunks.
+- `fixed_overlap=True`: opted-in variables draw from one shared permutation of reference sites, so they also overlap each other.
 
-Placement is per stratum: `MultiVarRecordGenerator.generate_multivar_stratified` takes cells from var0's footprint *within each hyperplane*, then fills the rest from cells held by neither variable, so the achieved overlap equals the target rather than picking up accidental coincidences. Where the target is unreachable — a reduced-dimension variable whose projected reference saturates — it warns and density takes precedence.
+### Per-variable encoding
 
-**How many cells per stratum** depends on the variable. One that varies along every dimension has its total decided once, `round(t_i * sum_j p_j)`, and apportioned across strata by largest remainder inside each stratum's bounds — the same treatment observation counts get. Rounding `t_i * p_j` in every stratum and summing is not the same number: each stratum rounds to a whole cell, and on a coarse grid one cell is a large share of the variable. A 3x3 grid asking for 7 of 8 shared cells got 8; one asking for 1 of 3 got 0.
+`dtype`, `pack`, `fill_value`, `value_range` → `VariableEncoding` (`output/variable_encoding.py`). Reasons: `docs/variable_encoding.md`.
 
-A variable that **drops a dimension** keeps the per-stratum rounding. Its `p_j` counts distinct *projected* cells, which depends on where var0 landed, so a worker holding one chunk cannot know it for strata it does not own. Both paths apply the same rule per variable, which is what keeps serial and parallel identical. `RecordGenerator.stratum_counts` is what makes the apportioned case work under chunking: it rederives var0's per-stratum counts from the global LHS without placing anything.
-
-`var0` is always the largest variable: `validate_density_refvar` raises unless `density[0]` is the maximum, and `MultiVarSparsityConfig.compute_var_num_obs` scales every other count from it, so no later check is needed.
-
-`fixed_overlap` (per-variable bool) makes variables draw their overlapping sites from one shared permutation of the reference sites, so opted-in variables overlap each other as well as the reference; with `False` each variable draws independently.
+- Default `float64` + NaN emits no encoding entry; default output must stay byte-identical.
+- `dtype` = what a variable holds; `pack` = how a float is compacted on disk. Packing an integer dtype raises.
+- Integers = `lo + floor(u * (hi - lo + 1))` from the uniform draw, never `rng.integers`: a dtype change must not move occupied sites.
+- Packed float: fill code reserved; `scale_factor`/`add_offset` are `float32`, except for `int32` (`float64`).
+- Integer `fill_value` must sit outside `value_range`; the parquet column is nullable (`Int16`).
+- `to_stored` runs once (`GenerateData._to_stored` + worker counterpart) before both writers; scale from `VALUE_RANGE`, never from the data.
 
 ### Determinism and the serial/parallel contract
 
-Every RNG comes from `stream(seed, tag, *index)` in `data_sparsity/utils/streams.py`, never
-from sequential consumption of one stream. The tuple goes to `numpy.random.default_rng`, which
-runs it through `SeedSequence`, so distinct tuples give independent generators. Tags live in the
-`Stream` class:
+Every RNG comes from `stream(seed, tag, *index)` (`utils/streams.py`); tags live in the `Stream` class.
 
 | tag | indexed by | used for |
 |---|---|---|
 | `COORDINATE` | dimension | one coordinate axis |
 | `LHS` | — | the global Latin hypercube stage |
 | `STRATUM` | stratum | per-stratum fill and values |
-| `DENSITY` | — | drawing per-variable densities from a range |
-| `VAR_DIMS` | variable | choosing which dimensions a variable varies along |
-| `CONST_COORD` | variable, constant dim | a variable's coordinate on a constant dimension |
+| `DENSITY` | — | per-variable densities from a range |
+| `VAR_DIMS` | variable | which dims a variable varies along |
+| `CONST_COORD` | variable, constant dim | a variable's coordinate on a constant dim |
 | `VAR` | variable, stratum | per-variable placement |
 | `SHARED_OVERLAP` | — | the shared ordering behind `fixed_overlap` |
 
-No tuple contains a chunk id, which is what makes parallel chunks reproduce serial output: serial
-and every worker derive the same generator for the same purpose. Chunks differ only in *which*
-strata they generate, so a chunk slices the global sorted coordinate axis by index rather than
-advancing a stream. Any change to a tag value, or to the order in which draws are taken, changes
-the data. `test_parallel_reproduces_serial_exactly` in `tests/utils/test_parallel_comparison.py`
-compares parallel and serial output for exact equality, single- and multi-variable, to catch it.
-
-Streams used to be derived by adding offsets to the seed (`seed + dim_idx * 1000` for coordinates
-and so on). That collided: `seed + 0*1000` is `seed`, so the x0 axis and the density range were
-one stream; `seed + 5000` is `seed + 5*1000`, so at six dimensions the x5 axis and var0's
-dimension selection were one stream. Adding a purpose now means adding a tag where the existing
-values are visible, rather than picking an offset and hoping it misses.
-
-`seed` has a default of `None` in the signature but is required; passing nothing raises `TypeError`.
+- No tuple contains a chunk id: serial and workers derive the same generator for the same purpose.
+- Chunks slice the global sorted coordinate axis by index; they never advance a stream.
+- New purpose → new tag. Never derive streams by seed offsets (`streams.py` docstring says why).
+- Changing a tag value or the order of draws changes the data. `test_parallel_reproduces_serial_exactly` (`tests/utils/test_parallel_comparison.py`) checks exact equality.
 
 ### Parallel path
 
-`max_obs` set below `num_obs` switches `NTASKS > 1`. The grid is split along `dim_split`, the longest dimension every variable varies along (`_choose_split_dim`), and `NTASKS` cannot exceed its length. Chunks run in a `ProcessPoolExecutor` (spawn context; workers = `min(NTASKS, max_workers or os.cpu_count())`) via the module-level `generate_chunk`, which takes every parameter explicitly so nothing needs to pickle `GenerateData`. Each chunk writes its own netCDF file (`<base>_<zero-padded chunk_id>.nc`) and a temporary parquet chunk into the scratch directory named by `parquet_tmp`; worker logs are off unless `TABRAY_WORKER_LOG=debug` is set, and then go to `generate(log_dir=...)` (default `./logs`), never a data directory; `_consolidate_parquet_files` then merges the parquet chunks with dask into one 300MB-partitioned dataset and deletes the temporaries. In this mode `generate()` returns `(None, None)` — results exist only on disk. For a single variable, `_generate_par` recomputes the per-chunk counts and rewrites `self.num_obs` and `self.density` from them.
-
-Chunk netCDF files keep every dimension (`build_dataset(squeeze_constant_dims=False)`) so they concatenate: a reduced-dimension variable sits on the full grid, NaN off its pinned coordinate. Apply `NetCDFBuilder.squeeze_constant_dims` before comparing with serial output; `merge_nc=True` does this.
-
-Because of spawn, a script that runs parallel generation needs an `if __name__ == "__main__":` guard, or each worker re-runs it on import and Python raises `RuntimeError` ("...before the current process has finished its bootstrapping phase"). Notebooks and pytest are unaffected. The README does not mention this yet.
-
-`generate(merge_nc=True)` concatenates the chunk netCDF files into one and deletes them; the
-default `False` leaves the per-chunk files, which is the only option for output too large to
-merge. The merge writes one data variable at a time, under a synchronous dask scheduler. Both
-matter: writing all variables in one `to_netcdf` call runs one dask store per variable
-concurrently, and HDF5 then allocates their space in completion order, so identical data produces
-a different file on every run (S7); and with the default thread pool a thread reading a chunk and
-a thread writing the output can deadlock on xarray's netCDF4 lock, hanging the run (S8). Neither
-is a memory trade -- the write still streams chunk by chunk, and one variable at a time needs less
-memory than all of them at once.
-
-`generate()` always calls `PathManager.setup_output_paths(overwrite=True)`, so existing `.nc`/`.parquet`/`_metadata` files in the target directories are deleted.
+- `max_obs < num_obs` → `NTASKS > 1`. Split along `dim_split` (`_choose_split_dim`: longest dim every variable varies along); `NTASKS <= len(dim_split)`.
+- `ProcessPoolExecutor`, spawn context, `min(NTASKS, max_workers or os.cpu_count())` workers, module-level `generate_chunk` with explicit parameters.
+- Scripts need an `if __name__ == "__main__":` guard (spawn re-imports them). README does not mention this yet.
+- Each chunk writes `<base>_<chunk_id>.nc` and a parquet chunk into `parquet_tmp`; `_consolidate_parquet_files` merges them (300MB partitions) and deletes the temporaries.
+- `generate()` returns `(None, None)`; results exist only on disk. Single variable: `self.num_obs` and `self.density` are rewritten from per-chunk counts.
+- Chunk netCDF files keep every dim (`squeeze_constant_dims=False`). Apply `NetCDFBuilder.squeeze_constant_dims` before comparing with serial output.
+- `merge_nc=True` concatenates chunks one variable at a time under a synchronous dask scheduler. Do not change either: see S7 (non-reproducible bytes) and S8 (deadlock) in `.claude/serial_parallel_equivalence_diagnostics.md`.
+- Worker logs: off unless `TABRAY_WORKER_LOG=debug`, then in `generate(log_dir=...)` (default `./logs`).
+- `generate()` calls `PathManager.setup_output_paths(overwrite=True)`: existing `.nc`/`.parquet`/`_metadata` files in the target directories are deleted.
 
 ## Conventions (from `.github/copilot-instructions.md`)
 
@@ -145,13 +116,11 @@ memory than all of them at once.
 - Keep `environment.yml` and `pyproject.toml` in sync when touching dependencies, and justify new ones.
 - Keep `README.md` current with new features and parameters.
 - Non-expert Python users read this code: prefer clear over clever, and comment any non-obvious design decision.
-- Never commit generated data (`.nc`, `.parquet`, `.csv`, …) — `.gitignore` already covers them.
+- Never commit generated data (`.nc`, `.parquet`, `.csv`, …).
 
 ## Open items
 
-`.claude/HANDOFF.md` lists what an earlier session left unfinished: lint exceptions
-still to agree, black not declared as a dependency, the per-format compression
-design that replaces the removed matched-codec setting, and diagnostics S6 and A4. Read it before picking up that work; delete entries as they are done.
+`.claude/HANDOFF.md` lists unfinished work: lint exceptions to agree, black not declared as a dependency, the per-format compression design that replaces the removed matched-codec setting, diagnostics S6 and A4. Delete entries as they are done.
 
 ## Known drift in the docs
 
