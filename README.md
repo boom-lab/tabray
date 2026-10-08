@@ -11,10 +11,6 @@ Notes:
 
 - Points 3 and 4 are related: I'll use read time as the metric for small enough data, and manipulation time (e.g. computing the mean, plotting, or so) for larger-than-memory data
 
-## Repository structure
-
-The repo is split in two main components. Python tools used to generate the data in array and tabular format, and a `benchmark` folder containing jupyter notebooks and codes in any language that can be used to read and benchmark performance.
-
 ## Installation
 
 ### Using pip
@@ -46,7 +42,7 @@ The conda environment includes pytest and other test dependencies by default.
 Generate synthetic observation data and save to both NetCDF and Parquet formats:
 
 ```python
-from data_sparsity import GenerateData
+from data_sparsity.generate_data import GenerateData
 
 # Create a data generator
 gen = GenerateData(
@@ -70,7 +66,7 @@ print(f"Array shape: {dataarray.shape}")
 ### Generate Data Without Saving
 
 ```python
-from data_sparsity import GenerateData
+from data_sparsity.generate_data import GenerateData
 
 gen = GenerateData(
     num_obs=500,
@@ -88,14 +84,12 @@ print(dataarray)
 print(dataframe.head())
 ```
 
-### Parallel Generation for Large Datasets (⚠️ Experimental)
+### Parallel Generation for Large Datasets
 
-> **Note**: Parallel generation is currently experimental and has known issues. For production use, set `max_obs` to a large value or omit it entirely to use serial generation. See `PARALLEL_GENERATION_STATUS.md` for details.
-
-When generating datasets larger than available memory, the tool can use parallel processing to split the data into manageable chunks. **This feature is being refactored and may not work reliably:**
+Setting `max_obs` below `num_obs` splits the grid into chunks and generates each chunk in its own process. A parallel run writes the same data as a serial run with the same parameters and seed.
 
 ```python
-from data_sparsity import GenerateData
+from data_sparsity.generate_data import GenerateData
 
 # Generate a large single-variable dataset with parallel processing
 gen = GenerateData(
@@ -122,8 +116,8 @@ gen_multi = GenerateData(
     seed=42,
     max_obs=10_000_000,
     num_vars=3,
-    var_dims=[[0,1,2], [1,2,3], [0,2,3]],
-    overlap=0.5             # 50% overlap between variables
+    var_dims=[[0,1,2,3], [1,2,3], [0,2,3]],  # var0 always uses every dimension
+    overlap=0.5             # half of var0's sites also carry each other variable
 )
 
 gen_multi.generate(
@@ -133,29 +127,27 @@ gen_multi.generate(
 ```
 
 **How it works:**
-- The dataset is split along the largest dimension into multiple chunks
-- Each chunk is generated independently using parallel processing with Dask
-- For NetCDF: Multiple files are created (e.g., `large_data_0.nc`, `large_data_1.nc`, etc.)
-- For Parquet: Chunks are generated, then repartitioned and consolidated into a single dataset
+- The run is split into `ceil(num_obs / max_obs)` chunks along the longest dimension that every variable varies along. The chunk count cannot exceed that dimension's length; a `max_obs` that asks for more chunks raises.
+- Each chunk runs in its own process (`concurrent.futures.ProcessPoolExecutor`). `max_workers` caps the number of processes running at once (default: the CPU count).
+- Every random draw depends on the seed and on the position in the grid, never on the chunk, so the chunks together reproduce the serial output: same coordinates, sites, values and overlap. Overlap targets apply to the whole grid, not to each chunk.
+- `generate()` returns `(None, None)`; the results exist only on disk.
+- For NetCDF: one file per chunk (e.g., `large_data_0.nc`, `large_data_1.nc`, etc.), which `xr.open_mfdataset` combines. Chunk files keep every dimension so that they concatenate, so a variable defined on fewer dimensions appears on the full grid, NaN outside its constant coordinate.
+- `generate(merge_nc=True)` merges the chunk files into one file, with those constant dimensions removed as in a serial run, and deletes the chunk files. The merge needs more memory than the data size; leave it off for output that does not fit in memory.
+- For Parquet: each chunk is written to a scratch directory (`generate(parquet_tmp=...)`), then Dask merges the chunks into one dataset with ~300 MB partitions and deletes the scratch files.
 - Worker logs: off by default. Set `TABRAY_WORKER_LOG=debug` (or `info`) to write one
   `worker_<id>.log` per chunk into `generate(log_dir=...)`, default `./logs`
-- Coordinates along shared dimensions are identical across chunks (using the same seed)
-- Coordinates along the split dimension are unique per chunk
-- **Multi-variable support:** All variables are generated for each chunk with proper overlap control
-- **Overlap in parallel:** When overlap is specified, it's maintained within each chunk using consistent RNG strategies
 
-**Memory Management:**
-- Set `max_obs` based on available memory (default: 10 million observations)
-- For multi-variable datasets, `max_obs` refers to the observations of the variable with highest density
-- Lower values create more chunks but use less memory per chunk
-- Higher values reduce overhead but require more memory
+**Memory:**
+- `max_obs` refers to the observations of `var0`, the variable with the highest density
+- Each process holds one chunk, so peak memory grows with chunk size times the number of processes running at once
+- Lower `max_obs` (smaller chunks) or `max_workers` (fewer processes) to reduce it
 
 ### Multi-Variable Datasets
 
 Generate datasets with multiple observation variables measured at potentially different points and dimensions:
 
 ```python
-from data_sparsity import GenerateData
+from data_sparsity.generate_data import GenerateData
 
 # Generate a dataset with 3 variables
 gen = GenerateData(
@@ -176,21 +168,26 @@ dataarray, dataframe = gen.generate(
 )
 
 # The result is an xarray.Dataset (not DataArray) with multiple data variables
-print(dataarray.data_vars)  # ['record0', 'record1', 'record2']
+print(dataarray.data_vars)  # ['var0', 'var1', 'var2']
 
-# The DataFrame includes a 'variable' column identifying each observation
-print(dataframe['variable'].value_counts())
+# The DataFrame has one row per site holding at least one variable and one
+# column per variable, NaN where that variable is absent
+print(dataframe.columns)  # ['x0', 'x1', 'x2', 'var0', 'var1', 'var2']
 ```
 
-**Sparsity Options for Multiple Variables:**
-- Scalar (e.g., `0.8`): All variables have the same density
-- 2-element list/tuple (e.g., `[0.7, 0.9]`): One variable gets min, one gets max, rest are random
-- num_vars-element list/tuple (e.g., `[0.8, 0.9, 1.0]`): Each variable gets its specified density
+**Density Options for Multiple Variables:**
+- Scalar (e.g., `0.1`): All variables have the same density
+- 2-element list/tuple `[max, min]` (e.g., `[0.3, 0.1]`): var0 gets max, one other variable gets min, the rest are drawn uniformly from `[min, max]`
+- num_vars-element list/tuple (e.g., `[0.3, 0.2, 0.1]`): Each variable gets its specified density
+
+var0 is the overlap reference and must have the largest density, so the largest value comes first; otherwise the constructor raises.
 
 **Variable Dimensions Options:**
-- Int (e.g., `2`): Each variable randomly uses 2 dimensions
-- List of ints (e.g., `[2, 3, 2]`): Each variable uses the specified number of dimensions (randomly selected)
-- List of lists/tuples (e.g., `[[0,1], [1,2], [0,2]]`): Each variable uses explicitly specified dimensions
+- Int (e.g., `2`): Each non-reference variable uses 2 randomly selected dimensions
+- List of ints (e.g., `[3, 3, 2]`): Each variable uses the specified number of dimensions (randomly selected)
+- List of lists/tuples (e.g., `[[0,1,2], [1,2], [0,2]]`): Each variable uses explicitly specified dimensions
+
+var0 always uses every dimension: a smaller value for it is replaced by `num_dims`, and a note is printed. At least one dimension must be shared by every variable, otherwise the constructor raises.
 
 **Overlap Control:**
 
@@ -224,7 +221,7 @@ gen = GenerateData(
     density=0.2,
     seed=42,
     num_vars=3,
-    var_dims=[[0,1,2], [1,2,3], [0,3]],  # Different dimensions per variable
+    var_dims=[[0,1,2,3], [1,2,3], [0,3]],  # Different dimensions per variable
     overlap=0.7  # 70% of var0's sites carry each variable, on shared dimensions
 )
 
@@ -239,9 +236,9 @@ dataset, df = gen.generate()
 - **num_dims** (int): Number of dimensions in the coordinate space (must be positive)
 - **ratio_dims** (tuple): Tuple with `num_dims` elements defining the relative size of each dimension (all must be positive)
 - **density** (float, list, or tuple, optional): 
-  - Float: Fraction of grid points that contain observations, range [0.0, 1.0]
-  - 2-element list/tuple: Min and max density values; one variable gets min, one gets max, rest are random
-  - num_vars-element list/tuple: Specific density for each variable
+  - Float: Fraction of grid points that contain observations, range (0.0, 1.0]
+  - 2-element list/tuple `[max, min]`: var0 gets max, one other variable gets min, the rest are drawn from the range
+  - num_vars-element list/tuple: Specific density for each variable, largest first (see **Density Options for Multiple Variables**)
 
   There is a **lower bound**, because a dataset is only generated if every coordinate on every
   axis is used at least once — an unused coordinate would be stored without describing any data
@@ -258,8 +255,9 @@ dataset, df = gen.generate()
   **longest** axis that sets the bound, not the shortest, and that axes of length 1 cost nothing:
   a `50x10x1x1` grid needs the same 50 observations as `50x10`. `docs/explainer.md` derives this.
 - **sparsity** (float, list, or tuple, optional): Fraction of grid points that are vacant, `sparsity = 1 - density`. Accepts the same float/list/tuple forms as `density` and is converted to `density` internally. Provide either `density` or `sparsity` (not both).
-- **seed** (int): Random seed for reproducibility (non-negative integer)
-- **max_obs** (int, optional): Maximum number of observations per chunk when using parallel generation (default: 10,000,000). When `num_obs` exceeds this value, the dataset is automatically split into chunks and generated in parallel.
+- **seed** (int): Random seed for reproducibility (non-negative integer). Required.
+- **max_obs** (int, optional): Maximum number of observations per chunk (default: `None`, serial generation). When `num_obs` exceeds this value, the dataset is split into chunks and generated in parallel (see **Parallel Generation for Large Datasets**).
+- **max_workers** (int, optional): Maximum number of processes running at once in parallel generation (default: the CPU count)
 - **num_vars** (int, optional): Number of variables in the dataset (default: 1)
 - **var_dims** (int, list, or tuple, optional): 
   - Int: Number of dimensions for each variable (randomly selected if less than num_dims)
@@ -270,10 +268,11 @@ dataset, df = gen.generate()
   - `'random'`: No constraint on overlap
   - Float [0.0, 1.0]: Target share of var0's sites that also carry each non-reference variable (see **Overlap Control**)
   - List of length `num_vars - 1`: One overlap target per non-reference variable
+- **fixed_overlap** (bool or list of bools, optional): When `True`, variables draw their overlapping sites from one shared ordering of var0's sites, so they also overlap each other (default: `False`)
 
 ## Testing
 
-The repository includes a comprehensive test suite with 400+ tests covering all modules.
+The repository includes a test suite covering all modules.
 
 ### Running Tests
 
@@ -298,10 +297,6 @@ pytest tests/generators/test_coordinate_generator.py::TestGenerateDimensionCoord
 # Run tests matching a pattern
 pytest -k "test_2d"
 ```
-
-### Test Coverage
-
-Current test status: **342/426 tests passing (80%)**
 
 ## Contributing
 
