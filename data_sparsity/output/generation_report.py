@@ -102,6 +102,29 @@ class GenerationReport:
         return {name: data[name].notnull() for name in data.data_vars}
 
     @staticmethod
+    def requested_density(gen, index: int) -> Optional[float]:
+        """The density as the caller gave it, before validation rounded it.
+
+        - one variable: the constructor's density, or 1 - sparsity; validation
+          rewrites gen.var_densities to the rounded grid's figure
+        - several: gen.var_densities[index], which keeps the requested value
+
+        Compared at the default tolerance, so the validator's rounding always
+        reads "differs".
+        """
+        densities = getattr(gen, "var_densities", None)
+        if densities is None or index >= len(densities):
+            return None
+        if len(densities) > 1:
+            return float(densities[index])
+        requested = getattr(gen, "_requested", {})
+        if requested.get("density") is not None:
+            return float(np.max(requested["density"]))
+        if requested.get("sparsity") is not None:
+            return 1.0 - float(np.min(requested["sparsity"]))
+        return float(densities[index])
+
+    @staticmethod
     def project(mask: xr.DataArray, keep) -> xr.DataArray:
         drop = [d for d in mask.dims if d not in keep]
         return mask.any(dim=drop) if drop else mask
@@ -157,12 +180,7 @@ class GenerationReport:
                 )
             report.compare("observations", name, wanted, occupied, evidence)
 
-            wanted_density = (
-                float(gen.var_densities[index])
-                if getattr(gen, "var_densities", None) is not None
-                and index < len(gen.var_densities)
-                else None
-            )
+            wanted_density = cls.requested_density(gen, index)
             # The netCDF variable holds only the dimensions it varies along,
             # so the mask size is the variable's own grid, which is what a
             # density is a share of.
@@ -172,8 +190,8 @@ class GenerationReport:
                 name,
                 wanted_density,
                 round(achieved_density, 6),
-                "occupied cells over this variable's own grid",
-                tolerance=1e-3,
+                "occupied cells over this variable's own grid; validation "
+                "rounds the grid to whole coordinates",
             )
 
             unused = [
@@ -340,14 +358,10 @@ class GenerationReport:
             report.compare(
                 "density",
                 name,
-                (
-                    float(gen.var_densities[index])
-                    if index < len(gen.var_densities)
-                    else None
-                ),
+                cls.requested_density(gen, index),
                 round(occupied / grid, 6),
-                "chunking rounds the per-chunk counts",
-                tolerance=1e-3,
+                "occupied cells over this variable's own grid; validation and "
+                "chunking round the counts",
             )
 
             # coverage: union the per-axis vectors, the split axis by offset
