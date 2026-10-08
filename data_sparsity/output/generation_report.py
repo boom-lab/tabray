@@ -153,9 +153,7 @@ class GenerationReport:
             if wanted is not None and wanted >= grid:
                 evidence = (
                     f"the count was capped at this variable's own grid "
-                    f"of {grid:,} cells; density is measured against the "
-                    f"full grid, so a variable on fewer dimensions "
-                    f"saturates"
+                    f"of {grid:,} cells"
                 )
             report.compare("observations", name, wanted, occupied, evidence)
 
@@ -165,14 +163,16 @@ class GenerationReport:
                 and index < len(gen.var_densities)
                 else None
             )
+            # The netCDF variable holds only the dimensions it varies along,
+            # so the mask size is the variable's own grid, which is what a
+            # density is a share of.
             achieved_density = occupied / grid if grid else 0.0
             report.compare(
                 "density",
                 name,
                 wanted_density,
                 round(achieved_density, 6),
-                "density is measured against the full grid, so a variable on "
-                "fewer dimensions reaches a different figure on its own grid",
+                "occupied cells over this variable's own grid",
                 tolerance=1e-3,
             )
 
@@ -334,7 +334,9 @@ class GenerationReport:
             )
             report.compare("observations", name, wanted, occupied, "")
 
-            grid = int(np.prod(shape))
+            # Own grid: the dimensions this variable varies along. Chunk
+            # arrays keep every dimension, so it cannot come from the mask.
+            grid = int(np.prod([shape[d] for d in gen.var_dims_indices[index]]))
             report.compare(
                 "density",
                 name,

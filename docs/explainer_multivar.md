@@ -4,6 +4,21 @@ The first explainer introduced the philosophy of the analysis and the most impor
 
 To be more specific, the overlap between two variables is measured across all shared dimensions. For example, if we assume that two instruments measure variable Var1 and variable Var2 at a given location and time (3 dimensions: latitude, longitude, time), then overlap = 1 if both variables Var1 and Var2 are measured at the same locations and same times. If the instrument that measures Var2 has half the frequency of the instrument that measures Var1, then it will be overlap = 0.5. Overlap = 0.5 also if, for the same measuring frequency, one instrument stopped recording after half the measurements. If Var2 has only 2 dimensions (e.g. Var2 is the ID of each location at a given (latitude,longitude) so it's measured once and the time of the measurement is not recorded because not relevant)n then overlap is measured along latitude and longitude. In this case, overlap = 0.5 means that only half the (latitude,longitude) pairs that contain Var1 measurements also contain Var2 values.
 
+#### Density of a variable on fewer dimensions
+
+A variable's density is the share of **its own** sites that it occupies, where its own sites are
+the combinations of the dimensions it varies along. In the example above, Var2 lives on
+(latitude, longitude) pairs only, so Var2 at density 0.1 occupies a tenth of those pairs; time
+does not enter its grid. This is the definition from the first explainer, applied to the grid
+the variable actually has:
+
+```
+    n_i = d_i * prod(shape[k] for k in the dimensions variable i varies along)
+```
+
+The reference variable `var0` varies along every dimension, so for it the own grid is the full
+grid.
+
 #### Overlap, as a formula
 
 Writing `S_i` for the set of sites variable *i* occupies and `proj` for the projection onto the

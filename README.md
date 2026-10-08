@@ -180,6 +180,11 @@ print(dataframe.columns)  # ['x0', 'x1', 'x2', 'var0', 'var1', 'var2']
 - 2-element list/tuple `[max, min]` (e.g., `[0.3, 0.1]`): var0 gets max, one other variable gets min, the rest are drawn uniformly from `[min, max]`
 - num_vars-element list/tuple (e.g., `[0.3, 0.2, 0.1]`): Each variable gets its specified density
 
+A density is a share of the variable's **own** grid: the product of the dimensions it varies
+along. On a `[4, 8, 8]` grid, a variable on the last two dimensions at density 0.1 holds
+`0.1 * 64 = 6` values, not `0.1 * 256`. var0 varies along every dimension, so its own grid is
+the full grid (`docs/explainer_multivar.md`).
+
 var0 is the overlap reference and must have the largest density, so the largest value comes first; otherwise the constructor raises.
 
 **Variable Dimensions Options:**

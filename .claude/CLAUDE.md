@@ -55,6 +55,7 @@ GenerateData.generate  ->  generators/   CoordinateGenerator, MultiVarRecordGene
 - `generate()` → `_generate_multi_var_records` → `MultiVarRecordGenerator.generate` for every case. Do not add a separate single-variable routine.
 - `num_vars == 1` changes only the output type: `xr.DataArray` + per-observation DataFrame, versus `xr.Dataset` + one row per coordinate.
 - The grid is always `num_dims`-dimensional. A variable on fewer dims varies along `var_dims_indices[i]` and is pinned to one coordinate on each of `var_constant_dims[i]`; `NetCDFBuilder.build_dataset` squeezes those dims out on write.
+- A density is a share of the variable's OWN grid (`prod` of its varying dims): `compute_var_num_obs` scales by `grid_fractions`, and both report paths divide by the own grid.
 
 ### Overlap
 

@@ -405,17 +405,6 @@ class GenerateData:
 
     def _configure_multi_var(self) -> None:
         """Configure for multiple variables case."""
-        # Setup density values for each variable
-        self.var_densities, self.var_num_obs = (
-            MultiVarSparsityConfig.setup_from_parameter(
-                self.density,
-                self.num_vars,
-                self.num_obs,
-                self.density_zero,
-                self._rng,
-            )
-        )
-
         # Setup dimensions: the grid is defined over num_dims dimensions, but
         # each variable is measured at var_dims <= num_dims, the other
         # dimensions are set to a constant value
@@ -428,6 +417,26 @@ class GenerateData:
             self.num_vars,
             self.num_dims,
             self.seed,
+        )
+
+        # Densities are shares of each variable's OWN grid (the dimensions it
+        # varies along), so the counts need the dimensions first. The two
+        # setups draw from independent streams, so their order moves nothing.
+        grid_fractions = np.array(
+            [
+                np.prod([self.shape[d] for d in dims]) / self.total_grid_points
+                for dims in self.var_dims_indices
+            ],
+        )
+        self.var_densities, self.var_num_obs = (
+            MultiVarSparsityConfig.setup_from_parameter(
+                self.density,
+                self.num_vars,
+                self.num_obs,
+                self.density_zero,
+                self._rng,
+                grid_fractions,
+            )
         )
 
         # Setup overlap configuration and adjust observations if needed
