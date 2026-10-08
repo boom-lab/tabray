@@ -4,7 +4,7 @@ This module handles density setup for multiple variables, including
 scalar, 2-element, and full list specifications.
 """
 
-from typing import List, Tuple, Union
+from typing import List, Optional, Tuple, Union
 import numpy as np
 
 
@@ -117,21 +117,32 @@ class MultiVarSparsityConfig:
     def compute_var_num_obs(
         var_densities: np.ndarray,
         num_obs: int,
+        grid_fractions: Optional[np.ndarray] = None,
     ) -> np.ndarray:
         """Compute number of observations for each variable.
 
-        The variable with highest density gets num_obs observations,
-        others are scaled proportionally.
+            n_i = rint(d_i / d_max * num_obs * f_i)
+
+        - d_i is a share of the variable's OWN grid: the product of the
+          dimensions it varies along
+        - f_i = own grid / full grid; 1 for a variable on every dimension
+        - num_obs belongs to the max-density variable, which is var0 and
+          varies along every dimension, so num_obs / d_max is the full grid
 
         Args:
             var_densities: Array of density values
             num_obs: Total number of observations for max density variable
+            grid_fractions: Own grid / full grid per variable (default: all 1)
 
         Returns:
             Array of observation counts, one per variable
         """
         max_density = np.max(var_densities)
-        var_num_obs = np.rint((var_densities / max_density) * num_obs).astype(int)
+        if grid_fractions is None:
+            grid_fractions = np.ones(len(var_densities))
+        var_num_obs = np.rint(
+            (var_densities / max_density) * num_obs * np.asarray(grid_fractions),
+        ).astype(int)
         var_num_obs = np.maximum(var_num_obs, 1)
         return var_num_obs
 
@@ -142,6 +153,7 @@ class MultiVarSparsityConfig:
         num_obs: int,
         density_min: float,
         rng: np.random.Generator,
+        grid_fractions: Optional[np.ndarray] = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Setup multi-variable density configuration from parameter.
 
@@ -155,6 +167,7 @@ class MultiVarSparsityConfig:
             num_obs: Total observations for max density variable
             density_min: Minimum allowable density
             rng: Random number generator
+            grid_fractions: Own grid / full grid per variable (default: all 1)
 
         Returns:
             Tuple of (var_densities array, var_num_obs array)
@@ -190,6 +203,7 @@ class MultiVarSparsityConfig:
         var_num_obs = MultiVarSparsityConfig.compute_var_num_obs(
             var_densities,
             num_obs,
+            grid_fractions,
         )
 
         return var_densities, var_num_obs

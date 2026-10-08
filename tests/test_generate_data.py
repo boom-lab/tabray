@@ -568,14 +568,12 @@ class TestMultiVariableEdgeCases:
         return overlap_count / min_count if min_count > 0 else 0.0
 
     def test_high_overlap_with_different_dims(self):
-        """Mixed-dimension overlap is driven by the variable's own density.
+        """A high target on a reduced-dimension variable is capped by its count.
 
-        Overlap is measured on the shared dimensions, so the reference is seen
-        through its projection. A cell of the shared space is free of var0 only
-        if var0 misses it at every dropped coordinate, which is rare, so a
-        reduced-dimension variable has little room to sit off the reference and
-        the achieved overlap is pushed up towards its own density. The target is
-        then a floor rather than a value that can be hit.
+        var1 varies along 3 of 4 dimensions, so density 0.15 is a share of its
+        own 216-cell grid: 32 sites. var0's projection onto those dimensions
+        covers 161 cells, so F1 can be at most 32 / 161 even with every var1
+        site on the reference. Density takes precedence over the target.
         """
         gen = GenerateData(
             num_obs=200,
@@ -607,12 +605,12 @@ class TestMultiVariableEdgeCases:
         assert len(var1_varying_dims) == 3
         assert len(var1_constant_dims) == 1
 
-        # One value per non-reference variable: the share of var0's sites,
-        # projected onto the dimensions the two share, that also carry the
-        # variable. It rises to 0.8667 here because the projected reference
-        # leaves too few free cells for a lower value.
+        # Every var1 site sits on the reference (F2 = 1), and F1 is the most
+        # 32 sites can reach against a 161-cell projected reference.
+        assert gen.var_num_obs[1] == 32
         assert gen.overlap_actual.shape == (1,)
-        assert 0.8 <= gen.overlap_actual[0] <= 1.0
+        assert gen.overlap_actual_f2[0] == pytest.approx(1.0)
+        assert gen.overlap_actual[0] == pytest.approx(32 / 161)
 
     def test_constant_dimensions_remain_constant(self):
         """Variables with fewer varying dims should keep one dimension constant."""

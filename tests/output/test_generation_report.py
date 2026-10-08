@@ -93,10 +93,12 @@ class TestMeasuredFromTheData:
         assert gen.report.differences == []
         assert any(r["status"] == "adjusted" for r in gen.report.rows)
 
-    def test_reduced_dimension_saturation_is_caught(self, tmp_path):
-        """density is measured against the full grid, so a variable on fewer
-        dimensions has its count capped at its own grid and saturates. This
-        is silent without the report."""
+    def test_reduced_dimension_density_is_on_its_own_grid(self, tmp_path):
+        """A density is a share of the variable's own grid.
+
+        var2 and var3 vary along three of four dimensions: 0.14 of their own
+        grid, not of the full one, so the density rows match.
+        """
         gen = generate(
             tmp_path,
             "c",
@@ -109,11 +111,14 @@ class TestMeasuredFromTheData:
             var_dims=[[0, 1, 2, 3], [0, 1, 2, 3], [0, 2, 3], [0, 2, 3]],
             overlap=[1.0, 1.0, 1.0],
         )
-        differing = {(r["property"], r["variable"]) for r in gen.report.differences}
-        assert ("density", "var2") in differing
-        assert ("density", "var3") in differing
-        evidence = [r["evidence"] for r in gen.report.differences]
-        assert any("full grid" in e for e in evidence)
+        rows = {
+            (r["property"], r["variable"]): r
+            for r in gen.report.rows
+            if r["property"] == "density"
+        }
+        for name in ("var2", "var3"):
+            assert rows[("density", name)]["status"] == "match"
+            assert rows[("density", name)]["achieved"] == pytest.approx(0.14, abs=1e-3)
 
     def test_the_two_formats_are_cross_checked(self, tmp_path):
         gen = generate(
@@ -180,6 +185,42 @@ class TestSerialAndParallelAgree:
             }
 
         assert comparable(serial.report) == comparable(par.report)
+
+    def test_same_density_for_a_reduced_dimension_variable(self, tmp_path):
+        """Both paths divide by the variable's own grid.
+
+        Serial measures the squeezed netCDF array, parallel the unsqueezed
+        chunk arrays, so the own grid has to come from var_dims_indices.
+        """
+        params = dict(
+            num_obs=100,
+            num_dims=3,
+            ratio_dims=[1, 2, 2],
+            density=[0.4, 0.1],
+            seed=77,
+            num_vars=2,
+            var_dims=[3, 2],
+            overlap=0.5,
+        )
+        serial = generate(tmp_path, "rs", **params)
+        out = tmp_path / "rp"
+        (out / "nc").mkdir(parents=True)
+        (out / "pq").mkdir(parents=True)
+        with contextlib.redirect_stdout(io.StringIO()):
+            par = GenerateData(max_obs=40, **params)
+            par.generate(
+                netcdf_filepath=str(out / "nc" / "d.nc"),
+                parquet_filepath=str(out / "pq" / "d.parquet"),
+            )
+
+        def density(report):
+            return {
+                r["variable"]: r["achieved"]
+                for r in report.rows
+                if r["property"] in ("density", "observations")
+            }
+
+        assert density(serial.report) == density(par.report)
 
 
 class TestRender:

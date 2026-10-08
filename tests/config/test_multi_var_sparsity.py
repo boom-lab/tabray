@@ -229,6 +229,31 @@ class TestComputeVarNumObs:
         result = MultiVarSparsityConfig.compute_var_num_obs(sparsities, 10)
         assert all(obs >= 1 for obs in result)
 
+    def test_density_is_a_share_of_the_own_grid(self):
+        """var1 on a quarter of the grid: 0.1 of its own 64 cells, not of 256.
+
+        var0 holds 102 of a 256-cell grid at density 0.4; var1 asks for 0.1
+        on its own 64 cells, so 6.4 -> 6 observations.
+        """
+        densities = np.array([0.4, 0.1])
+        result = MultiVarSparsityConfig.compute_var_num_obs(
+            densities,
+            102,
+            np.array([1.0, 0.25]),
+        )
+        np.testing.assert_array_equal(result, [102, 6])
+
+    def test_full_grid_fractions_change_nothing(self):
+        """A variable on every dimension gets the count it always had."""
+        densities = np.array([0.4, 0.3, 0.1])
+        plain = MultiVarSparsityConfig.compute_var_num_obs(densities, 102)
+        ones = MultiVarSparsityConfig.compute_var_num_obs(
+            densities,
+            102,
+            np.ones(3),
+        )
+        np.testing.assert_array_equal(plain, ones)
+
 
 class TestSetupFromParameter:
     """Tests for setup_from_parameter integration."""
