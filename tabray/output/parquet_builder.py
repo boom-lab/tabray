@@ -89,14 +89,18 @@ class ParquetBuilder:
     ) -> pd.DataFrame:
         """Build DataFrame for multiple variables, a column per variable.
 
-        - rows: cells held by a full-dims variable, then, per fewer-dims
-          variable (most dims first), one row per own-dims cell no row matches,
-          coordinate NaN (index -1) on the dims it drops
-        - a variable fills every row matching it on its own dims, so a
-          fewer-dims variable repeats across the dims it drops; NaN elsewhere
-        - own-dims value = fmax over the pinned axes: one non-NaN cell at most
-        - order: lexsort with order_dim slowest, NaN coordinates last; a
-          function of the data alone, so serial and chunked runs agree
+        Steps:
+        1. project: each variable onto its own dims, fmax over the constant
+           axes (fmax == the one non-NaN value along the axis)
+        2. rows: every site occupied at least once by any full-dims variable;
+           then, per variable that are constant along any dimensions, look for
+           an existing row with the same coordinates on the variable's own dims:
+           if there is one, the value goes on that row; if there isn't, add one
+           row for that value
+        3. order: lexsort, order_dim slowest, NaN coordinates last; depends
+           on the data alone, so serial and chunked runs agree
+        4. fill: a variable fills every row matching it on its own dims, so a
+           fewer-dims variable repeats across the dims it drops; NaN elsewhere
 
         Args:
             records: Dictionary mapping variable names to record arrays
@@ -110,50 +114,78 @@ class ParquetBuilder:
 
         Returns:
             DataFrame with one row per unique coordinate location
+
         """
         if var_constant_dims is None:
             var_constant_dims = [[] for _ in range(num_vars)]
-        names = list(coordinates)
-        shape = records["var0"].shape
-        own_dims, projected = [], []
-        held = np.zeros(shape, dtype=bool)
+        dim_names = list(coordinates)
+        grid_shape = records["var0"].shape
+        varying_dims, own_values = [], []
+        full_dims_sites = np.zeros(grid_shape, dtype=bool)
+        # 1. project each variable onto its own dims; mark full-dims sites
         for var_idx in range(num_vars):
             record = records[f"var{var_idx}"]
-            pinned = tuple(var_constant_dims[var_idx])
-            own_dims.append([d for d in range(num_dims) if d not in pinned])
-            projected.append(np.fmax.reduce(record, axis=pinned) if pinned else record)
-            if not pinned:
-                held |= ~np.isnan(record)
-
-        rows = np.argwhere(held)
-        fewer = [v for v in range(num_vars) if var_constant_dims[v]]
-        for var_idx in sorted(fewer, key=lambda v: (len(var_constant_dims[v]), v)):
-            own, proj = own_dims[var_idx], projected[var_idx]
-            valid = (rows[:, own] >= 0).all(axis=1)
-            matched = np.ravel_multi_index(rows[valid][:, own].T, proj.shape)
-            cells = np.setdiff1d(np.flatnonzero(~np.isnan(proj)), matched)
-            new = np.full((cells.size, num_dims), -1, dtype=np.int64)
-            new[:, own] = np.column_stack(np.unravel_index(cells, proj.shape))
-            rows = np.concatenate([rows, new])
-
-        keys = np.where(rows < 0, np.array(shape), rows)
-        axes = ParquetBuilder._row_axes(num_dims, order_dim)
-        rows = rows[np.lexsort([keys[:, d] for d in reversed(axes)])]
-
-        columns = {}
-        for dim, name in enumerate(names):
-            index = rows[:, dim]
-            columns[name] = np.where(
-                index >= 0, coordinates[name][np.maximum(index, 0)], np.nan
+            constant_dims = tuple(var_constant_dims[var_idx])
+            varying_dims.append([d for d in range(num_dims) if d not in constant_dims])
+            own_values.append(
+                np.fmax.reduce(record, axis=constant_dims) if constant_dims else record
             )
+            if not constant_dims:
+                # update to track sites occupied by vars that spread on all dims
+                full_dims_sites |= ~np.isnan(record)
+
+        # 2. rows: full-dims sites, then one per unmatched fewer-dims value
+        row_indices = np.argwhere(full_dims_sites)  # (n_rows, num_dims) grid indices
+        vars_with_constant_dims = [v for v in range(num_vars) if var_constant_dims[v]]
+        for var_idx in sorted(
+            vars_with_constant_dims, key=lambda v: (len(var_constant_dims[v]), v)
+        ):
+            dims, values = varying_dims[var_idx], own_values[var_idx]
+            # rows with a real coordinate on every dim the variable varies along
+            has_coords = (row_indices[:, dims] >= 0).all(axis=1)
+            # own-grid cells that already have a row, as flat positions in values
+            cells_with_row = np.ravel_multi_index(
+                row_indices[has_coords][:, dims].T, values.shape
+            )
+            # cells holding a value but no row
+            cells_without_row = np.setdiff1d(
+                np.flatnonzero(~np.isnan(values)), cells_with_row
+            )
+            # one new row each: own-dims coords, -1 (NaN) on the dropped dims
+            new_rows = np.full((cells_without_row.size, num_dims), -1, dtype=np.int64)
+            new_rows[:, dims] = np.column_stack(
+                np.unravel_index(cells_without_row, values.shape)
+            )
+            row_indices = np.concatenate([row_indices, new_rows])
+
+        # 3. sort: order_dim slowest; -1 replaced by the axis length sorts last
+        sort_keys = np.where(row_indices < 0, np.array(grid_shape), row_indices)
+        sort_order = ParquetBuilder._row_axes(num_dims, order_dim)
+        row_indices = row_indices[
+            np.lexsort([sort_keys[:, d] for d in reversed(sort_order)])
+        ]
+
+        # 4. coordinate columns: index -> coordinate value, -1 -> NaN
+        columns = {}
+        for dim, name in enumerate(dim_names):
+            dim_indices = row_indices[:, dim]  # this dim's grid index, per row
+            # index -> coordinate value; -1 -> NaN (max(.., 0) avoids wrapping)
+            columns[name] = np.where(
+                dim_indices >= 0,
+                coordinates[name][np.maximum(dim_indices, 0)],
+                np.nan,
+            )
+        # 4. value columns: each variable fills every row matching its own dims
         for var_idx in range(num_vars):
-            own, proj = own_dims[var_idx], projected[var_idx]
-            valid = (rows[:, own] >= 0).all(axis=1)
-            column = np.full(len(rows), np.nan)
-            column[valid] = proj.ravel()[
-                np.ravel_multi_index(rows[valid][:, own].T, proj.shape)
+            dims, values = varying_dims[var_idx], own_values[var_idx]
+            # rows with a real coordinate on every dim the variable varies along
+            has_coords = (row_indices[:, dims] >= 0).all(axis=1)
+            var_column = np.full(len(row_indices), np.nan)  # NaN on other rows
+            # own-dims coords -> value; rows sharing them repeat the same value
+            var_column[has_coords] = values.ravel()[
+                np.ravel_multi_index(row_indices[has_coords][:, dims].T, values.shape)
             ]
-            columns[f"var{var_idx}"] = column
+            columns[f"var{var_idx}"] = var_column
         return pd.DataFrame(columns)
 
     @staticmethod

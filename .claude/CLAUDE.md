@@ -135,6 +135,7 @@ Every RNG comes from `stream(seed, tag, *index)` (`utils/streams.py`); tags live
 - Keep `environment.yml` and `pyproject.toml` in sync when touching dependencies, and justify new ones.
 - Keep `README.md` current with new features and parameters.
 - Non-expert Python users read this code: prefer clear over clever, and comment any non-obvious design decision.
+- Name a variable for what it holds, in the project's terms (site, own grid, varying/constant dims): `grid_shape` not `shape`, `vars_with_constant_dims` not `fewer`, `row_indices` not `rows`. Boolean masks name their condition (`has_coords`, `full_dims_sites`); a pair of sets names the split (`cells_with_row` / `cells_without_row`). Avoid bare `valid`, `new`, `keys`, `proj`. Longer names that black wraps are fine.
 - Never commit generated data (`.nc`, `.parquet`, `.csv`, …).
 - A module-level import of the package is `import tabray as tr`, used as `tr.<name>` (like `numpy as np`).
 - `docs/`: never track `.pdf` renders (`*.pdf` is in `.gitignore`).
