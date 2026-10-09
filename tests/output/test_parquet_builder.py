@@ -1,8 +1,13 @@
 """Tests for ParquetBuilder class."""
 
+import contextlib
+import io
+
 import pytest
 import numpy as np
 import pandas as pd
+from tabray.generate_data import GenerateData
+from tabray.output.netcdf_builder import NetCDFBuilder
 from tabray.output.parquet_builder import ParquetBuilder
 
 
@@ -344,3 +349,77 @@ class TestRepeatFewerDims:
         """None and all-empty give the full-dims layout."""
         pd.testing.assert_frame_equal(self.build(None), self.build([[]] * 4))
         assert len(self.build(None)) == 5  # 3 var0 cells + (1, 1, 0), (1, 1, 1)
+
+
+class TestMatchesToDataframe:
+    """Without unmatched values the builder equals xarray's ``to_dataframe()``.
+
+    to_dataframe() broadcasts a variable along the dims it lacks over the whole
+    grid; keeping the rows a full-dims variable holds gives the parquet layout.
+    It is the reference here only: it builds every grid cell.
+    """
+
+    @staticmethod
+    def reference(dataset, full_dims_vars):
+        """to_dataframe() of the squeezed dataset, rows held by a full-dims variable."""
+        frame = dataset.to_dataframe().reset_index()
+        frame = frame[frame[full_dims_vars].notna().any(axis=1)]
+        return frame.reset_index(drop=True)
+
+    def test_profiles_repeat_latitude(self):
+        """Argo-like: TEMP on (profile, level), LATITUDE on profile, pinned to L3.
+
+        P2 holds TEMP at L0, L1 only; its latitude still fills both rows, and
+        no row appears at (P2, L3).
+        """
+        temp = np.array([[24.3, 24.1, 18.7, 12.2], [24.5, 23.9, np.nan, np.nan]])
+        latitude = np.full((2, 4), np.nan)
+        latitude[:, 3] = [-23.33, -23.48]
+        records = {"var0": temp, "var1": latitude}
+        coordinates = {"x0": np.array([1.0, 2.0]), "x1": np.arange(4.0)}
+        constant = [[], [1]]
+
+        result = ParquetBuilder.build_multi_var_dataframe(
+            records, coordinates, 2, 2, var_constant_dims=constant
+        )
+        expected = pd.DataFrame(
+            {
+                "x0": [1.0, 1.0, 1.0, 1.0, 2.0, 2.0],
+                "x1": [0.0, 1.0, 2.0, 3.0, 0.0, 1.0],
+                "var0": [24.3, 24.1, 18.7, 12.2, 24.5, 23.9],
+                "var1": [-23.33] * 4 + [-23.48] * 2,
+            }
+        )
+        pd.testing.assert_frame_equal(result, expected)
+        dataset = NetCDFBuilder.build_dataset(
+            records, coordinates, var_constant_dims=constant
+        )
+        pd.testing.assert_frame_equal(result, self.reference(dataset, ["var0"]))
+
+    @pytest.mark.parametrize(
+        "var_dims, full_dims_vars",
+        [
+            (3, ["var0", "var1", "var2"]),  # every variable on every dim
+            ([3, [0, 1], [0]], ["var0"]),  # var1 drops x2, var2 drops x1, x2
+        ],
+    )
+    def test_generated_dataset(self, var_dims, full_dims_vars):
+        with contextlib.redirect_stdout(io.StringIO()):
+            dataset, dataframe = GenerateData(
+                num_obs=400,
+                num_dims=3,
+                ratio_dims=(1, 2, 3),
+                density=[0.4, 0.3, 0.2],
+                seed=7,
+                num_vars=3,
+                var_dims=var_dims,
+            ).generate()
+        # rows with a NaN coordinate are values no full-dims row matches;
+        # to_dataframe() has no counterpart for them. The builder puts
+        # dim_split outermost, to_dataframe() x0: compare in x0 order.
+        coords = ["x0", "x1", "x2"]
+        matched = dataframe.dropna(subset=coords).sort_values(coords)
+        expected = self.reference(dataset, full_dims_vars)
+        pd.testing.assert_frame_equal(
+            matched.reset_index(drop=True), expected[matched.columns]
+        )

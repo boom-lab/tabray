@@ -87,15 +87,16 @@ class ParquetBuilder:
         order_dim: int = 0,
         var_constant_dims: Optional[List[List[int]]] = None,
     ) -> pd.DataFrame:
-        """Build DataFrame for multiple variables.
+        """Build DataFrame for multiple variables, a column per variable.
 
-        One row per occupied coordinate, with a column per variable and NaN
-        where a variable has no value there. A variable on fewer dims is
-        repeated across the dims it drops (``_repeat_fewer_dims``).
-
-        Rows are ordered by coordinate, ``order_dim`` slowest. The order is a
-        function of the data alone, so serial and chunked runs produce the
-        same rows in the same order.
+        - rows: cells held by a full-dims variable, then, per fewer-dims
+          variable (most dims first), one row per own-dims cell no row matches,
+          coordinate NaN (index -1) on the dims it drops
+        - a variable fills every row matching it on its own dims, so a
+          fewer-dims variable repeats across the dims it drops; NaN elsewhere
+        - own-dims value = fmax over the pinned axes: one non-NaN cell at most
+        - order: lexsort with order_dim slowest, NaN coordinates last; a
+          function of the data alone, so serial and chunked runs agree
 
         Args:
             records: Dictionary mapping variable names to record arrays
@@ -103,70 +104,15 @@ class ParquetBuilder:
             num_vars: Number of variables
             num_dims: Number of dimensions
             order_dim: Dimension to vary slowest in the row order
-            var_constant_dims: Dims each variable is pinned on (None: none)
+            var_constant_dims: Per variable, the dims it does not vary along
+                (empty list: varies along all); None: every variable varies
+                along all
 
         Returns:
             DataFrame with one row per unique coordinate location
         """
-        if var_constant_dims and any(var_constant_dims):
-            return ParquetBuilder._repeat_fewer_dims(
-                records, coordinates, num_vars, var_constant_dims, order_dim
-            )
-        names = list(coordinates)
-        axes = ParquetBuilder._row_axes(num_dims, order_dim)
-        reordered_shape = tuple(len(coordinates[names[dim]]) for dim in axes)
-
-        flat_indices, values = [], []
-        for var_idx in range(num_vars):
-            record = np.moveaxis(records[f"var{var_idx}"], axes, range(num_dims))
-            mask = ~np.isnan(record)
-            indices = np.where(mask)
-            flat_indices.append(
-                np.ravel_multi_index(indices, reordered_shape)
-                if indices[0].size
-                else np.empty(0, dtype=np.int64)
-            )
-            values.append(record[mask])
-
-        occupied = np.unique(np.concatenate(flat_indices))
-        unravelled = np.unravel_index(occupied, reordered_shape)
-
-        # Coordinate columns. unravelled[position] holds every row's index along
-        # axis `position` of the reordered grid, which is original dimension
-        # axes[position]; indexing that axis's labels turns indices into
-        # coordinate values. The dict is filled in reordered order (split
-        # dimension first), then rebuilt so the columns read x0..xN.
-        columns = {}
-        for position, dim in enumerate(axes):
-            columns[names[dim]] = coordinates[names[dim]][unravelled[position]]
-        columns = {name: columns[name] for name in names}
-
-        for var_idx in range(num_vars):
-            column = np.full(occupied.size, np.nan)
-            if flat_indices[var_idx].size:
-                rows = np.searchsorted(occupied, flat_indices[var_idx])
-                column[rows] = values[var_idx]
-            columns[f"var{var_idx}"] = column
-
-        return pd.DataFrame(columns)
-
-    @staticmethod
-    def _repeat_fewer_dims(
-        records: Dict[str, np.ndarray],
-        coordinates: Dict[str, np.ndarray],
-        num_vars: int,
-        var_constant_dims: List[List[int]],
-        order_dim: int,
-    ) -> pd.DataFrame:
-        """Rows when some variable is on fewer dims; its value holds along the rest.
-
-        - rows: cells held by a full-dims variable, then, per fewer-dims
-          variable (most dims first), one row per own-dims cell no row matches,
-          coordinate NaN (index -1) on the dims it drops
-        - a variable fills every row matching it on its own dims
-        - own-dims value = fmax over the pinned axes: one non-NaN cell at most
-        - order: lexsort with order_dim slowest, NaN coordinates last
-        """
+        if var_constant_dims is None:
+            var_constant_dims = [[] for _ in range(num_vars)]
         names = list(coordinates)
         shape = records["var0"].shape
         own_dims, projected = [], []
@@ -174,7 +120,7 @@ class ParquetBuilder:
         for var_idx in range(num_vars):
             record = records[f"var{var_idx}"]
             pinned = tuple(var_constant_dims[var_idx])
-            own_dims.append([d for d in range(len(shape)) if d not in pinned])
+            own_dims.append([d for d in range(num_dims) if d not in pinned])
             projected.append(np.fmax.reduce(record, axis=pinned) if pinned else record)
             if not pinned:
                 held |= ~np.isnan(record)
@@ -186,12 +132,12 @@ class ParquetBuilder:
             valid = (rows[:, own] >= 0).all(axis=1)
             matched = np.ravel_multi_index(rows[valid][:, own].T, proj.shape)
             cells = np.setdiff1d(np.flatnonzero(~np.isnan(proj)), matched)
-            new = np.full((cells.size, len(shape)), -1, dtype=np.int64)
+            new = np.full((cells.size, num_dims), -1, dtype=np.int64)
             new[:, own] = np.column_stack(np.unravel_index(cells, proj.shape))
             rows = np.concatenate([rows, new])
 
         keys = np.where(rows < 0, np.array(shape), rows)
-        axes = ParquetBuilder._row_axes(len(shape), order_dim)
+        axes = ParquetBuilder._row_axes(num_dims, order_dim)
         rows = rows[np.lexsort([keys[:, d] for d in reversed(axes)])]
 
         columns = {}
