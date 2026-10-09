@@ -78,7 +78,7 @@ GenerateData.generate  ->  generators/   CoordinateGenerator, MultiVarRecordGene
 - Minimum density = `(prod(shape)/n_padded + n_padded - 1) / prod(shape)` (`compute_min_density(..., padded_dim)`).
 - `overlap` raises under `padded`: each line of every variable fills its first k cells of one axis, so F1 follows from the densities.
 - The padded axis cannot be `dim_split` (`_choose_split_dim` excludes it).
-- Stratum counts: `padded_stratum_counts`, lognormal weights capped per stratum (`ChunkUtils.apportion(..., capacity)`), one stratum raised to carry the full-length line.
+- Stratum counts: `padded_stratum_counts`, equal weights capped per stratum (`ChunkUtils.apportion(..., capacity)`), one stratum raised to carry the full-length line; k per line also from equal weights.
 - Report: a `minimum density` row states which bound applied (var0's coverage bound).
 
 ### Per-variable encoding
@@ -106,7 +106,6 @@ Every RNG comes from `stream(seed, tag, *index)` (`utils/streams.py`); tags live
 | `CONST_COORD` | variable, constant dim | a variable's coordinate on a constant dim |
 | `VAR` | variable, stratum | per-variable placement |
 | `SHARED_OVERLAP` | — | the shared ordering behind `fixed_overlap` |
-| `PADDED` | — | the spread of per-stratum counts under `layout="padded"` |
 
 - No tuple contains a chunk id: serial and workers derive the same generator for the same purpose.
 - Chunks slice the global sorted coordinate axis by index; they never advance a stream.
