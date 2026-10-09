@@ -30,6 +30,8 @@ class CoordinateGenerator:
         """
         coordinates = {}
         for idx, n_coords in enumerate(shape):
-            coordinates[f"x{idx}"] = np.sort(dim_rngs[idx].uniform(0.0, 1.0, size=n_coords))
+            coordinates[f"x{idx}"] = np.sort(
+                dim_rngs[idx].uniform(0.0, 1.0, size=n_coords)
+            )
 
         return coordinates

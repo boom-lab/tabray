@@ -89,44 +89,60 @@ class TestComputeMinOverlap:
 
     def test_sufficient_grid_points_returns_zero(self):
         """Sufficient grid points for every variable should return 0."""
-        result = MultiVarOverlapConfig.compute_min_overlap(1000, np.array([300, 200, 100]), [[0, 1]] * 3)
+        result = MultiVarOverlapConfig.compute_min_overlap(
+            1000, np.array([300, 200, 100]), [[0, 1]] * 3
+        )
         np.testing.assert_array_equal(result, [0.0, 0.0])
 
     def test_insufficient_grid_points_computes_overlap(self):
         """Insufficient grid points should compute required overlap."""
         # forced = 80 + 50 - 100 = 30; overlap is a share of the reference
         # variable's count, so min_overlap = 30/80 = 0.375
-        result = MultiVarOverlapConfig.compute_min_overlap(100, np.array([80, 50]), [[0, 1]] * 2)
+        result = MultiVarOverlapConfig.compute_min_overlap(
+            100, np.array([80, 50]), [[0, 1]] * 2
+        )
         np.testing.assert_allclose(result, [0.375])
 
     def test_exact_fit_returns_zero(self):
         """Exact fit (grid points == n_0 + n_i) should return 0."""
-        result = MultiVarOverlapConfig.compute_min_overlap(150, np.array([100, 50]), [[0, 1]] * 2)
+        result = MultiVarOverlapConfig.compute_min_overlap(
+            150, np.array([100, 50]), [[0, 1]] * 2
+        )
         np.testing.assert_array_equal(result, [0.0])
 
     def test_two_variables(self):
         """forced = 60 + 40 - 80 = 20, min_overlap = 20/60."""
-        result = MultiVarOverlapConfig.compute_min_overlap(80, np.array([60, 40]), [[0, 1]] * 2)
+        result = MultiVarOverlapConfig.compute_min_overlap(
+            80, np.array([60, 40]), [[0, 1]] * 2
+        )
         np.testing.assert_allclose(result, [1.0 / 3.0])
 
     def test_each_variable_is_bounded_on_its_own(self):
         """var1 and var2 share the 20 free sites, so each minimum is 30/80."""
-        result = MultiVarOverlapConfig.compute_min_overlap(100, np.array([80, 50, 50]), [[0, 1]] * 3)
+        result = MultiVarOverlapConfig.compute_min_overlap(
+            100, np.array([80, 50, 50]), [[0, 1]] * 3
+        )
         np.testing.assert_allclose(result, [0.375, 0.375])
 
     def test_many_variables(self):
         """Each pair fits in 100 grid points, so every minimum is 0."""
-        result = MultiVarOverlapConfig.compute_min_overlap(100, np.array([50, 30, 25, 20]), [[0, 1]] * 4)
+        result = MultiVarOverlapConfig.compute_min_overlap(
+            100, np.array([50, 30, 25, 20]), [[0, 1]] * 4
+        )
         np.testing.assert_array_equal(result, [0.0, 0.0, 0.0])
 
     def test_very_tight_space(self):
         """forced = 20 + 10 - 10 = 20 and 20 + 5 - 10 = 15, divided by 20."""
-        result = MultiVarOverlapConfig.compute_min_overlap(10, np.array([20, 10, 5]), [[0, 1]] * 3)
+        result = MultiVarOverlapConfig.compute_min_overlap(
+            10, np.array([20, 10, 5]), [[0, 1]] * 3
+        )
         np.testing.assert_allclose(result, [1.0, 0.75])
 
     def test_single_other_observation(self):
         """forced = 100 + 1 - 50 = 51, min_overlap = 51/100."""
-        result = MultiVarOverlapConfig.compute_min_overlap(50, np.array([100, 1]), [[0, 1]] * 2)
+        result = MultiVarOverlapConfig.compute_min_overlap(
+            50, np.array([100, 1]), [[0, 1]] * 2
+        )
         np.testing.assert_allclose(result, [0.51])
 
     def test_reference_is_var0_not_the_largest(self):
@@ -137,7 +153,9 @@ class TestComputeMinOverlap:
         a sorted maximum.
         """
         # forced = 30 + 80 - 100 = 10 for var1, 0 for var2
-        result = MultiVarOverlapConfig.compute_min_overlap(100, np.array([30, 80, 20]), [[0, 1]] * 3)
+        result = MultiVarOverlapConfig.compute_min_overlap(
+            100, np.array([30, 80, 20]), [[0, 1]] * 3
+        )
         np.testing.assert_allclose(result, [10.0 / 30.0, 0.0])
 
     def test_variable_on_fewer_dimensions_returns_zero(self):
@@ -155,7 +173,9 @@ class TestValidateOverlapFeasibility:
 
     def test_feasible_overlap_passes(self):
         """Feasible overlap should pass."""
-        min_overlap = MultiVarOverlapConfig.compute_min_overlap(100, np.array([80, 50]), [[0, 1]] * 2)
+        min_overlap = MultiVarOverlapConfig.compute_min_overlap(
+            100, np.array([80, 50]), [[0, 1]] * 2
+        )
         MultiVarOverlapConfig.validate_overlap_feasibility(
             float(min_overlap[0]) + 0.1,
             min_overlap,
@@ -165,9 +185,7 @@ class TestValidateOverlapFeasibility:
     def test_infeasible_raises_value_error(self):
         """Infeasible overlap should raise ValueError."""
         with pytest.raises(ValueError, match="below the minimum feasible"):
-            MultiVarOverlapConfig.validate_overlap_feasibility(
-                0.3, np.array([0.5]), 2
-            )
+            MultiVarOverlapConfig.validate_overlap_feasibility(0.3, np.array([0.5]), 2)
 
     def test_list_is_checked_per_variable(self):
         """Each target in a list is compared with its own variable's minimum."""

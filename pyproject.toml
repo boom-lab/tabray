@@ -47,3 +47,6 @@ addopts = [
     "--strict-markers",
     "--tb=short"
 ]
+
+[tool.black]
+target-version = ["py312"]

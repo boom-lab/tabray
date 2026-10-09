@@ -72,7 +72,9 @@ class TestGenerateAllCoords:
 
     def test_default_range_is_unit_interval(self):
         """Every axis is a numpy array drawn from [0, 1)."""
-        coords = CoordinateGenerator.generate_all_coords((1000, 500), _rngs((1000, 500)))
+        coords = CoordinateGenerator.generate_all_coords(
+            (1000, 500), _rngs((1000, 500))
+        )
         for coord_array in coords.values():
             assert isinstance(coord_array, np.ndarray)
             assert coord_array.min() >= 0.0

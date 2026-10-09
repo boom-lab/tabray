@@ -20,6 +20,7 @@ pytest -k "overlap"
 bash tests/run_all_tests.sh       # suite + coverage
 
 pylint tabray/<module>.py  # every file must score >= 8
+black tabray tests                # config in pyproject.toml, target py312
 ```
 
 - Run Python through the `tabray` env (`$(conda info --base)/envs/tabray/bin/python`), an editable install of the working tree. A bare `python` can resolve to another interpreter holding a stale installed copy of the package, with no sign in the output.
@@ -141,11 +142,7 @@ Every RNG comes from `stream(seed, tag, *index)` (`utils/streams.py`); tags live
 
 ## Open items
 
-`.claude/HANDOFF.md` lists unfinished work: lint exceptions to agree, `[tool.black]` target version, diagnostic S6. Delete entries as they are done.
-
-## Known drift in the docs
-
-`README.md`, "Repository structure", mentions a `benchmark` folder that does not exist.
+`.claude/HANDOFF.md` lists unfinished work: lint exceptions to agree, diagnostic S6. Delete entries as they are done.
 
 # Claude Persona & Output Constraints
 
