@@ -233,6 +233,23 @@ gen = GenerateData(
 dataset, df = gen.generate()
 ```
 
+### Describing a Dataset
+
+`generate()` ends by printing what it wrote, measured from the netCDF output; the table is kept
+as `gen.description`. The same works on any netCDF or parquet dataset:
+
+```python
+from data_sparsity.output import DatasetDescription
+
+DatasetDescription.describe_dataset("data.nc")
+DatasetDescription.describe_dataset("parquet_dir", coords=["x0", "x1", "x2"])
+```
+
+One row per variable: its dimensions, own grid, occupied cells, density, F1 against the first
+variable, coordinates along its dimensions holding no value, and stored dtype. Parquet has no
+axes, so the grid is the coordinate values that appear, and a variable's dimensions are the
+coordinate columns along which it takes more than one value.
+
 ### Parameters
 
 - **density** and **sparsity** are both valid, independent ways to specify grid occupancy (`sparsity = 1 - density`). Provide exactly one; if both are passed, `density` takes precedence and a warning is raised.
@@ -297,7 +314,7 @@ dataset, df = gen.generate()
   remaining axes. `overlap` cannot be set alongside `layout="padded"`: with every line filling
   its first k cells of the same axis the achieved F1 follows from the densities, so no target can be
   honoured. Note the minimum density is higher under `padded` — every line needs an observation
-  and one line must run the full length — and the generation report states which bound applied.
+  and one line must run the full length — and the configuration printout states which bound applied.
 - **num_vars** (int, optional): Number of variables in the dataset (default: 1)
 - **var_dims** (int, list, or tuple, optional): 
   - Int: Number of dimensions for each variable (randomly selected if less than num_dims)

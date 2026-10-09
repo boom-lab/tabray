@@ -35,7 +35,8 @@ GenerateData.__init__  ->  validators/   ParameterValidator, DimensionValidator,
                        ->  config/       MultiVarSparsityConfig, MultiVarDimensionsConfig, MultiVarOverlapConfig
 GenerateData.generate  ->  generators/   CoordinateGenerator, MultiVarRecordGenerator (-> RecordGenerator,
                                          ObservationGenerator, OverlapCalculator)
-                       ->  output/       NetCDFBuilder, ParquetBuilder, PathManager, VariableEncoding
+                       ->  output/       NetCDFBuilder, ParquetBuilder, PathManager, VariableEncoding,
+                                         DatasetDescription (measures the written netCDF)
                        ->  workers/      generate_chunk  (parallel path only)
 ```
 
@@ -79,7 +80,7 @@ GenerateData.generate  ->  generators/   CoordinateGenerator, MultiVarRecordGene
 - `overlap` raises under `padded`: each line of every variable fills its first k cells of one axis, so F1 follows from the densities.
 - The padded axis cannot be `dim_split` (`_choose_split_dim` excludes it).
 - Stratum counts: `padded_stratum_counts`, equal weights capped per stratum (`ChunkUtils.apportion(..., capacity)`), one stratum raised to carry the full-length line; k per line also from equal weights.
-- Report: a `minimum density` row states which bound applied (var0's coverage bound).
+- `_print_updated_config` prints which minimum-density bound applied (var0's coverage bound).
 
 ### Per-variable encoding
 
