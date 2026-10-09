@@ -7,7 +7,7 @@ which dimensions vary for each variable and which are held constant.
 from typing import Dict, List, Tuple, Union
 import numpy as np
 
-from data_sparsity.utils.streams import Stream, stream
+from tabray.utils.streams import Stream, stream
 
 
 class MultiVarDimensionsConfig:

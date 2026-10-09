@@ -6,8 +6,8 @@ import os
 import pandas as pd
 import xarray as xr
 
-from data_sparsity.generate_data import GenerateData
-from data_sparsity.utils.viz import (
+from tabray.generate_data import GenerateData
+from tabray.utils.viz import (
     draw_storage_schema,
     draw_table,
     format_bytes,

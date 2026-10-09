@@ -1,7 +1,7 @@
 """Diagnostic test to verify coordinate identity across chunks."""
 
 import numpy as np
-from data_sparsity.generate_data import GenerateData
+from tabray.generate_data import GenerateData
 import tempfile
 import os
 import glob

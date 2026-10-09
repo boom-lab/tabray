@@ -16,10 +16,10 @@ import shutil
 import os
 import glob
 import copy
-from data_sparsity.generate_data import GenerateData
-from data_sparsity.output.netcdf_builder import NetCDFBuilder
-from data_sparsity.utils.chunk_utils import ChunkUtils
-from data_sparsity.workers.parallel_worker import generate_chunk
+from tabray.generate_data import GenerateData
+from tabray.output.netcdf_builder import NetCDFBuilder
+from tabray.utils.chunk_utils import ChunkUtils
+from tabray.workers.parallel_worker import generate_chunk
 
 
 # grid shapes of scenarios 1c and 3c in tests/test_scenarios_parallel.py

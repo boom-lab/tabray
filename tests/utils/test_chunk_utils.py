@@ -7,7 +7,7 @@ and dimension range handling.
 
 import pytest
 import numpy as np
-from data_sparsity.utils.chunk_utils import ChunkUtils
+from tabray.utils.chunk_utils import ChunkUtils
 
 
 class TestGetObservationsPerChunk:

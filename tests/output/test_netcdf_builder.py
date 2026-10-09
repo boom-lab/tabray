@@ -3,7 +3,7 @@
 import pytest
 import numpy as np
 import xarray as xr
-from data_sparsity.output.netcdf_builder import NetCDFBuilder
+from tabray.output.netcdf_builder import NetCDFBuilder
 
 
 class TestCreateDefaultAttrs:

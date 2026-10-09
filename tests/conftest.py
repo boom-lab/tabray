@@ -1,4 +1,4 @@
-"""Shared pytest fixtures for data_sparsity tests."""
+"""Shared pytest fixtures for tabray tests."""
 
 import pytest
 import numpy as np

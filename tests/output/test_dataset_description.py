@@ -8,8 +8,8 @@ import pandas as pd
 import pytest
 import xarray as xr
 
-from data_sparsity.generate_data import GenerateData
-from data_sparsity.output import DatasetDescription
+from tabray.generate_data import GenerateData
+from tabray.output import DatasetDescription
 
 
 @pytest.fixture(name="known")

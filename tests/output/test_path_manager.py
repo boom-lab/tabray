@@ -4,7 +4,7 @@ import pytest
 import os
 import tempfile
 import shutil
-from data_sparsity.output.path_manager import PathManager
+from tabray.output.path_manager import PathManager
 
 
 class TestCheckOrCreateFolder:

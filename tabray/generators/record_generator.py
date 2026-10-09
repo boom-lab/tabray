@@ -7,9 +7,9 @@ with common utilities for index generation and assignment.
 from typing import Iterable, List, Optional, Tuple
 import numpy as np
 
-from data_sparsity.utils.chunk_utils import ChunkUtils
-from data_sparsity.generators.observation_generator import ObservationGenerator
-from data_sparsity.utils.streams import Stream, stream
+from tabray.utils.chunk_utils import ChunkUtils
+from tabray.generators.observation_generator import ObservationGenerator
+from tabray.utils.streams import Stream, stream
 
 
 class RecordGenerator:

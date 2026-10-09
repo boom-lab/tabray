@@ -2,8 +2,8 @@
 
 import pytest
 import numpy as np
-from data_sparsity.generators.coordinate_generator import CoordinateGenerator
-from data_sparsity.utils.chunk_utils import ChunkUtils
+from tabray.generators.coordinate_generator import CoordinateGenerator
+from tabray.utils.chunk_utils import ChunkUtils
 
 
 def _rngs(shape, seed=42):

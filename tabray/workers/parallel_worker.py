@@ -12,9 +12,9 @@ from typing import Dict, List, Tuple, Union, Optional
 import numpy as np
 from numpy.typing import ArrayLike
 
-from data_sparsity.generators import CoordinateGenerator, MultiVarRecordGenerator
-from data_sparsity.output import NetCDFBuilder, ParquetBuilder, VariableEncoding
-from data_sparsity.utils import ChunkUtils
+from tabray.generators import CoordinateGenerator, MultiVarRecordGenerator
+from tabray.output import NetCDFBuilder, ParquetBuilder, VariableEncoding
+from tabray.utils import ChunkUtils
 
 
 def _configure_worker_logging(chunk_id: int, log_dir: str) -> logging.Logger:
@@ -31,7 +31,7 @@ def _configure_worker_logging(chunk_id: int, log_dir: str) -> logging.Logger:
     Returns:
         A logger for this worker, silent unless enabled
     """
-    logger = logging.getLogger(f"data_sparsity.worker.{chunk_id}")
+    logger = logging.getLogger(f"tabray.worker.{chunk_id}")
     logger.propagate = False
     if logger.handlers:
         return logger

@@ -11,7 +11,7 @@ The tree is black-formatted (`0f070a1`), with magic trailing commas added by a
 scratch script to every bracket holding more than one element. A single-argument
 call gets none, so an error message or a print stays as black leaves it: wrapped
 when the string is long, joined when it is short. The `Stream` tag table in
-`data_sparsity/utils/streams.py` is protected by `# fmt: off` / `# fmt: on`,
+`tabray/utils/streams.py` is protected by `# fmt: off` / `# fmt: on`,
 with the reason on its own line above (black does not honour a comment with
 text appended to the directive).
 
@@ -59,12 +59,3 @@ literal.
   `python` is pyenv 3.12.4, which has two bad installs shadowing the working
   tree; a test run there proves nothing about this project.
 - Do not commit unless asked. The user committed the formatting work themselves.
-
-## Rename the package `data_sparsity` to `tabray`
-
-The import package is `data_sparsity`; the distribution in `pyproject.toml`,
-the repository and the conda env are already `tabray`. Rename the directory and
-every reference: 115 hits in 52 files (imports, tests, notebooks,
-`[tool.setuptools.packages.find]`, README, CLAUDE.md, `.puml` diagrams).
-Reinstall the editable package afterwards (`pip install -e .`), or the old
-name stays importable from the stale install.

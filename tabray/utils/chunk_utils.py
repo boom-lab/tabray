@@ -8,7 +8,7 @@ from typing import List
 import numpy as np
 from numpy.typing import ArrayLike
 
-from data_sparsity.utils.streams import Stream, stream
+from tabray.utils.streams import Stream, stream
 
 
 class ChunkUtils:

@@ -1,7 +1,7 @@
 """Utility modules for data creation and tutorial support."""
 
-from data_sparsity.utils.chunk_utils import ChunkUtils
-from data_sparsity.utils.viz import (
+from tabray.utils.chunk_utils import ChunkUtils
+from tabray.utils.viz import (
     draw_storage_schema,
     draw_table,
     format_bytes,

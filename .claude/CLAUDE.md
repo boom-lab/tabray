@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Synthetic-data generator that compares **array** storage (netCDF/xarray) against **tabular** storage (parquet/pandas) across grid occupancies, from gridded to maximally sparse. `docs/explainer.md` and `docs/explainer_multivar.md` define the terms the code uses (site, density/sparsity, gridded vs irregular, overlap); read them before changing generation semantics.
 
-Import package: `data_sparsity`. Distribution (`pyproject.toml`), repository and local conda env: `tabray`.
+Distribution and import package, repository and local conda env: `tabray`.
 
 ## Commands
 
@@ -19,7 +19,7 @@ pytest tests/generators/test_overlap_calculator.py
 pytest -k "overlap"
 bash tests/run_all_tests.sh       # suite + coverage
 
-pylint data_sparsity/<module>.py  # every file must score >= 8
+pylint tabray/<module>.py  # every file must score >= 8
 ```
 
 - Run Python through the `tabray` env (`$(conda info --base)/envs/tabray/bin/python`), an editable install of the working tree. A bare `python` can resolve to another interpreter holding a stale installed copy of the package, with no sign in the output.
@@ -28,7 +28,7 @@ pylint data_sparsity/<module>.py  # every file must score >= 8
 
 ## Architecture
 
-`GenerateData` (`data_sparsity/generate_data.py`, the only user-facing class) validates, configures, then delegates; it holds no generation logic:
+`GenerateData` (`tabray/generate_data.py`, the only user-facing class) validates, configures, then delegates; it holds no generation logic:
 
 ```
 GenerateData.__init__  ->  validators/   ParameterValidator, DimensionValidator, SparsityValidator
@@ -133,13 +133,14 @@ Every RNG comes from `stream(seed, tag, *index)` (`utils/streams.py`); tags live
 - Keep `README.md` current with new features and parameters.
 - Non-expert Python users read this code: prefer clear over clever, and comment any non-obvious design decision.
 - Never commit generated data (`.nc`, `.parquet`, `.csv`, …).
+- A module-level import of the package is `import tabray as tr`, used as `tr.<name>` (like `numpy as np`).
 - `docs/`: never track `.pdf` renders (`*.pdf` is in `.gitignore`).
 - Review diagrams (`docs/review_*.puml`): commit them to the PR branch so the PR history keeps them, and delete them before the PR merges.
 - Dataflow examples (`docs/dataflow_example_*.puml`) stay in the repository. They show the code's mechanics and architecture through worked examples from real runs: detailed enough to follow each step, no more. Each generation step shows a grid of the sites filled at that point.
 
 ## Open items
 
-`.claude/HANDOFF.md` lists unfinished work: lint exceptions to agree, `[tool.black]` target version, diagnostic S6, dataflow examples (grids at every step, more cases), the `data_sparsity` -> `tabray` package rename. Delete entries as they are done.
+`.claude/HANDOFF.md` lists unfinished work: lint exceptions to agree, `[tool.black]` target version, diagnostic S6, dataflow examples (grids at every step, more cases). Delete entries as they are done.
 
 ## Known drift in the docs
 

@@ -13,7 +13,7 @@ import xarray as xr
 import pandas as pd
 import os
 import glob
-from data_sparsity.generate_data import GenerateData
+from tabray.generate_data import GenerateData
 
 
 class TestScenariosParallel:

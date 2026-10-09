@@ -2,7 +2,7 @@
 
 import pytest
 import numpy as np
-from data_sparsity.validators import SparsityValidator
+from tabray.validators import SparsityValidator
 
 
 class TestComputeMinDensity:

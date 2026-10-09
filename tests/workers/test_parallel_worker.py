@@ -2,7 +2,7 @@
 
 import logging
 
-from data_sparsity.workers.parallel_worker import _configure_worker_logging
+from tabray.workers.parallel_worker import _configure_worker_logging
 
 
 def _close(logger: logging.Logger) -> None:

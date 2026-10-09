@@ -2,8 +2,8 @@
 
 import pytest
 import numpy as np
-from data_sparsity.generators.multi_var_record_generator import MultiVarRecordGenerator
-from data_sparsity.generators.overlap_calculator import OverlapCalculator
+from tabray.generators.multi_var_record_generator import MultiVarRecordGenerator
+from tabray.generators.overlap_calculator import OverlapCalculator
 
 
 class TestSelectConstantCoords:
@@ -725,7 +725,7 @@ class TestStratumCounts:
     )
     def test_matches_what_placement_produces(self, shape, obs):
         """If these drift apart, the apportioned overlap counts are wrong."""
-        from data_sparsity.generators.record_generator import RecordGenerator
+        from tabray.generators.record_generator import RecordGenerator
 
         counts = RecordGenerator.stratum_counts(shape, obs, 12345, 0)
         indices, _ = RecordGenerator.generate_stratified_indices(

@@ -3,7 +3,7 @@
 import pytest
 import numpy as np
 import pandas as pd
-from data_sparsity.output.parquet_builder import ParquetBuilder
+from tabray.output.parquet_builder import ParquetBuilder
 
 
 class TestExtractNonNanPoints:
