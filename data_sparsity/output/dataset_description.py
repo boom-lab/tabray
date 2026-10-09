@@ -14,9 +14,17 @@ import xarray as xr
 
 
 class DatasetDescription:
-    """One row per variable: dims, own grid, occupied cells, density, F1."""
+    """One row per variable: dims, sites, occupied sites, density, F1."""
 
-    COLUMNS = ["dims", "own_grid", "occupied", "density", "f1", "unused", "dtype"]
+    COLUMNS = [
+        "dims",
+        "var_sites",
+        "var_sites_occupied",
+        "density",
+        "f1",
+        "unused_coords",
+        "dtype",
+    ]
 
     @staticmethod
     def describe_dataset(
@@ -25,11 +33,11 @@ class DatasetDescription:
     ) -> pd.DataFrame:
         """Describe a dataset, read lazily.
 
-        - own_grid = prod(axis lengths of the variable's dims)
-        - density = occupied / own_grid
+        - var_sites = prod(axis lengths of the variable's dims)
+        - density = var_sites_occupied / var_sites
         - f1 = |proj(S0) & Si| / |proj(S0)| on the variable's dims, S0 = the
           first variable (NaN for it)
-        - unused = coordinates along the variable's dims holding no value
+        - unused_coords = coordinates along the variable's dims holding no value
 
         Args:
             source: netCDF path, an open xarray object, or a parquet
@@ -58,29 +66,34 @@ class DatasetDescription:
         ref = next(iter(masks.values()))
         rows = {}
         for name, mask in masks.items():
-            occupied = int(mask.sum())
-            own_grid = int(np.prod(mask.shape))
+            var_sites_occupied = int(mask.sum())
+            var_sites = int(np.prod(mask.shape))
+            density = var_sites_occupied / var_sites if var_sites else 0.0
             drop = [d for d in ref.dims if d not in mask.dims]
             proj_ref = ref.any(dim=drop) if drop else ref
-            unused = sum(
+            overlap = (
+                np.nan
+                if mask is ref
+                else int((proj_ref & mask).sum()) / max(int(proj_ref.sum()), 1)
+            )
+            unused_coords = sum(
                 int((~mask.any(dim=[o for o in mask.dims if o != d])).sum())
                 for d in mask.dims
             )
+            dtype = str(dataset[name].encoding.get("dtype", dataset[name].dtype))
             rows[name] = [
                 tuple(str(d) for d in mask.dims),
-                own_grid,
-                occupied,
-                occupied / own_grid if own_grid else 0.0,
-                (
-                    np.nan
-                    if mask is ref
-                    else int((proj_ref & mask).sum()) / max(int(proj_ref.sum()), 1)
-                ),
-                unused,
-                str(dataset[name].encoding.get("dtype", dataset[name].dtype)),
+                var_sites,
+                var_sites_occupied,
+                density,
+                overlap,
+                unused_coords,
+                dtype,
             ]
         table = pd.DataFrame.from_dict(
-            rows, orient="index", columns=DatasetDescription.COLUMNS
+            rows,
+            orient="index",
+            columns=DatasetDescription.COLUMNS,
         )
         table.attrs["grid"] = {str(d): int(n) for d, n in dataset.sizes.items()}
         return table
@@ -102,27 +115,32 @@ class DatasetDescription:
             held = frame[frame[name].notnull()][coords]
             seen = {c: int(held[c].nunique().compute()) for c in coords}
             dims = [c for c in coords if seen[c] > 1 or grid[c] == 1]
-            occupied = int(held.shape[0].compute())
-            own_grid = int(np.prod([grid[c] for c in dims]))
+            var_sites_occupied = int(held.shape[0].compute())
+            var_sites = int(np.prod([grid[c] for c in dims]))
+            density = var_sites_occupied / var_sites if var_sites else 0.0
             if name == names[0]:
-                f1 = np.nan
+                overlap = np.nan
             else:
                 proj_ref = ref_rows[dims].drop_duplicates()
                 shared = proj_ref.merge(held[dims].drop_duplicates(), on=dims)
-                f1 = int(shared.shape[0].compute()) / max(
-                    int(proj_ref.shape[0].compute()), 1
+                overlap = int(shared.shape[0].compute()) / max(
+                    int(proj_ref.shape[0].compute()),
+                    1,
                 )
+            unused_coords = sum(grid[c] - seen[c] for c in dims)
             rows[name] = [
                 tuple(dims),
-                own_grid,
-                occupied,
-                occupied / own_grid if own_grid else 0.0,
-                f1,
-                sum(grid[c] - seen[c] for c in dims),
+                var_sites,
+                var_sites_occupied,
+                density,
+                overlap,
+                unused_coords,
                 str(frame[name].dtype),
             ]
         table = pd.DataFrame.from_dict(
-            rows, orient="index", columns=DatasetDescription.COLUMNS
+            rows,
+            orient="index",
+            columns=DatasetDescription.COLUMNS,
         )
         table.attrs["grid"] = grid
         return table

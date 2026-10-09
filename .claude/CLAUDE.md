@@ -136,7 +136,7 @@ Every RNG comes from `stream(seed, tag, *index)` (`utils/streams.py`); tags live
 
 ## Open items
 
-`.claude/HANDOFF.md` lists unfinished work: lint exceptions to agree, black not declared as a dependency, the per-format compression design that replaces the removed matched-codec setting, diagnostics S6 and A4. Delete entries as they are done.
+`.claude/HANDOFF.md` lists unfinished work: lint exceptions to agree, black not declared as a dependency, the per-format compression design that replaces the removed matched-codec setting, diagnostics S6 and A4, the F1/F2 -> overlap/overlap_reverse rename. Delete entries as they are done.
 
 ## Known drift in the docs
 
