@@ -250,6 +250,10 @@ variable (`overlap`, and `overlap_reverse` divided by the variable's own sites),
 axes, so the grid is the coordinate values that appear, and a variable's dimensions are the
 coordinate columns along which it takes more than one value.
 
+### How the Data Are Generated
+
+`docs/dataflow.puml` traces a run from parameters to files, and `docs/dataflow_example_*.puml` are worked examples from real runs, with a grid of the filled sites after each generation step; `notebooks/dataflow_examples.ipynb` runs the same calls and plots the datasets. Compile one to PDF with [PlantUML](https://plantuml.com): `plantuml -tpdf docs/dataflow_example_single_var.puml`, or `plantuml -tpdf docs/dataflow*.puml` for all of them.
+
 ### Parameters
 
 - **density** and **sparsity** are both valid, independent ways to specify grid occupancy (`sparsity = 1 - density`). Provide exactly one; if both are passed, `density` takes precedence and a warning is raised.

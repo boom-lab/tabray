@@ -1,0 +1,184 @@
+@startuml dataflow_example_fixed_overlap
+' Worked example: three variables on a 4x4 grid, two of them opted in to
+' fixed_overlap. Every number here is from an actual run of this call.
+' Grids: rows x0, columns x1, in index space.
+' Render: plantuml docs/dataflow_example_fixed_overlap.puml
+
+title Example 3 -- fixed_overlap: two variables drawing from one ordering of var0's sites
+
+skinparam shadowing false
+skinparam defaultFontName Monospaced
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam activity {
+  BackgroundColor #FCFCFC
+  BorderColor #777777
+  DiamondBackgroundColor #F2F2F2
+}
+skinparam partition {
+  BorderColor #8899AA
+  FontColor #33495E
+}
+skinparam note {
+  BackgroundColor #FFFDF0
+  BorderColor #C8C08A
+}
+
+start
+
+partition "call" {
+  :GenerateData(num_obs=8, num_dims=2, ratio_dims=1,
+                density=0.5, seed=7,
+                num_vars=3, var_dims=2,
+                overlap=[0.5, 0.75],
+                fixed_overlap=[True, True])
+  .generate(...);
+  note right
+    var1 asks for half of var0's sites, var2 for
+    three quarters. fixed_overlap=True makes both
+    pick their overlap cells from ONE shared ordering
+    of var0's sites, so var1's are a subset of var2's.
+  end note
+}
+
+partition "validate and configure" {
+  :shape = [4, 4], 16 sites, density_zero = 4/16 = 0.25
+  var_num_obs = 8, 8, 8 (every variable on the whole grid)
+  <b>dim_split = 0</b>: the strata are the rows x0 = 0..3;
+}
+
+partition "placement of var0" {
+  :<b>LHS stage</b>, stream(7, LHS), n_s = 4
+    x0 = 3, 2, 1, 0
+    x1 = 1, 3, 2, 0
+  -> sites (3,1), (2,3), (1,2), (0,0);
+  note right
+    after the LHS stage
+    (L = LHS site, . = vacant)
+            x1=0 x1=1 x1=2 x1=3
+      x0=0   L    .    .    .
+      x0=1   .    .    L    .
+      x0=2   .    .    .    L
+      x0=3   .    L    .    .
+  end note
+
+  :<b>fill</b>: 8 - 4 = 4 points, 3 free cells per row
+  -> 1 per stratum, from stream(7, STRATUM, j)
+  fill sites (0,3), (1,1), (2,0), (3,3);
+  note right
+    var0 placed
+    (f = fill site)
+            x1=0 x1=1 x1=2 x1=3
+      x0=0   L    .    .    f
+      x0=1   .    f    L    .
+      x0=2   f    .    .    L
+      x0=3   .    L    .    f
+    p_j = 2 var0 sites in every row
+  end note
+}
+
+partition "how many overlap cells each stratum gets" {
+  :every variable varies along every dimension, so the
+  overlap count is decided ONCE and apportioned
+  (RecordGenerator.stratum_counts gives p_j = 2, 2, 2, 2)
+  per stratum: n_j = 2 cells to place, free = 4 - 2 = 2
+  lo = max(0, n_j - free) = 0, hi = min(n_j, p_j) = 2;
+
+  :var1: goal = round(0.5 * 8) = 4
+  apportion(4, room 2, 2, 2, 2) -> 1, 1, 1, 1
+  var2: goal = round(0.75 * 8) = 6
+  apportion(6, room 2, 2, 2, 2) -> 1, 1, 2, 2;
+  note right
+    Rounding per stratum would give
+    round(0.75 * 2) = 2 in every row: 8, not 6.
+    Apportioning the total keeps the achieved
+    overlap within one cell of the target.
+  end note
+}
+
+partition "placement of var1 and var2, one stratum at a time" {
+  :<b>shared ordering</b>, per stratum j:
+  stream(7, SHARED_OVERLAP, j).permutation(proj_j(S0))
+  computed once and reused by every opted-in variable
+  with the same dims
+    row 0: x1 = 3, 0
+    row 1: x1 = 2, 1
+    row 2: x1 = 0, 3
+    row 3: x1 = 1, 3;
+
+  :<b>overlap cells</b> = the first n_overlap of that ordering
+  var1 takes 1 per row: (0,3) (1,2) (2,0) (3,1)
+  var2 takes 1, 1, 2, 2: (0,3) (1,2) (2,0) (2,3) (3,1) (3,3);
+
+  :<b>remainder</b> from cells held by NEITHER the variable
+  nor var0, with the variable's own stream(7, VAR, i, j)
+  var1: (0,2) (1,3) (2,1) (3,2)
+  var2: (0,1) (1,3);
+  note right
+    var1 placed                var2 placed
+    (0 = var0 only, B = both, 1 / 2 = that variable only)
+            x1=0 x1=1 x1=2 x1=3          x1=0 x1=1 x1=2 x1=3
+      x0=0   0    .    1    B      x0=0   0    2    .    B
+      x0=1   .    0    B    1      x0=1   .    0    B    2
+      x0=2   B    1    .    0      x0=2   B    .    .    B
+      x0=3   .    B    1    0      x0=3   .    B    .    B
+    Every B of var1 is a B of var2.
+    (1,3) is held by both var1 and var2 by chance: their
+    remainders come from independent streams.
+  end note
+
+  :<b>OverlapCalculator.compute_overlap_report</b>
+  var1: overlap 0.500, overlap_r 0.500 (4 of 8 var0 sites)
+  var2: overlap 0.750, overlap_r 0.750 (6 of 8 var0 sites)
+  both targets met exactly;
+  note right
+    Same call with fixed_overlap=[False, False]:
+    each variable draws its overlap cells from var0's
+    sites with its own VAR stream.
+      var1 on var0: (0,3) (1,2) (2,0) (3,3)
+      var2 on var0: (0,0) (1,2) (2,0) (2,3) (3,1) (3,3)
+    Same overlaps against var0 (0.5, 0.75), but only
+    3 of var1's 4 cells on var0 are var2 cells too.
+  end note
+}
+
+partition "two in-memory stores" {
+  :<b>NetCDFBuilder.build_dataset</b>
+  var0, var1, var2 each (x0, x1) 4x4, 48 values of which 24 are NaN
+  attrs: var_num_obs=[8, 8, 8], overlap_target=[0.5, 0.75],
+  fixed_overlap=[1, 1], overlap_actual=[0.5, 0.75],
+  overlap_actual_reverse=[0.5, 0.75];
+
+  :<b>ParquetBuilder.build_multi_var_dataframe</b>
+  one row per coordinate held by ANY variable: 13 rows
+  (16 sites, 3 of them held by no variable);
+  note right
+    held by no variable: (1,0) (2,2) (3,0)
+    |= x0 |= x1 |= var0 |= var1 |= var2 |
+    | 0.112891 | 0.266385 | 0.052199 | NaN | NaN |
+    | 0.112891 | 0.579249 | NaN | NaN | 0.307387 |
+    | 0.112891 | 0.720357 | NaN | 0.249647 | NaN |
+    | 0.112891 | 0.923012 | 0.788945 | 0.027670 | 0.411716 |
+    | 0.623965 | 0.579249 | 0.214186 | NaN | NaN |
+    | 0.623965 | 0.720357 | 0.028780 | 0.997560 | 0.487301 |
+    | 0.623965 | 0.923012 | NaN | 0.761172 | 0.375845 |
+    | 0.744798 | 0.266385 | 0.474232 | 0.450079 | 0.098496 |
+    | 0.744798 | 0.579249 | NaN | 0.775674 | NaN |
+    | 0.744798 | 0.923012 | 0.529496 | NaN | 0.910789 |
+    | 0.802750 | 0.579249 | 0.295941 | 0.723410 | 0.895884 |
+    | 0.802750 | 0.720357 | NaN | 0.851315 | NaN |
+    | 0.802750 | 0.923012 | 0.945358 | NaN | 0.297017 |
+  end note
+}
+
+partition "disk" {
+  :netCDF/ds.nc                13251 B
+  parquet/ddf_0.parquet         4583 B
+  parquet/_metadata             3785 B
+  parquet/_common_metadata      3043 B;
+}
+
+:return (Dataset, DataFrame);
+stop
+
+@enduml

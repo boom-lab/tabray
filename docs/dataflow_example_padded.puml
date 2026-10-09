@@ -1,0 +1,158 @@
+@startuml dataflow_example_padded
+' Worked example: layout="padded" on a 3x3x4 grid, two variables.
+' Every number here is from an actual run of this call.
+' Grids: one panel per x0 (= stratum), rows x1 (= lines), columns x2
+' (= the padded axis), index space.
+' Render: plantuml docs/dataflow_example_padded.puml
+
+title Example 5 -- layout="padded": every line fills its first k cells (experimental)
+
+skinparam shadowing false
+skinparam defaultFontName Monospaced
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam activity {
+  BackgroundColor #FCFCFC
+  BorderColor #777777
+  DiamondBackgroundColor #F2F2F2
+}
+skinparam partition {
+  BorderColor #8899AA
+  FontColor #33495E
+}
+skinparam note {
+  BackgroundColor #FFFDF0
+  BorderColor #C8C08A
+}
+
+start
+
+partition "call" {
+  :GenerateData(num_obs=18, num_dims=3, ratio_dims=[3, 3, 4],
+                density=[0.5, 0.25], seed=12345,
+                num_vars=2, var_dims=3, layout="padded")
+  .generate(...);
+  note right
+    padded_dim defaults to the last dimension, x2.
+    Think of x2 as depth and of each (x0, x1) as one
+    profile: a profile fills its first k depths and
+    the rest of the row is fill, as in Argo.
+    overlap must stay "random": under padded it
+    follows from the densities (see below).
+  end note
+}
+
+partition "validate and configure" {
+  :nb_coords_dim1 = (18 / (0.5 * 36)) ** (1/3) = 1
+  -> <b>shape = [3, 3, 4]</b>, 36 sites;
+
+  :minimum density under padded:
+  (prod(shape)/n_padded + n_padded - 1) / prod(shape)
+  -> (36/4 + 4 - 1) / 36 = 12/36 = 0.333
+  every line needs one observation (9 lines) and one
+  line must run the full length (3 more);
+
+  :var_num_obs = 18, 9 (var1 at half var0's density)
+  <b>dim_split = 0</b>: the padded axis cannot be split, a
+  stratum would hold one cell of each line;
+  note right #FDF1F1
+    printed: "Stratifying along dimension 0 (size 3)
+    rather than the largest dimension 2 (size 4), which
+    is not shared by every variable."
+    Both variables vary along x2; it is excluded because
+    it is the padded axis. The message gives the wrong
+    reason.
+  end note
+}
+
+partition "placement of var0: no LHS stage" {
+  :<b>padded_stratum_counts</b>
+  lines per stratum = 3 (one per x1), n_padded = 4
+  floor = 3 per stratum (one cell per line)
+  room  = 3 * (4 - 1) = 9 per stratum
+  counts = 3 + apportion(18 - 9, equal weights, cap 9)
+      -> 6, 6, 6
+  carrier = argmax(counts) = stratum 0
+  it needs 4 + 3 - 1 = 6 to run one full line: no deficit;
+
+  :<b>_first_occupied_per_line</b>, per stratum: k per line
+  stratum 0 (carrier): line 0 runs the full axis, k = 4,
+                       the other lines k = 1   -> 4, 1, 1
+  strata 1 and 2: 1 per line, then 3 spare
+                  apportioned equally           -> 2, 2, 2;
+
+  :sites are positions 0..k-1 of each line: no random draw
+  values from stream(12345, STRATUM, j), after the sites;
+  note right
+    var0 placed (# = occupied, . = vacant)
+           x0=0           x0=1           x0=2
+           x2: 0 1 2 3    x2: 0 1 2 3    x2: 0 1 2 3
+      x1=0     # # # #        # # . .        # # . .
+      x1=1     # . . .        # # . .        # # . .
+      x1=2     # . . .        # # . .        # # . .
+    Coverage comes from the construction: every line
+    holds x2 = 0, and line (0, 0) reaches x2 = 3, so
+    every coordinate of every axis is used without an
+    LHS stage (which would have put a site off the
+    pattern).
+  end note
+}
+
+partition "placement of var1: the same layout" {
+  :<b>counts</b>: apportion(9, 12 cells per stratum) -> 3, 3, 3;
+
+  :var1 has the padded axis and overlap is "random", so
+  <b>_padded_cells</b> places it: 3 lines per stratum,
+  k = apportion(3, equal weights, cap 4) = 1, 1, 1
+  -> x2 = 0 on every line
+  values from stream(12345, VAR, 1, j);
+  note right
+    var1 placed (0 = var0 only, B = both)
+           x0=0           x0=1           x0=2
+           x2: 0 1 2 3    x2: 0 1 2 3    x2: 0 1 2 3
+      x1=0     B 0 0 0        B 0 . .        B 0 . .
+      x1=1     B . . .        B 0 . .        B 0 . .
+      x1=2     B . . .        B 0 . .        B 0 . .
+    Unlike var0, var1 has no coverage guarantee:
+    x2 = 1, 2, 3 hold no var1 value.
+  end note
+
+  :<b>OverlapCalculator.compute_overlap_report</b>
+  overlap   = 9 / 18 = <b>0.500</b> = n1 / n0
+  overlap_r = 9 / 9  = <b>1.000</b>;
+  note right
+    Both variables fill the first cells of the same
+    lines, so per line the intersection is min(k0, k1)
+    and the overlap is the ratio of the counts. A
+    target could not be honoured, which is why passing
+    overlap with layout="padded" raises.
+  end note
+}
+
+partition "two in-memory stores" {
+  :<b>NetCDFBuilder.build_dataset</b>
+  var0, var1 each (x0, x1, x2) 3x3x4: 72 values, 45 NaN
+  attrs: var_num_obs=[18, 9], overlap_target="random",
+  overlap_actual=[0.5], overlap_actual_reverse=[1.0];
+
+  :<b>ParquetBuilder.build_multi_var_dataframe</b>
+  18 rows, the var0 sites; var1 has no site of its own;
+  note right
+    DatasetDescription of the written file:
+    |= var |= var_sites |= occupied |= density |= overlap |= unused_coords |
+    | var0 | 36 | 18 | 0.50 | NaN | 0 |
+    | var1 | 36 | 9 | 0.25 | 0.5 | 3 |
+  end note
+}
+
+partition "disk" {
+  :netCDF/ds.nc                13681 B
+  parquet/ddf_0.parquet         4653 B
+  parquet/_metadata             3765 B
+  parquet/_common_metadata      3025 B;
+}
+
+:return (Dataset, DataFrame);
+stop
+
+@enduml
