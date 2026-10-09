@@ -26,7 +26,8 @@ test = [
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
-    "pylint>=2.15.0"
+    "pylint>=2.15.0",
+    "black>=24.0.0"
 ]
 
 [build-system]
