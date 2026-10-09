@@ -63,7 +63,7 @@ directory; say the word and it can be committed under `tests/`.
 | 01 | b646f9a, 18a85ef, 48950f2, adb82be | adb82be | +424/-84 | parallel support for multi-variable runs, `max_workers`, unsqueezed chunk files |
 | 02 | 2b14258, 86e9e2e | 86e9e2e | +304/-75 | stratify the grid by hyperplane; `apportion`; single-variable path moves over |
 | 03 | 08e0cfa, 4aac88d, c0393ef | c0393ef | +564/-127 | per-stratum placement for every variable; `_choose_split_dim`; LHS takes `max(shape)` |
-| 04 | 5199b5e, 2368f7c | 2368f7c | +262/-57 | overlap reported as F1, with F2 alongside |
+| 04 | 5199b5e, 2368f7c | 2368f7c | +262/-57 | overlap reported, with the reverse ratio alongside |
 | 05 | 6390501 | 6390501 | +98/-22 | both paths write the same self-describing attributes |
 | 06 | a2bc4fb | a2bc4fb | +95/-9 | opt-in `merge_nc` concatenates the chunk files |
 | 07 | 3e31654 | 3e31654 | +83/-67 | identical parquet row order in both paths |

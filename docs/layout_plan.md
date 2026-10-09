@@ -63,8 +63,8 @@ own, so the two can collide; the constructor should resolve or refuse it rather 
 something silently wrong.
 
 **Overlap must raise.** With both variables filling the first k cells of each line of the same axis, the intersection
-in a stratum is `min(k_0, k_i)`, so `F1 = n_i / n_0` and nothing is left to choose. Argo confirms
-this: NITRATE sits at occupancy 0.161 against TEMP's 0.986 and its measured F1 is 0.163, the
+in a stratum is `min(k_0, k_i)`, so `overlap = n_i / n_0` and nothing is left to choose. Argo confirms
+this: NITRATE sits at occupancy 0.161 against TEMP's 0.986 and its measured overlap is 0.163, the
 density ratio. Passing `overlap` alongside `layout="padded"` should raise, the way packing an
 integer dtype does, because the target cannot be honoured. The achieved value still goes in the
 generation report.
@@ -168,7 +168,7 @@ for any case that does not.
 * which minimum-density bound applied (built: the `minimum density` row).
 * occupancy against the variable's own grid alongside the requested density (the existing
   density row).
-* achieved F1 under padded, which is derived rather than requested (the existing overlap row
+* achieved overlap under padded, which is derived rather than requested (the existing overlap row
   only appears when a target is set).
 
 Not built: a row measuring the achieved layout (the share of occupied cells whose neighbour along

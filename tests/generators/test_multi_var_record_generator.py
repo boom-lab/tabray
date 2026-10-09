@@ -604,7 +604,7 @@ class TestOverlapIsApportionedAcrossStrata:
         var_dims=None,
         split_dim=0,
     ):
-        """Generate, then measure F1 from the occupancy masks."""
+        """Generate, then measure the overlap from the occupancy masks."""
         num_dims = len(shape)
         dims = var_dims or [list(range(num_dims))] * num_vars
         records = MultiVarRecordGenerator.generate_multivar_stratified(
@@ -626,32 +626,32 @@ class TestOverlapIsApportionedAcrossStrata:
 
     def test_the_case_that_rendered_as_complete_overlap(self):
         """3x3, 8 observations, target 7/8. Per-stratum rounding gave 8 of 8."""
-        f1, reference = self.achieved([3, 3], 8, 7 / 8)
+        overlap, reference = self.achieved([3, 3], 8, 7 / 8)
         assert reference == 8
-        assert f1 == pytest.approx(7 / 8)
+        assert overlap == pytest.approx(7 / 8)
 
     def test_the_case_that_rendered_as_no_overlap(self):
         """3x3, 3 observations, target 1/3. Each stratum rounded 0.33 to 0."""
-        f1, reference = self.achieved([3, 3], 3, 1 / 3)
+        overlap, reference = self.achieved([3, 3], 3, 1 / 3)
         assert reference == 3
-        assert f1 == pytest.approx(1 / 3)
+        assert overlap == pytest.approx(1 / 3)
 
     @pytest.mark.parametrize("side,obs", [(3, 8), (6, 32), (9, 72), (20, 350)])
     def test_target_is_met_at_every_grid_size(self, side, obs):
-        """Within one cell, which is the resolution F1 has on that grid.
+        """Within one cell, which is the resolution the overlap has on that grid.
 
         0.875 of 350 reference cells is 306.25, so 306/350 is as close as the
         grid allows. What must not happen is the drift to an endpoint.
         """
-        f1, reference = self.achieved([side, side], obs, 7 / 8)
-        assert abs(f1 - 7 / 8) <= 1 / reference
+        overlap, reference = self.achieved([side, side], obs, 7 / 8)
+        assert abs(overlap - 7 / 8) <= 1 / reference
 
     def test_unreachable_target_lands_on_the_nearest_whole_cell(self):
         """0.75 of 6 cells is 4.5. Neither 4 nor 5 is the target; the result
         must be one of them rather than an endpoint."""
-        f1, reference = self.achieved([3, 3], 6, 0.75)
+        overlap, reference = self.achieved([3, 3], 6, 0.75)
         assert reference == 6
-        assert f1 in (pytest.approx(4 / 6), pytest.approx(5 / 6))
+        assert overlap in (pytest.approx(4 / 6), pytest.approx(5 / 6))
 
     def test_reduced_dimension_variables_keep_the_per_stratum_rule(self):
         """p_j counts distinct PROJECTED cells there, which depends on where

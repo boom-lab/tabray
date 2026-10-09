@@ -245,8 +245,8 @@ DatasetDescription.describe_dataset("data.nc")
 DatasetDescription.describe_dataset("parquet_dir", coords=["x0", "x1", "x2"])
 ```
 
-One row per variable: its dimensions, sites (`var_sites`), occupied sites, density, F1 against the first
-variable, coordinates along its dimensions holding no value, and stored dtype. Parquet has no
+One row per variable: its dimensions, sites (`var_sites`), occupied sites, density, overlap with the first
+variable (`overlap`, and `overlap_reverse` divided by the variable's own sites), coordinates along its dimensions holding no value, and stored dtype. Parquet has no
 axes, so the grid is the coordinate values that appear, and a variable's dimensions are the
 coordinate columns along which it takes more than one value.
 
@@ -312,7 +312,7 @@ coordinate columns along which it takes more than one value.
 - (experimental) **padded_dim** (int, optional): The axis whose first k cells each line fills under `layout="padded"`
   (default: the last dimension). It cannot be the split dimension, so the split is chosen from the
   remaining axes. `overlap` cannot be set alongside `layout="padded"`: with every line filling
-  its first k cells of the same axis the achieved F1 follows from the densities, so no target can be
+  its first k cells of the same axis the achieved overlap follows from the densities, so no target can be
   honoured. Note the minimum density is higher under `padded` — every line needs an observation
   and one line must run the full length — and the configuration printout states which bound applied.
 - **num_vars** (int, optional): Number of variables in the dataset (default: 1)

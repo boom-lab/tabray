@@ -17,7 +17,8 @@ def fixture_known():
     """var0 on (x0, x1), var1 on x1 only.
 
     var0 occupies x1 = 0, 1; var1 occupies x1 = 1, 2
-    -> F1 = |{0, 1} & {1, 2}| / |{0, 1}| = 0.5
+    -> overlap         = |{0, 1} & {1, 2}| / |{0, 1}| = 0.5
+    -> overlap_reverse = |{0, 1} & {1, 2}| / |{1, 2}| = 0.5
     """
     var0 = np.full((2, 3), np.nan)
     var0[0, 0] = var0[1, 1] = 1.0
@@ -34,10 +35,12 @@ def test_counts_from_the_data(known):
     assert table.loc["var0", "var_sites"] == 6
     assert table.loc["var0", "var_sites_occupied"] == 2
     assert table.loc["var0", "unused_coords"] == 1  # x1 = 3
-    assert np.isnan(table.loc["var0", "f1"])
+    assert np.isnan(table.loc["var0", "overlap"])
+    assert np.isnan(table.loc["var0", "overlap_reverse"])
     assert table.loc["var1", "dims"] == ("x1",)
     assert table.loc["var1", "density"] == pytest.approx(2 / 3)
-    assert table.loc["var1", "f1"] == pytest.approx(0.5)
+    assert table.loc["var1", "overlap"] == pytest.approx(0.5)
+    assert table.loc["var1", "overlap_reverse"] == pytest.approx(0.5)
 
 
 def test_parquet_agrees_with_netcdf(known, tmp_path):
@@ -59,7 +62,8 @@ def test_parquet_agrees_with_netcdf(known, tmp_path):
         "var_sites",
         "var_sites_occupied",
         "density",
-        "f1",
+        "overlap",
+        "overlap_reverse",
         "unused_coords",
     ]
     pd.testing.assert_frame_equal(nc[columns], pq[columns])

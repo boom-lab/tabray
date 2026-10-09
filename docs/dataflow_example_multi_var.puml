@@ -35,7 +35,7 @@ partition "call" {
   note right
     var_dims=[2,1]: var0 varies along both dimensions,
     var1 along one. The GRID stays 2D either way.
-    overlap is F1 -- the share of <b>var0's</b> sites that
+    overlap is the share of <b>var0's</b> sites that
     also carry var1, on the dimensions the two share.
   end note
 }
@@ -109,7 +109,8 @@ partition "placement: var0 first, then var1 per stratum" {
 
   :<b>OverlapCalculator.compute_overlap_report</b>
   on x1, var0 uses all 3 coordinates and var1 uses 1 of them
-  <b>F1 = 1/3</b> (target was 0.125), <b>F2 = 1.000</b>;
+  <b>overlap = 1/3</b> (target was 0.125),
+  <b>overlap_reverse = 1.000</b>;
   note right
     var1 record, full grid (. = vacant)
              x1=0    x1=1    x1=2
@@ -126,7 +127,8 @@ partition "two in-memory stores, which differ in shape here" {
   from var1, leaving <b>var1 (x1)</b> = NaN, NaN, 0.759
   attrs add num_vars=2, var_densities, var_num_obs=[8,1],
   overlap_target=[0.125], overlap_convention,
-  fixed_overlap=[0], overlap_actual_f1=[0.333], _f2=[1.0];
+  fixed_overlap=[0], overlap_actual=[0.333],
+  overlap_actual_reverse=[1.0];
   note right
     Squeezing is deliberate: a variable pinned to one
     coordinate carries no information along that axis,

@@ -237,7 +237,7 @@ class MultiVarRecordGenerator:
             )
             if chunk_id is None:
                 OverlapCalculator.print_overlap_report(report, targets)
-            return records, report["f1"]
+            return records, report["overlap"]
 
         # One variable: the multi-variable branch above returns for every
         # other case.
@@ -259,7 +259,7 @@ class MultiVarRecordGenerator:
             num_vars,
             num_dims,
             var_dims_indices,
-        )["f1"]
+        )["overlap"]
 
         return records, overlap_actual
 
@@ -333,7 +333,7 @@ class MultiVarRecordGenerator:
         not vary along.
 
         A variable that varies along every dimension has its overlap count
-        decided once and apportioned across strata, so the achieved F1 is the
+        decided once and apportioned across strata, so the achieved overlap is the
         requested one to within a cell. A variable that drops a dimension keeps
         a per-stratum ``round(t_i * |proj_j(S_0)|)``, which drifts by order
         ``sqrt(num_strata)/2`` on the global numerator: its ``p_j`` counts
