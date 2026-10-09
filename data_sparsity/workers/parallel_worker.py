@@ -13,12 +13,7 @@ import numpy as np
 from numpy.typing import ArrayLike
 
 from data_sparsity.generators import CoordinateGenerator, MultiVarRecordGenerator
-from data_sparsity.output import (
-    GenerationReport,
-    NetCDFBuilder,
-    ParquetBuilder,
-    VariableEncoding,
-)
+from data_sparsity.output import NetCDFBuilder, ParquetBuilder, VariableEncoding
 from data_sparsity.utils import ChunkUtils
 
 
@@ -88,7 +83,7 @@ def generate_chunk(
     var_value_ranges: Union[List, None] = None,
     layout: str = "scattered",
     padded_dim: Optional[int] = None,
-) -> Tuple[int, int, str, dict]:
+) -> Tuple[int, int, str]:
     """Generate a single chunk of data in parallel.
 
     This function is designed to be called by ProcessPoolExecutor and contains
@@ -131,9 +126,7 @@ def generate_chunk(
         padded_dim: The axis whose first k cells each line fills under layout='padded'
 
     Returns:
-        Tuple of (chunk_id, total_observations, parquet_chunk_path,
-        measurements) -- the last is what the parent needs to report
-        requested against achieved without re-reading the output
+        Tuple of (chunk_id, total_observations, parquet_chunk_path)
     """
     log = _configure_worker_logging(chunk_id, log_dir)
     var_encodings = VariableEncoding.per_variable(
@@ -205,13 +198,6 @@ def generate_chunk(
         # Round to what the encoding can store, before either format is
         # written, so the two hold the same numbers.
         records["var0"] = var_encodings[0].to_stored(records["var0"])
-
-        measurements = GenerationReport.measure_chunk(
-            records,
-            [list(range(len(task_shape)))],
-            dim_split,
-            task_range[0],
-        )
 
         # Extract the single record from the dictionary
         record = records["var0"]
@@ -306,13 +292,6 @@ def generate_chunk(
             if name in records:
                 records[name] = encoding.to_stored(records[name])
 
-        measurements = GenerationReport.measure_chunk(
-            records,
-            var_dims_indices,
-            dim_split,
-            task_range[0],
-        )
-
         log.debug("chunk id: %s", chunk_id)
         # Count what was actually placed. var_num_obs is the GLOBAL per-variable
         # count -- the strata apportion it internally -- so the chunk's own
@@ -396,4 +375,4 @@ def generate_chunk(
             var_encodings=var_encodings,
         )
 
-    return chunk_id, total_obs, parquet_chunk_path, measurements
+    return chunk_id, total_obs, parquet_chunk_path

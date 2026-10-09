@@ -1,0 +1,128 @@
+"""Statistics of a netCDF or parquet dataset, measured from the file.
+
+Counts occupied cells rather than reading the generator's bookkeeping, so a
+placement bug shows up here instead of being echoed.
+"""
+
+import os
+from typing import List, Optional, Union
+
+import dask.dataframe as dd
+import numpy as np
+import pandas as pd
+import xarray as xr
+
+
+class DatasetDescription:
+    """One row per variable: dims, own grid, occupied cells, density, F1."""
+
+    COLUMNS = ["dims", "own_grid", "occupied", "density", "f1", "unused", "dtype"]
+
+    @staticmethod
+    def describe_dataset(
+        source: Union[str, xr.Dataset, xr.DataArray],
+        coords: Optional[List[str]] = None,
+    ) -> pd.DataFrame:
+        """Describe a dataset, read lazily.
+
+        - own_grid = prod(axis lengths of the variable's dims)
+        - density = occupied / own_grid
+        - f1 = |proj(S0) & Si| / |proj(S0)| on the variable's dims, S0 = the
+          first variable (NaN for it)
+        - unused = coordinates along the variable's dims holding no value
+
+        Args:
+            source: netCDF path, an open xarray object, or a parquet
+                file, glob or directory
+            coords: Coordinate columns; required for parquet, unused otherwise
+
+        Returns:
+            DataFrame indexed by variable; ``attrs["grid"]`` maps dim to length
+        """
+        is_parquet = isinstance(source, str) and (
+            source.endswith(".parquet") or os.path.isdir(source)
+        )
+        if is_parquet:
+            if not coords:
+                raise ValueError("parquet needs its coordinate columns named")
+            return DatasetDescription._from_parquet(source, coords)
+        if isinstance(source, str):
+            source = xr.open_dataset(source, chunks={})
+        if isinstance(source, xr.DataArray):
+            source = source.to_dataset(name=source.name or "record")
+        return DatasetDescription._from_xarray(source)
+
+    @staticmethod
+    def _from_xarray(dataset: xr.Dataset) -> pd.DataFrame:
+        masks = {name: dataset[name].notnull() for name in dataset.data_vars}
+        ref = next(iter(masks.values()))
+        rows = {}
+        for name, mask in masks.items():
+            occupied = int(mask.sum())
+            own_grid = int(np.prod(mask.shape))
+            drop = [d for d in ref.dims if d not in mask.dims]
+            proj_ref = ref.any(dim=drop) if drop else ref
+            unused = sum(
+                int((~mask.any(dim=[o for o in mask.dims if o != d])).sum())
+                for d in mask.dims
+            )
+            rows[name] = [
+                tuple(str(d) for d in mask.dims),
+                own_grid,
+                occupied,
+                occupied / own_grid if own_grid else 0.0,
+                (
+                    np.nan
+                    if mask is ref
+                    else int((proj_ref & mask).sum()) / max(int(proj_ref.sum()), 1)
+                ),
+                unused,
+                str(dataset[name].encoding.get("dtype", dataset[name].dtype)),
+            ]
+        table = pd.DataFrame.from_dict(
+            rows, orient="index", columns=DatasetDescription.COLUMNS
+        )
+        table.attrs["grid"] = {str(d): int(n) for d, n in dataset.sizes.items()}
+        return table
+
+    @staticmethod
+    def _from_parquet(path: str, coords: List[str]) -> pd.DataFrame:
+        """Parquet has no axes, so two things are inferred from the rows.
+
+        - grid: the coordinate values that appear in any row
+        - a variable's dims: the coords along which it takes more than one
+          value (a variable with one value per axis looks constant)
+        """
+        frame = dd.read_parquet(path)
+        names = [c for c in frame.columns if c not in coords]
+        grid = {c: int(frame[c].nunique().compute()) for c in coords}
+        ref_rows = frame[frame[names[0]].notnull()][coords]
+        rows = {}
+        for name in names:
+            held = frame[frame[name].notnull()][coords]
+            seen = {c: int(held[c].nunique().compute()) for c in coords}
+            dims = [c for c in coords if seen[c] > 1 or grid[c] == 1]
+            occupied = int(held.shape[0].compute())
+            own_grid = int(np.prod([grid[c] for c in dims]))
+            if name == names[0]:
+                f1 = np.nan
+            else:
+                proj_ref = ref_rows[dims].drop_duplicates()
+                shared = proj_ref.merge(held[dims].drop_duplicates(), on=dims)
+                f1 = int(shared.shape[0].compute()) / max(
+                    int(proj_ref.shape[0].compute()), 1
+                )
+            rows[name] = [
+                tuple(dims),
+                own_grid,
+                occupied,
+                occupied / own_grid if own_grid else 0.0,
+                f1,
+                sum(grid[c] - seen[c] for c in dims),
+                str(frame[name].dtype),
+            ]
+        table = pd.DataFrame.from_dict(
+            rows, orient="index", columns=DatasetDescription.COLUMNS
+        )
+        table.attrs["grid"] = grid
+        return table

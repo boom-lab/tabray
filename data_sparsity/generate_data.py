@@ -32,7 +32,7 @@ from data_sparsity.generators import (
     MultiVarRecordGenerator,
 )
 from data_sparsity.output import (
-    GenerationReport,
+    DatasetDescription,
     VariableEncoding,
     NetCDFBuilder,
     ParquetBuilder,
@@ -113,21 +113,6 @@ class GenerateData:
             TypeError: If arguments are not of expected types
             ValueError: If arguments fail validation checks
         """
-        # What the caller asked for, before validation rewrites any of it.
-        # The report compares against this, so corrections stay visible.
-        self._requested = {
-            "num_obs": num_obs,
-            "num_dims": num_dims,
-            "ratio_dims": ratio_dims,
-            "density": density,
-            "sparsity": sparsity,
-            "overlap": overlap,
-            "num_vars": num_vars,
-            "var_dims": var_dims,
-            "layout": layout,
-            "padded_dim": padded_dim,
-        }
-
         # Store parameters as instance variables
         self.num_obs = num_obs
         self.num_dims = num_dims
@@ -184,7 +169,7 @@ class GenerateData:
                     "line filling its first k cells of the same axis the "
                     "intersection is min(k_0, k_i), so F1 is the ratio of the "
                     "densities and no target can be honoured. The achieved "
-                    "value is in the generation report."
+                    "value is printed after generation."
                 )
         self.padded_dim = padded_dim
         self._resolve_density_input()
@@ -260,6 +245,7 @@ class GenerateData:
         print(f"  Variable dimensions: {self.var_dims}")
         print(f"  Overlap: {self.overlap}")
         print(f"  Fixed overlap: {self.fixed_overlap}")
+        print(f"  Layout: {self.layout}, padded dim: {self.padded_dim}")
         print(f"  Variable encodings: {self.var_encodings}")
 
     def _print_updated_config(self) -> None:
@@ -277,8 +263,14 @@ class GenerateData:
             print(f"  Variable constant dimensions: {self.var_constant_dims}")
         print(f"  Variable densities: {self.var_densities}")
         print(f"  Variable observations: {self.var_num_obs}")
-        print(f"  Overlap: {self.overlap}")
+        print(f"  Overlap target: {self.overlap_target}")
         print(f"  Fixed overlap: {self.fixed_overlap}")
+        rule = (
+            "(prod(shape) / n_padded + n_padded - 1) / prod(shape)"
+            if self.layout == "padded"
+            else "max(shape) / prod(shape)"
+        )
+        print(f"  Minimum density: {self.density_zero:.6g} = {rule}")
 
     def _validate_parameters(self) -> None:
         """Validate initialization parameters.
@@ -811,8 +803,7 @@ class GenerateData:
             self.save_to_netcdf(nc_path, dataarray=dataarray)
             self.save_to_parquet(pq_path, dataframe=dataframe)
 
-            self.report = GenerationReport.from_arrays(self, dataarray, dataframe)
-            print(self.report.render())
+            self._describe(nc_path)
 
             return dataarray, dataframe
 
@@ -827,7 +818,18 @@ class GenerateData:
         self._generate_par(log_dir)
         if merge_nc:
             self._merge_netcdf_files()
+            self._describe(self.netcdf_filepath)
+        else:
+            chunks, _ = self._open_netcdf_chunks()
+            self._describe(chunks)
+            chunks.close()
         return None, None
+
+    def _describe(self, source) -> None:
+        """Measure the written netCDF and print it; kept as self.description."""
+        self.description = DatasetDescription.describe_dataset(source)
+        print(f"Written dataset, grid {self.description.attrs['grid']}:")
+        print(self.description.to_string())
 
     def _generate_par(self, log_dir: str) -> None:
         """Generate sparse record array with observations using parallel processing.
@@ -957,7 +959,6 @@ class GenerateData:
             f"Starting parallel generation with {max_workers} workers for {self.NTASKS} chunks"
         )
 
-        chunk_summaries = []
         ctx = multiprocessing.get_context("spawn")
         with ProcessPoolExecutor(max_workers=max_workers, mp_context=ctx) as executor:
             futures = [executor.submit(generate_chunk, **args) for args in chunk_args]
@@ -965,8 +966,7 @@ class GenerateData:
             tot_completed = 0
             tot_obs = 0
             for future in as_completed(futures):
-                chunk_id, obs_num, chunk_path, measurements = future.result()
-                chunk_summaries.append(measurements)
+                chunk_id, obs_num, _ = future.result()
                 tot_completed += 1
                 tot_obs += obs_num
                 print(
@@ -975,13 +975,32 @@ class GenerateData:
                 )
 
         print(f"Total obs stored to disk: {tot_obs}.")
-        # Workers measured their own chunk; overlap never spans strata, so
-        # the counts add up and nothing has to be read back from disk.
-        self.report = GenerationReport.from_chunks(self, chunk_summaries)
-        print(self.report.render())
 
         # Consolidate parquet files
         self._consolidate_parquet_files()
+
+    def _open_netcdf_chunks(self) -> Tuple[xr.Dataset, List[str]]:
+        """The chunk files as one lazy dataset, constant dims squeezed out."""
+        import glob
+
+        base = self.netcdf_filepath[:-3]
+        chunk_files = sorted(glob.glob(f"{base}_*.nc"))
+        if not chunk_files:
+            raise RuntimeError(f"No netCDF chunk files found matching {base}_*.nc")
+        merged = xr.open_mfdataset(
+            chunk_files,
+            combine="nested",
+            concat_dim=f"x{self.dim_split}",
+            data_vars="minimal",
+            coords="minimal",
+            compat="override",
+        )
+        if self.num_vars > 1:
+            merged = NetCDFBuilder.squeeze_constant_dims(
+                merged,
+                self.var_constant_dims,
+            )
+        return merged, chunk_files
 
     def _merge_netcdf_files(self) -> None:
         """Concatenate the chunk netCDF files into one, then delete them.
@@ -996,28 +1015,8 @@ class GenerateData:
         constant dimensions are squeezed out here, so the merged file matches
         what a serial run writes.
         """
-        import glob
-
-        base = self.netcdf_filepath[:-3]
-        chunk_files = sorted(glob.glob(f"{base}_*.nc"))
-        if not chunk_files:
-            raise RuntimeError(f"No netCDF chunk files found matching {base}_*.nc")
-
+        merged, chunk_files = self._open_netcdf_chunks()
         print(f"Merging {len(chunk_files)} netCDF chunk files...")
-        split_dim = f"x{self.dim_split}"
-        merged = xr.open_mfdataset(
-            chunk_files,
-            combine="nested",
-            concat_dim=split_dim,
-            data_vars="minimal",
-            coords="minimal",
-            compat="override",
-        )
-        if self.num_vars > 1:
-            merged = NetCDFBuilder.squeeze_constant_dims(
-                merged,
-                self.var_constant_dims,
-            )
 
         # Chunk-local bookkeeping does not describe the merged dataset.
         merged.attrs.pop("chunk_id", None)
