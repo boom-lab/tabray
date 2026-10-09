@@ -5,7 +5,7 @@ placement bug shows up here instead of being echoed.
 """
 
 import os
-from typing import List, Optional, Union
+from typing import Dict, List, Optional, Union
 
 import dask.dataframe as dd
 import numpy as np
@@ -31,20 +31,26 @@ class DatasetDescription:
     def describe_dataset(
         source: Union[str, xr.Dataset, xr.DataArray],
         coords: Optional[List[str]] = None,
+        reference: Optional[str] = None,
     ) -> pd.DataFrame:
         """Describe a dataset, read lazily.
 
         - var_sites = prod(axis lengths of the variable's dims)
         - density = var_sites_occupied / var_sites
-        - overlap = |proj(S0) & Si| / |proj(S0)| on the variable's dims, S0 = the
-          first variable (NaN for it)
-        - overlap_reverse = |proj(S0) & Si| / |Si| (NaN for the first variable)
+        - overlap = |proj(S0) & proj(Si)| / |proj(S0)|, S0 = the reference
+          variable (NaN for it), proj = onto the dims S0 and Si share
+          (= Si's dims when S0 holds every dim, as var0 does)
+        - overlap_reverse = |proj(S0) & proj(Si)| / |proj(Si)|
+        - no shared dim -> both NaN
+        - reference = ``reference`` if given, else the variable with the most
+          occupied sites (ties: first in file order); its row comes first
         - unused_coords = coordinates along the variable's dims holding no value
 
         Args:
             source: netCDF path, an open xarray object, or a parquet
                 file, glob or directory
             coords: Coordinate columns; required for parquet, unused otherwise
+            reference: Variable to measure overlap against (var0)
 
         Returns:
             DataFrame indexed by variable; ``attrs["grid"]`` maps dim to length
@@ -55,30 +61,48 @@ class DatasetDescription:
         if is_parquet:
             if not coords:
                 raise ValueError("parquet needs its coordinate columns named")
-            return DatasetDescription._from_parquet(source, coords)
+            return DatasetDescription._from_parquet(source, coords, reference)
         if isinstance(source, str):
             source = xr.open_dataset(source, chunks={})
         if isinstance(source, xr.DataArray):
             source = source.to_dataset(name=source.name or "record")
-        return DatasetDescription._from_xarray(source)
+        return DatasetDescription._from_xarray(source, reference)
 
     @staticmethod
-    def _from_xarray(dataset: xr.Dataset) -> pd.DataFrame:
+    def _pick_reference(occupied: Dict[str, int], reference: Optional[str]) -> str:
+        """``reference`` if given, else argmax of occupied sites (first on ties)."""
+        if reference is None:
+            return max(occupied, key=occupied.get)
+        if reference not in occupied:
+            raise ValueError(
+                f"reference {reference!r} is not a variable: {list(occupied)}"
+            )
+        return reference
+
+    @staticmethod
+    def _from_xarray(
+        dataset: xr.Dataset, reference: Optional[str] = None
+    ) -> pd.DataFrame:
         masks = {name: dataset[name].notnull() for name in dataset.data_vars}
-        ref = next(iter(masks.values()))
+        occupied = {name: int(mask.sum()) for name, mask in masks.items()}
+        ref_name = DatasetDescription._pick_reference(occupied, reference)
+        ref = masks[ref_name]
+        order = [ref_name] + [n for n in masks if n != ref_name]
         rows = {}
-        for name, mask in masks.items():
-            var_sites_occupied = int(mask.sum())
+        for name in order:
+            mask = masks[name]
+            var_sites_occupied = occupied[name]
             var_sites = int(np.prod(mask.shape))
             density = var_sites_occupied / var_sites if var_sites else 0.0
-            drop = [d for d in ref.dims if d not in mask.dims]
-            proj_ref = ref.any(dim=drop) if drop else ref
-            if mask is ref:
+            common = [d for d in ref.dims if d in mask.dims]
+            if name == ref_name or not common:
                 overlap = overlap_reverse = np.nan
             else:
-                shared = int((proj_ref & mask).sum())
+                proj_ref = ref.any(dim=[d for d in ref.dims if d not in common])
+                proj_var = mask.any(dim=[d for d in mask.dims if d not in common])
+                shared = int((proj_ref & proj_var).sum())
                 overlap = shared / max(int(proj_ref.sum()), 1)
-                overlap_reverse = shared / max(var_sites_occupied, 1)
+                overlap_reverse = shared / max(int(proj_var.sum()), 1)
             unused_coords = sum(
                 int((~mask.any(dim=[o for o in mask.dims if o != d])).sum())
                 for d in mask.dims
@@ -103,7 +127,9 @@ class DatasetDescription:
         return table
 
     @staticmethod
-    def _from_parquet(path: str, coords: List[str]) -> pd.DataFrame:
+    def _from_parquet(
+        path: str, coords: List[str], reference: Optional[str] = None
+    ) -> pd.DataFrame:
         """Parquet has no axes, so two things are inferred from the rows.
 
         - grid: the coordinate values that appear in any row
@@ -113,21 +139,26 @@ class DatasetDescription:
         frame = dd.read_parquet(path)
         names = [c for c in frame.columns if c not in coords]
         grid = {c: int(frame[c].nunique().compute()) for c in coords}
-        ref_rows = frame[frame[names[0]].notnull()][coords]
+        occupied = {n: int(c) for n, c in frame[names].count().compute().items()}
+        ref_name = DatasetDescription._pick_reference(occupied, reference)
+        ref_rows = frame[frame[ref_name].notnull()][coords]
         rows = {}
-        for name in names:
+        for name in [ref_name] + [n for n in names if n != ref_name]:
             held = frame[frame[name].notnull()][coords]
             seen = {c: int(held[c].nunique().compute()) for c in coords}
             dims = [c for c in coords if seen[c] > 1 or grid[c] == 1]
-            var_sites_occupied = int(held.shape[0].compute())
+            var_sites_occupied = occupied[name]
             var_sites = int(np.prod([grid[c] for c in dims]))
             density = var_sites_occupied / var_sites if var_sites else 0.0
-            if name == names[0]:
+            if name == ref_name:
+                ref_dims = dims  # the reference is the first row built
+            common = [c for c in ref_dims if c in dims]
+            if name == ref_name or not common:
                 overlap = overlap_reverse = np.nan
             else:
-                proj_ref = ref_rows[dims].drop_duplicates()
-                proj_var = held[dims].drop_duplicates()
-                shared = int(proj_ref.merge(proj_var, on=dims).shape[0].compute())
+                proj_ref = ref_rows[common].drop_duplicates()
+                proj_var = held[common].drop_duplicates()
+                shared = int(proj_ref.merge(proj_var, on=common).shape[0].compute())
                 overlap = shared / max(int(proj_ref.shape[0].compute()), 1)
                 overlap_reverse = shared / max(int(proj_var.shape[0].compute()), 1)
             unused_coords = sum(grid[c] - seen[c] for c in dims)

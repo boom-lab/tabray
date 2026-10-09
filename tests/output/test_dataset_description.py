@@ -69,6 +69,55 @@ def test_parquet_agrees_with_netcdf(known, tmp_path):
     pd.testing.assert_frame_equal(nc[columns], pq[columns])
 
 
+def known_parquet(tmp_path):
+    """``known`` as ParquetBuilder writes it: var1 pinned to x0 = 10."""
+    frame = pd.DataFrame(
+        {
+            "x0": [10, 10, 10, 20],
+            "x1": [1, 2, 3, 2],
+            "var0": [1.0, np.nan, np.nan, 1.0],
+            "var1": [np.nan, 2.0, 3.0, np.nan],
+        }
+    )
+    path = str(tmp_path / "d.parquet")
+    frame.to_parquet(path)
+    return path
+
+
+def test_reference_passed(known, tmp_path):
+    """var1 as reference: proj(var1) = {2, 3}, var0 on x1 = {1, 2}.
+
+    -> overlap         = |{2, 3} & {1, 2}| / |{2, 3}| = 0.5
+    -> overlap_reverse = |{2, 3} & {1, 2}| / |{1, 2}| = 0.5
+    """
+    nc = DatasetDescription.describe_dataset(known, reference="var1")
+    pq = DatasetDescription.describe_dataset(
+        known_parquet(tmp_path), coords=["x0", "x1"], reference="var1"
+    )
+    for table in (nc, pq):
+        assert list(table.index) == ["var1", "var0"]
+        assert np.isnan(table.loc["var1", "overlap"])
+        assert table.loc["var0", "overlap"] == pytest.approx(0.5)
+        assert table.loc["var0", "overlap_reverse"] == pytest.approx(0.5)
+
+
+def test_reference_inferred_from_occupied_sites(known, tmp_path):
+    """var1 gains a third site, so it becomes the reference although listed second."""
+    known["var1"][0] = 1.0
+    table = DatasetDescription.describe_dataset(known)
+    assert list(table.index) == ["var1", "var0"]
+    assert np.isnan(table.loc["var1", "overlap"])
+
+
+def test_unknown_reference_raises(known, tmp_path):
+    with pytest.raises(ValueError):
+        DatasetDescription.describe_dataset(known, reference="var9")
+    with pytest.raises(ValueError):
+        DatasetDescription.describe_dataset(
+            known_parquet(tmp_path), coords=["x0", "x1"], reference="var9"
+        )
+
+
 def test_parquet_needs_coords(tmp_path):
     with pytest.raises(ValueError):
         DatasetDescription.describe_dataset(str(tmp_path / "d.parquet"))
