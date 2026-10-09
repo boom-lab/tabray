@@ -24,7 +24,7 @@ def format_bytes(num_bytes: int | float) -> str:
 def format_table_value(value: object) -> str:
     """Format table cell values for compact display."""
     if isinstance(value, float):
-        return f"{value:.3f}"
+        return "NaN" if np.isnan(value) else f"{value:.3f}"
     return str(value)
 
 
@@ -40,19 +40,26 @@ def parquet_disk_size(parquet_path: str) -> int:
     )
 
 
+# Tables in the storage schema show at most this many rows and columns; each
+# row gets 1/(MAX_TABLE_ROWS + 1) of its area, so every table uses the same
+# row height and stays inside its area.
+MAX_TABLE_ROWS = 10
+MAX_TABLE_COLS = 8
+
+
 def draw_table(ax, cell_text, col_labels, row_labels=None, title=None):
-    """Draw a styled Matplotlib table on the provided axes."""
+    """Draw a styled Matplotlib table at the top of the provided axes."""
     ax.set_axis_off()
+    height = min(1.0, (len(cell_text) + 1) / (MAX_TABLE_ROWS + 1))
     table = ax.table(
         cellText=cell_text,
         colLabels=col_labels,
         rowLabels=row_labels,
         cellLoc="center",
-        loc="center",
+        bbox=[0.0, 1.0 - height, 1.0, height],
     )
     table.auto_set_font_size(False)
     table.set_fontsize(7)
-    table.scale(1, 1.2)
     for (row, col), cell in table.get_celld().items():
         cell.set_edgecolor("dimgray")
         if row == 0:
@@ -62,28 +69,54 @@ def draw_table(ax, cell_text, col_labels, row_labels=None, title=None):
             cell.set_facecolor("#f5f5f5")
             cell.set_text_props(color="dimgray")
     if title is not None:
-        ax.set_title(title, color="dimgray", pad=6)
+        ax.set_title(title, color="dimgray", pad=4, fontsize=9)
     return table
 
 
+def _truncate(cells, row_labels, col_labels):
+    """Cut a table to MAX_TABLE_ROWS x MAX_TABLE_COLS, marking cuts with '...'.
+
+    Returns:
+        (cells, row_labels, col_labels, note): note says what was left out
+    """
+    n_rows, n_cols = len(cells), len(col_labels)
+    note = []
+    if n_cols > MAX_TABLE_COLS:
+        keep = MAX_TABLE_COLS - 1
+        cells = [row[:keep] + ["..."] for row in cells]
+        col_labels = col_labels[:keep] + ["..."]
+        note.append(f"first {keep} of {n_cols} columns")
+    if n_rows > MAX_TABLE_ROWS:
+        keep = MAX_TABLE_ROWS - 1
+        cells = cells[:keep] + [["..."] * len(col_labels)]
+        if row_labels is not None:
+            row_labels = row_labels[:keep] + ["..."]
+        note.append(f"first {keep} of {n_rows} rows")
+    return cells, row_labels, col_labels, (" (" + ", ".join(note) + ")") if note else ""
+
+
 def draw_storage_schema(ax, ds, df, var):
-    """Draw the storage comparison schema for the tutorial figures."""
-    data_var = ds[var]
-    occupied_sites = len(df)
-    num_dims = len(ds.dims)
-    num_vars = len(ds.data_vars)
-    grid_shape = [int(ds.sizes[dim]) for dim in ds.dims]
-    total_grid_points = int(np.prod(grid_shape))
-    tabular_rows = occupied_sites
-    tabular_values = occupied_sites * (num_dims + num_vars)
-    array_coord_values = sum(grid_shape)
-    array_values = total_grid_points * num_vars
-    array_missing = total_grid_points - occupied_sites
+    """Draw the storage comparison schema for the tutorial figures.
+
+    - tabular: every row of df; coordinate columns repeat per row, and a
+      variable absent at a row's site is a NaN cell
+    - array: every coordinate once; every variable stores its whole grid,
+      vacant sites as NaN
+    - counts are for the whole dataset; the tables preview ``var``
+    """
+    coord_cols = [col for col in df.columns if col.startswith("x")]
+    data_cols = [col for col in df.columns if col not in coord_cols]
+    rows = len(df)
+    tabular_nan = int(df[data_cols].isna().to_numpy().sum())
+    grid_points = int(np.prod([ds.sizes[dim] for dim in ds.dims]))
+    array_coords = int(sum(ds.sizes[dim] for dim in ds.dims))
+    array_values = int(sum(ds[name].size for name in ds.data_vars))
+    array_nan = int(sum(ds[name].isnull().sum() for name in ds.data_vars))
 
     ax.set_axis_off()
     ax.text(
         0.5,
-        0.98,
+        1.0,
         "Storage schema",
         ha="center",
         va="top",
@@ -94,8 +127,8 @@ def draw_storage_schema(ax, ds, df, var):
     )
     ax.text(
         0.5,
-        0.93,
-        f"occupied sites: {occupied_sites} | total grid points: {total_grid_points}",
+        0.95,
+        f"sites holding a value: {rows} | grid points: {grid_points}",
         ha="center",
         va="top",
         color="dimgray",
@@ -103,58 +136,51 @@ def draw_storage_schema(ax, ds, df, var):
         transform=ax.transAxes,
     )
 
-    tab_ax = ax.inset_axes([0.02, 0.53, 0.96, 0.34])
-    arr_ax = ax.inset_axes([0.02, 0.07, 0.96, 0.34])
+    # each area leaves room above it for its two-line title
+    tab_ax = ax.inset_axes([0.02, 0.48, 0.96, 0.33])
+    arr_ax = ax.inset_axes([0.02, 0.0, 0.96, 0.33])
 
-    tabular_preview = df[
-        [col for col in df.columns if col.startswith("x") or col == var]
-    ].head(occupied_sites)
-    tabular_cell_text = [
-        [format_table_value(value) for value in row]
-        for row in tabular_preview.to_numpy()
-    ]
+    preview = df[coord_cols + [var]]
+    cells, _, labels, note = _truncate(
+        [[format_table_value(value) for value in row] for row in preview.to_numpy()],
+        None,
+        list(preview.columns),
+    )
     draw_table(
         tab_ax,
-        tabular_cell_text,
-        list(tabular_preview.columns),
+        cells,
+        labels,
         title=(
-            f"Tabular: {tabular_rows} rows | {tabular_values} stored values\n"
-            f"{occupied_sites * num_dims} repeated coordinate values + {occupied_sites * num_vars} data values"
+            f"Tabular: {rows} rows x {len(df.columns)} columns, "
+            f"{tabular_nan} NaN cells{note}\n"
+            f"{rows * len(coord_cols)} coordinate values + "
+            f"{rows * len(data_cols)} data values"
         ),
     )
 
+    data_var = ds[var]
     record = data_var.values
     if record.ndim == 1:
-        array_cell_text = [
-            ["NaN" if np.isnan(value) else f"{value:.3f}" for value in record]
-        ]
-        draw_table(
-            arr_ax,
-            array_cell_text,
-            [format_table_value(value) for value in ds[data_var.dims[0]].values],
-            row_labels=None,
-            title=(
-                f"Array: {array_coord_values} coordinate values + {array_values} grid values\n"
-                f"empty sites stored as NaN: {array_missing}"
-            ),
-        )
+        record = record[np.newaxis, :]
+        row_labels = None
     else:
-        array_cell_text = [
-            ["NaN" if np.isnan(value) else f"{value:.3f}" for value in row]
-            for row in record
-        ]
-        draw_table(
-            arr_ax,
-            array_cell_text,
-            [format_table_value(value) for value in ds[data_var.dims[1]].values],
-            row_labels=[
-                format_table_value(value) for value in ds[data_var.dims[0]].values
-            ],
-            title=(
-                f"Array: {array_coord_values} coordinate values + {array_values} grid values\n"
-                f"empty sites stored as NaN: {array_missing}"
-            ),
-        )
+        row_labels = [format_table_value(v) for v in ds[data_var.dims[0]].values]
+    cells, row_labels, labels, note = _truncate(
+        [["NaN" if np.isnan(v) else f"{v:.3f}" for v in row] for row in record],
+        row_labels,
+        [format_table_value(v) for v in ds[data_var.dims[-1]].values],
+    )
+    draw_table(
+        arr_ax,
+        cells,
+        labels,
+        row_labels=row_labels,
+        title=(
+            f"Array: {array_coords} coordinate values + "
+            f"{array_values} grid values{note}\n"
+            f"vacant sites stored as NaN: {array_nan}"
+        ),
+    )
 
     return ax
 

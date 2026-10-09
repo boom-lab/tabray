@@ -249,6 +249,7 @@ One row per variable: its dimensions, sites (`var_sites`), occupied sites, densi
 variable (`overlap`, and `overlap_reverse` divided by the variable's own sites), coordinates along its dimensions holding no value, and stored dtype. Parquet has no
 axes, so the grid is the coordinate values that appear, and a variable's dimensions are the
 coordinate columns along which it takes more than one value.
+`notebooks/analyse_dataset.ipynb` generates a small dataset, then describes its netCDF and parquet files separately and compares the two.
 
 ### How the Data Are Generated
 
