@@ -144,6 +144,7 @@ class TestFromFullList:
         for i, val in enumerate(sparsity_list):
             assert result[i] == val
 
+
 class TestValidateAndClip:
     """Tests for validate_and_clip method."""
 

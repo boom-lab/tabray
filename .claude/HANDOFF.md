@@ -20,10 +20,6 @@ text appended to the directive).
   pylintrc would take it to 10.00 and also clear the only message on
   `coordinate_generator.py` and `streams.py`. Not agreed: the alternatives
   (merge the class elsewhere, or a file-level disable) were never weighed.
-- **No `[tool.black]` section.** On this Python, black 26.5.1 warns that it
-  skipped the AST safety check and asks for `--target-version`. Verified:
-  `target-version = ["py312"]` leaves all 59 files unchanged, so pinning it
-  costs no diff.
 
 ## Diagnostics
 

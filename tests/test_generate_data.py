@@ -2021,13 +2021,11 @@ class TestHybridLHSIntegration:
         # Check x1 (size 5): all coordinates used
         x1_used = dataframe["x1"].unique()
         assert len(x1_used) == 5, (
-            f"All 5 coordinates in x1 should be used, "
-            f"found {len(x1_used)}"
+            f"All 5 coordinates in x1 should be used, " f"found {len(x1_used)}"
         )
 
         # Check x0 (size 7): at least 5 coordinates used
         x0_used = dataframe["x0"].unique()
         assert len(x0_used) >= 5, (
-            f"At least 5 coordinates in x0 should be used, "
-            f"found {len(x0_used)}"
+            f"At least 5 coordinates in x0 should be used, " f"found {len(x0_used)}"
         )

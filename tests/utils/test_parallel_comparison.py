@@ -21,7 +21,6 @@ from tabray.output.netcdf_builder import NetCDFBuilder
 from tabray.utils.chunk_utils import ChunkUtils
 from tabray.workers.parallel_worker import generate_chunk
 
-
 # grid shapes of scenarios 1c and 3c in tests/test_scenarios_parallel.py
 SCENARIO_1C_SHAPE = [10, 5, 6, 8, 2, 4, 5, 3, 3, 7]
 SCENARIO_3C_SHAPE = [3, 5, 6, 9, 2, 4, 5]
@@ -615,7 +614,9 @@ class TestParallelSerialComparison:
                 id="1a-full-1d",
             ),
             pytest.param(
-                dict(num_obs=3300, num_dims=2, ratio_dims=[100, 33], density=1.0, seed=76),
+                dict(
+                    num_obs=3300, num_dims=2, ratio_dims=[100, 33], density=1.0, seed=76
+                ),
                 800,
                 id="1b-full-2d",
             ),
@@ -641,12 +642,20 @@ class TestParallelSerialComparison:
                 id="2c-minimum-10d",
             ),
             pytest.param(
-                dict(num_obs=10, num_dims=2, ratio_dims=[7, 5], density=10 / 35, seed=31),
+                dict(
+                    num_obs=10, num_dims=2, ratio_dims=[7, 5], density=10 / 35, seed=31
+                ),
                 5,
                 id="3a-sparse-2d",
             ),
             pytest.param(
-                dict(num_obs=399, num_dims=2, ratio_dims=[100, 4], density=399 / 400, seed=20),
+                dict(
+                    num_obs=399,
+                    num_dims=2,
+                    ratio_dims=[100, 4],
+                    density=399 / 400,
+                    seed=20,
+                ),
                 100,
                 id="3b-all-but-one-2d",
             ),
@@ -655,14 +664,21 @@ class TestParallelSerialComparison:
                     num_obs=int(np.prod(SCENARIO_3C_SHAPE)) - 1,
                     num_dims=len(SCENARIO_3C_SHAPE),
                     ratio_dims=SCENARIO_3C_SHAPE,
-                    density=(np.prod(SCENARIO_3C_SHAPE) - 1) / np.prod(SCENARIO_3C_SHAPE),
+                    density=(np.prod(SCENARIO_3C_SHAPE) - 1)
+                    / np.prod(SCENARIO_3C_SHAPE),
                     seed=20,
                 ),
                 int(np.ceil((np.prod(SCENARIO_3C_SHAPE) - 1) / 4)),
                 id="3c-all-but-one-7d",
             ),
             pytest.param(
-                dict(num_obs=200, num_dims=3, ratio_dims=[2, 1, 1.5], density=0.15, seed=5),
+                dict(
+                    num_obs=200,
+                    num_dims=3,
+                    ratio_dims=[2, 1, 1.5],
+                    density=0.15,
+                    seed=5,
+                ),
                 60,
                 id="sparse-3d",
             ),

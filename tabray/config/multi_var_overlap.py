@@ -164,9 +164,7 @@ class MultiVarOverlapConfig:
         Raises:
             ValueError: If any requested overlap is below its minimum
         """
-        targets = np.broadcast_to(
-            np.asarray(overlap, dtype=float), (num_vars - 1,)
-        )
+        targets = np.broadcast_to(np.asarray(overlap, dtype=float), (num_vars - 1,))
         minimums = np.asarray(min_overlap, dtype=float)
         too_low = [
             f"var{idx + 1}: requested {targets[idx]}, minimum {minimums[idx]:.4f}"
