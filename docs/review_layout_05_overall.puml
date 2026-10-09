@@ -1,0 +1,97 @@
+@startuml review_layout_05_overall
+' Review unit 05 of 05 -- see docs/review_layout.md for the series.
+' The whole PR: final state against the starting point, git diff 94efaaf 294e031.
+' Numbers from runs at 94efaaf and 294e031.
+' Render: plantuml -tsvg docs/review_layout_05_overall.puml
+
+title Overall -- the PR from start to end (94efaaf..294e031)
+
+skinparam shadowing false
+skinparam defaultFontName Monospaced
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam activity {
+  BackgroundColor #FCFCFC
+  BorderColor #777777
+  DiamondBackgroundColor #F2F2F2
+  DiamondBorderColor #777777
+}
+skinparam partition {
+  BorderColor #8899AA
+  FontColor #33495E
+}
+skinparam note {
+  BackgroundColor #FFFDF0
+  BorderColor #C8C08A
+}
+
+start
+
+partition "API" {
+  #C8E6C9:GenerateData(..., <b>layout</b>="scattered" | "padded", <b>padded_dim</b>=None)
+  one layout for the dataset;
+  #C8E6C9:layout="padded" with overlap set -> ValueError;
+}
+
+partition "validation" {
+  #C8E6C9:compute_min_density(shape, padded_dim), var0's coverage bound
+  [4, 8, 8]: 0.03125 scattered, 0.15234 padded;
+  #C8E6C9:only var0 is clipped to it;
+  #C8E6C9:_choose_split_dim never picks the padded axis;
+}
+
+partition "placement" {
+  if (layout) then (padded)
+    #C8E6C9:var0: generate_padded_indices -> padded_stratum_counts
+    -> _first_occupied_per_line, equal weights; no LHS stage
+    other variables with the padded axis: _padded_cells per stratum
+    a variable without the padded axis: scattered;
+  else (scattered, default)
+    :LHS + uniform fill, as before;
+  endif
+  #C8E6C9:ChunkUtils.apportion(..., capacity) restored;
+}
+
+partition "report" {
+  #C8E6C9:minimum density row: which bound applied, and its value;
+}
+
+partition "docs" {
+  #C8E6C9:docs/layout_plan.md (plan, measurements, mask declined)
+  README: layout and padded_dim; CLAUDE.md: a Layout section,
+  the conda-env rule;
+}
+
+#FFF9C4:<b>start -> end</b>, case S (density 0.4) vs case P1 (same, padded)
+                          start (scattered)     end (padded)
+cells per line            1 / 3 / 3.19 / 6      1 / 3 / 3.19 / 8
+  (min/median/mean/max along x2, 32 lines)
+lines fill first k cells  no                    yes
+minimum density           0.03125               0.15234
+ds.nc / parquet           14061 / 5396 B        14061 / 5397 B
+case P2 var1 (x1, x2)     -                     6 cells, first k cells;
+
+:<b>unchanged</b>: every call without layout writes the same files
+(case A, case S byte-identical); serial equals parallel everywhere;
+
+stop
+
+legend right
+  |<#C8E6C9> green |= added by THIS PR |
+  |<#FFCDD2> red |= removed by THIS PR |
+  |<#FFF9C4> yellow |= output that differs from the start |
+  | plain | unchanged |
+
+  <b>Found by running the example, and fixed</b>
+  * only var0 was padded; now every variable with
+    the padded axis is
+  * the minimum density clipped every variable; now
+    var0 only
+  * the bound in force was not reported; now a row
+  <b>Open</b>
+  * file sizes are equal: the layout changes compressed
+    size, and this package writes uncompressed files
+  <b>Verified</b>: 578 tests pass.
+end legend
+
+@enduml
