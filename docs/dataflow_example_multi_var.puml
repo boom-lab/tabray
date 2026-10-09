@@ -2,6 +2,7 @@
 ' Worked example: notebooks/tutorial3.ipynb, case "overlap_le1_1d".
 ' Two variables on one 3x3 grid, the second varying along one dimension.
 ' Every number here is from an actual run of that case.
+' Grids: rows x0, columns x1, in index space.
 ' Render: plantuml docs/dataflow_example_multi_var.puml
 
 title Example 2 -- two variables, one of them 1D (tutorial3, "overlap_le1_1d")
@@ -44,20 +45,16 @@ partition "validate and configure" {
   :shape = [3, 3], 9 sites, density_zero = 3/9 = 0.333;
 
   :<b>MultiVarDimensionsConfig</b>  streams VAR_DIMS, CONST_COORD
-  var_dims_indices: var0 varies along dimensions 0 and 1,
-    var1 along dimension 1 only
-  var_constant_dims: none for var0, dimension 0 for var1
-  so var1 is pinned to <b>x0 index 2</b> and varies along x1;
+  var0 varies along x0 and x1
+  var1 varies along x1 only, constant along x0;
 
-  :<b>MultiVarOverlapConfig</b>
-  var1 varies along one axis of length 3, so it has 3 sites,
-  not 8. Its count is set from the overlap instead:
-  round(1/8 * 8) = 1
-  -> var_num_obs = <b>[8, 1]</b>, var_densities = [0.889, 0.889];
-  note right #FDF1F1
-    printed: "Variable 1 requested 8 observations but
-    only has 3 grid points (varying dims: [1]).
-    Reducing to 1 observations based on overlap 0.1250."
+  :<b>MultiVarSparsityConfig</b>
+  a density is a share of the variable's OWN grid:
+  var0: 8/9 of 9 cells = 8
+  var1: 8/9 of 3 cells = 2.67 -> rint -> 3
+  -> var_num_obs = 8, 3;
+  note right
+    var1 fills its whole axis: 3 of 3 cells.
   end note
 
   :<b>dim_split = 1</b>, not 0
@@ -67,67 +64,106 @@ partition "validate and configure" {
     printed: "Stratifying along dimension 1 (size 3)
     rather than the largest dimension 0 (size 3),
     which is not shared by every variable."
+    The strata are the COLUMNS x1 = 0, 1, 2 here.
   end note
 }
 
 partition "coordinates" {
-  :the same two streams as the single-variable case, so the
-  axes depend on the seed and the shape and nothing else:
-  x0 = [0.1809, 0.3500, 0.6837],
-  x1 = [0.7887, 0.9100, 0.9353];
+  :the same two streams as Example 1, so the axes
+  depend on the seed and the shape and nothing else:
+  x0 = 0.1809, 0.3500, 0.6837
+  x1 = 0.7887, 0.9100, 0.9353;
 }
 
-partition "placement: var0 first, then var1 per stratum" {
-  :<b>var0</b>: the single-variable routine, split along x1
-  LHS (3 points) + apportion(8 - 3 = 5) over the 3 strata
-  -> fill counts <b>[1, 2, 2]</b>, drawn with stream(12345, STRATUM, j);
+partition "placement of var0: LHS, then per-stratum fill" {
+  :<b>LHS stage</b>, stream(12345, LHS), n_s = 3
+  the same draw as Example 1: sites (0,1), (1,2), (2,0);
   note right
-    <b>var0 record</b> (. = vacant)
-             x1=0    x1=1    x1=2
-      x0=0   0.320   0.742   0.134
-      x0=1     .     0.802   0.547
-      x0=2   0.550   0.023   0.868
-    8 of 9 sites.
+    after the LHS stage
+    (L = LHS site, . = vacant)
+            x1=0 x1=1 x1=2
+      x0=0   .    L    .
+      x0=1   .    .    L
+      x0=2   L    .    .
   end note
 
-  :<b>var1</b>: it varies along the split axis only, so its
-  shared-dimension plane is a single cell per stratum
-  apportion(1 observation, weights [1,1,1]) -> <b>[0, 0, 1]</b>
-  var1 exists in stratum x1=2 alone;
+  :<b>fill counts</b>
+  8 - 3 = 5 fill points over 3 columns,
+  2 free cells each -> fill per stratum = 1, 2, 2;
 
-  :in that stratum: proj(S0) = 1 cell, free cells = 0
-  ideal = round(0.125 * 1) = 0, but lo = 1 (nowhere else to go)
-  -> n_overlap = 1, clipped, drawn with stream(12345, VAR, 1, 2);
+  :each stratum j draws its fill sites, then its values,
+  from stream(12345, STRATUM, j)
+  stratum 0: fill (0,0)
+  stratum 1: fill (2,1), (1,1)
+  stratum 2: fill (0,2), (2,2);
+  note right
+    after the fill
+    (f = fill site)
+            x1=0 x1=1 x1=2
+      x0=0   f    L    f
+      x0=1   .    f    L
+      x0=2   L    f    f
+    var0 per stratum: p = 2, 3, 3 sites
+  end note
+}
+
+partition "placement of var1, one stratum at a time" {
+  :<b>pinned coordinate</b>: _select_constant_coords
+  with stream(12345, CONST_COORD, 1, 0) -> <b>x0 = 2</b>;
+
+  :<b>counts</b>: var1 varies along the split axis only, so
+  each stratum offers it 1 cell
+  apportion(3, weights 1, 1, 1) -> 1, 1, 1;
+
+  :<b>per stratum j</b>, rng = stream(12345, VAR, 1, j)
+  proj_j(S0) = var0's sites seen through var1's dims
+  other than the split: none, so 1 cell
+  free cells = 1 - 1 = 0
+  ideal = round(0.125 * 1) = 0
+  lo = 1 - 0 = 1 (nowhere else to go), hi = 1
+  -> n_overlap = 1 in every stratum;
   note right #FDF1F1
     printed: "WARNING var1: overlap target not reachable
-    in 1 of 3 strata (e.g. wanted 0 of 1 reference cells,
+    in 3 of 3 strata (e.g. wanted 0 of 1 reference cells,
     used 1; 0 cells free of var0). Density takes precedence."
-    A 1D variable on a saturated reference cannot hit an
-    arbitrary overlap: the pair (density, overlap) is
-    over-determined. See docs/explainer_multivar.md.
+    The LHS stage puts var0 in every column, so var0's
+    projection onto x1 is the whole axis and no cell is
+    free of var0. With var1 on every cell of x1, the
+    pair (density, overlap) is over-determined.
+  end note
+
+  :values from the same VAR stream
+  (2,0) = 0.842, (2,1) = 0.328, (2,2) = 0.759;
+  note right
+    var1 placed
+    (0 = var0 only, B = both, . = vacant)
+            x1=0 x1=1 x1=2
+      x0=0   0    0    0
+      x0=1   .    0    0
+      x0=2   B    B    B
+    var1 sits on row x0 = 2, its pinned coordinate.
   end note
 
   :<b>OverlapCalculator.compute_overlap_report</b>
-  on x1, var0 uses all 3 coordinates and var1 uses 1 of them
-  <b>overlap = 1/3</b> (target was 0.125),
-  <b>overlap_reverse = 1.000</b>;
+  on x1, var0 uses all 3 coordinates and var1 all 3
+  <b>overlap = 1.000</b> (target was 0.125)
+  <b>overlap_r = 1.000</b>;
   note right
-    var1 record, full grid (. = vacant)
-             x1=0    x1=1    x1=2
-      x0=0     .       .       .
-      x0=1     .       .       .
-      x0=2     .       .     0.759
-    One value, at the pinned x0 index 2.
+    printed: "Minimum feasible overlap per non-reference
+    variable given grid points and observations: [0.0]"
+    compute_min_overlap reports 0.0 for any variable on
+    fewer dimensions and leaves it to the per-stratum
+    check above; the achievable minimum here is 1.
   end note
 }
 
 partition "two in-memory stores, which differ in shape here" {
   :<b>NetCDFBuilder.build_dataset</b>
   var0 (x0, x1) 3x3, then squeeze_constant_dims drops x0
-  from var1, leaving <b>var1 (x1)</b> = NaN, NaN, 0.759
-  attrs add num_vars=2, var_densities, var_num_obs=[8,1],
+  from var1, leaving <b>var1 (x1)</b> = 0.842, 0.328, 0.759
+  attrs add num_vars=2, var_densities, var_num_obs=[8, 3],
   overlap_target=[0.125], overlap_convention,
-  fixed_overlap=[0], overlap_actual=[0.333],
+  fixed_overlap=[0], overlap_actual=[1.0],
   overlap_actual_reverse=[1.0];
   note right
     Squeezing is deliberate: a variable pinned to one
@@ -144,21 +180,21 @@ partition "two in-memory stores, which differ in shape here" {
   note right
     |= x0 |= x1 |= var0 |= var1 |
     | 0.180929 | 0.788706 | 0.320146 | NaN |
-    | 0.683725 | 0.788706 | 0.550290 | NaN |
+    | 0.683725 | 0.788706 | 0.550290 | 0.841526 |
     | 0.180929 | 0.910005 | 0.742040 | NaN |
     | 0.349984 | 0.910005 | 0.802223 | NaN |
-    | 0.683725 | 0.910005 | 0.023239 | NaN |
+    | 0.683725 | 0.910005 | 0.023239 | 0.327880 |
     | 0.180929 | 0.935274 | 0.134245 | NaN |
     | 0.349984 | 0.935274 | 0.547495 | NaN |
-    | 0.683725 | 0.935274 | 0.868300 | 0.75896 |
+    | 0.683725 | 0.935274 | 0.868300 | 0.758960 |
     A variable absent at a coordinate costs one NaN cell
     per row here, and a whole grid slot on the array side.
   end note
 }
 
 partition "disk" {
-  :ds.nc                       13243 B
-  parquet/ddf_0.parquet         3871 B
+  :netCDF/ds.nc                13243 B
+  parquet/ddf_0.parquet         3888 B
   parquet/_metadata             3326 B
   parquet/_common_metadata      2704 B;
 }

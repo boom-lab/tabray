@@ -49,41 +49,46 @@ def run_case(
     var_dims=None,
     overlap=None,
     fixed_overlap=False,
+    **gen_kwargs,
 ):
-    """Generate a tutorial case, print size statistics, and plot the result."""
+    """Generate a tutorial case, print size statistics, and plot the result.
+
+    - gen_kwargs: further GenerateData arguments (num_dims, ratio_dims,
+      layout, max_obs, ...); num_dims=2 and ratio_dims=1 unless given
+    - parallel run (max_obs < num_obs): the chunk netCDF files are read as one
+      dataset
+    - 3D grid: one figure per coordinate of the first dimension
+    """
 
     ncpath, pqpath, pqpathtmp = case_paths(case_name, base_dir=base_dir)
-    if num_vars is None or num_vars == 1:
-        gen = GenerateData(
-            num_obs=num_obs,
-            num_dims=2,
-            ratio_dims=1,
-            density=density,
-            seed=seed,
-        )
-
-    else:
-        gen = GenerateData(
-            num_obs=num_obs,
-            num_dims=2,
-            ratio_dims=1,
-            density=density,
-            seed=seed,
+    params = {"num_dims": 2, "ratio_dims": 1, **gen_kwargs}
+    if num_vars is not None and num_vars > 1:
+        params.update(
             num_vars=num_vars,
             var_dims=var_dims,
-            overlap=overlap,
             fixed_overlap=fixed_overlap,
         )
+        if overlap is not None:  # else GenerateData's default, "random"
+            params["overlap"] = overlap
+    gen = GenerateData(num_obs=num_obs, density=density, seed=seed, **params)
 
     gen.generate(
         netcdf_filepath=ncpath,
         parquet_filepath=pqpath,
         parquet_tmp=pqpathtmp,
     )
-    ds = xr.open_dataset(ncpath).load()
+    if gen.NTASKS > 1:
+        # parallel run: one netCDF file per chunk, no file at ncpath
+        # pylint: disable-next=protected-access
+        chunks, chunk_files = gen._open_netcdf_chunks()
+        ds = chunks.load()
+        chunks.close()
+        nc_disk_bytes = sum(Path(f).stat().st_size for f in chunk_files)
+    else:
+        ds = xr.open_dataset(ncpath).load()
+        nc_disk_bytes = Path(ncpath).stat().st_size
     df = pd.read_parquet(os.path.dirname(pqpath))
 
-    nc_disk_bytes = Path(ncpath).stat().st_size
     pq_disk_bytes = parquet_disk_size(pqpath)
     ds_memory_bytes = ds.nbytes
     df_memory_bytes = df.memory_usage(index=True, deep=True).sum()
@@ -93,5 +98,17 @@ def run_case(
     print(f"On-disk netCDF size: {format_bytes(nc_disk_bytes)}")
     print(f"On-disk parquet size: {format_bytes(pq_disk_bytes)}")
     for var_id, var in enumerate(ds.data_vars):
-        plot_grid_case(ds, df, var, var_id, title)
+        if len(ds.dims) <= 2:
+            plot_grid_case(ds, df, var, var_id, title)
+            continue
+        # plot_grid_case draws 1D and 2D only: slice along the first dim
+        first = list(ds.dims)[0]
+        for value in ds[first].values:
+            plot_grid_case(
+                ds.sel({first: value}),
+                df[df[first] == value],
+                var,
+                var_id,
+                f"{title}, {first} = {value:.3f}",
+            )
     return ds, df

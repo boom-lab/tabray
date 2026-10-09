@@ -1,0 +1,172 @@
+@startuml dataflow_example_drop_dim_3d
+' Worked example: two variables on a 3x3x3 grid, the second varying along
+' two of the three dimensions. Every number here is from an actual run.
+' Grids: one panel per x0 (= stratum), rows x1, columns x2, index space.
+' Render: plantuml docs/dataflow_example_drop_dim_3d.puml
+
+title Example 4 -- a variable that drops one of three dimensions
+
+skinparam shadowing false
+skinparam defaultFontName Monospaced
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam activity {
+  BackgroundColor #FCFCFC
+  BorderColor #777777
+  DiamondBackgroundColor #F2F2F2
+}
+skinparam partition {
+  BorderColor #8899AA
+  FontColor #33495E
+}
+skinparam note {
+  BackgroundColor #FFFDF0
+  BorderColor #C8C08A
+}
+
+start
+
+partition "call" {
+  :GenerateData(num_obs=12, num_dims=3, ratio_dims=1,
+                density=12/27, seed=1,
+                num_vars=2, var_dims=[3, 2], overlap=0.5)
+  .generate(...);
+}
+
+partition "validate and configure" {
+  :shape = [3, 3, 3], 27 sites, density_zero = 3/27 = 0.111;
+
+  :<b>MultiVarDimensionsConfig</b>
+  stream(1, VAR_DIMS, 1) picks which 2 dims var1 varies along
+  -> var1 varies along x0, x1 and is constant along x2;
+
+  :<b>MultiVarSparsityConfig</b>: densities are shares of each
+  variable's own grid
+  var0: 12/27 of 27 = 12
+  var1: 12/27 of 9 (x0 * x1) = 4
+  <b>dim_split = 0</b>: every variable varies along x0;
+}
+
+partition "placement of var0" {
+  :<b>LHS stage</b>, stream(1, LHS), n_s = 3
+    x0 = 0, 1, 2
+    x1 = 2, 1, 0
+    x2 = 0, 2, 1
+  -> sites (0,2,0), (1,1,2), (2,0,1);
+  note right
+    after the LHS stage (L = LHS site, . = vacant)
+           x0=0         x0=1         x0=2
+           x2: 0 1 2    x2: 0 1 2    x2: 0 1 2
+      x1=0     . . .        . . .        . L .
+      x1=1     . . .        . . L        . . .
+      x1=2     L . .        . . .        . . .
+    One site per stratum, and each coordinate of
+    each of the three axes used once.
+  end note
+
+  :<b>fill</b>: 12 - 3 = 9 points, 8 free cells per stratum
+  -> 3 per stratum, from stream(1, STRATUM, j);
+  note right
+    var0 placed (f = fill site)
+           x0=0         x0=1         x0=2
+           x2: 0 1 2    x2: 0 1 2    x2: 0 1 2
+      x1=0     . f f        f f .        . L .
+      x1=1     . . .        . . L        f . .
+      x1=2     L f .        . . f        . f f
+  end note
+}
+
+partition "placement of var1: overlap through the projection" {
+  :<b>pinned coordinate</b>: stream(1, CONST_COORD, 1, 2)
+  -> var1 sits at <b>x2 = 1</b>;
+
+  :<b>proj_j(S0)</b>: var0's sites in stratum j seen through
+  var1's dims, i.e. x2 dropped
+    stratum 0: x1 = 0, 2      p_0 = 2
+    stratum 1: x1 = 0, 1, 2   p_1 = 3
+    stratum 2: x1 = 0, 1, 2   p_2 = 3;
+  note right
+    var1's own plane (x0, x1)
+    (P = some var0 site along x2)
+            x1=0 x1=1 x1=2
+      x0=0   P    .    P
+      x0=1   P    P    P
+      x0=2   P    P    P
+    |proj(S0)| = 8
+  end note
+
+  :<b>counts</b>: apportion(4, 3 cells per stratum) -> 1, 1, 2
+  var1 drops a dimension, so the overlap count is set PER
+  STRATUM as round(0.5 * p_j), not apportioned globally:
+  p_j depends on where var0 landed, which a worker holding
+  one chunk cannot see for the other strata;
+
+  :<b>per stratum</b>, rng = stream(1, VAR, 1, j)
+    j | n | p | free | ideal       | lo | hi | n_overlap
+    0 | 1 | 2 |  1   | round(1.0)=1 | 0  | 1  | 1
+    1 | 1 | 3 |  0   | round(1.5)=2 | 1  | 1  | 1  clipped
+    2 | 2 | 3 |  0   | round(1.5)=2 | 2  | 2  | 2;
+  note right #FDF1F1
+    printed: "WARNING var1: overlap target not reachable
+    in 1 of 3 strata (e.g. wanted 2 of 3 reference cells,
+    used 1; 0 cells free of var0)."
+    Stratum 1 has one var1 cell to place, so it
+    cannot put 2 on var0's projection.
+  end note
+
+  :var1 cells, drawn from proj_j(S0)
+  (x0,x1) = (0,0), (1,1), (2,0), (2,1), each at x2 = 1;
+  note right
+    var1 placed in the full grid
+    (0 = var0 only, B = both, 1 = var1 only)
+           x0=0         x0=1         x0=2
+           x2: 0 1 2    x2: 0 1 2    x2: 0 1 2
+      x1=0     . B 0        0 0 .        . B .
+      x1=1     . . .        . 1 0        0 1 .
+      x1=2     0 0 .        . . 0        . 0 0
+    (1,1,1) and (2,1,1) share no SITE with var0, yet they
+    count as overlap: var0 holds (1,1,2) and (2,1,0),
+    which project onto the same (x0, x1) cells.
+  end note
+
+  :<b>OverlapCalculator.compute_overlap_report</b>
+  overlap   = 4 shared / 8 cells of proj(S0) = <b>0.500</b>
+  overlap_r = 4 shared / 4 cells of var1     = <b>1.000</b>;
+  note right
+    The per-stratum rounding happens to sum to the
+    goal here (1 + 1 + 2 = round(0.5 * 8) = 4). In
+    general it drifts by order sqrt(num_strata)/2.
+  end note
+}
+
+partition "two in-memory stores" {
+  :<b>NetCDFBuilder.build_dataset</b>
+  var0 (x0, x1, x2) 3x3x3
+  var1 (x0, x1) 3x3: squeeze_constant_dims drops x2
+  attrs: var_num_obs=[12, 4], overlap_target=[0.5],
+  overlap_actual=[0.5], overlap_actual_reverse=[1.0];
+
+  :<b>ParquetBuilder.build_multi_var_dataframe</b>
+  one row per (x0, x1, x2) held by either variable:
+  12 var0 sites + 2 var1-only sites = 14 rows
+  var1's rows carry x2 = 0.139544, its pinned label;
+  note right
+    DatasetDescription of the written file:
+    |= var |= dims |= var_sites |= occupied |= overlap |= overlap_reverse |= unused_coords |
+    | var0 | (x0, x1, x2) | 27 | 12 | NaN | NaN | 0 |
+    | var1 | (x0, x1) | 9 | 4 | 0.5 | 1.0 | 1 |
+    var1 never uses x1 = 2: one unused coordinate.
+  end note
+}
+
+partition "disk" {
+  :netCDF/ds.nc                13681 B
+  parquet/ddf_0.parquet         4510 B
+  parquet/_metadata             3765 B
+  parquet/_common_metadata      3025 B;
+}
+
+:return (Dataset, DataFrame);
+stop
+
+@enduml

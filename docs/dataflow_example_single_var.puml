@@ -1,6 +1,7 @@
 @startuml dataflow_example_single_var
 ' Worked example: notebooks/tutorial1.ipynb, case "somehow_sparse_grid".
 ' Every number here is from an actual run of that case.
+' Grids: rows x0, columns x1, in index space.
 ' Render: plantuml docs/dataflow_example_single_var.puml
 
 title Example 1 -- one variable on a 3x3 grid (tutorial1, "somehow_sparse_grid")
@@ -41,47 +42,85 @@ partition "validate and configure" {
   :num_vars = 1 -> one variable, both dimensions vary,
   no constant dimensions
   <b>dim_split = 0</b>   NTASKS = 1 (no max_obs);
+  note right
+    The strata are the rows x0 = 0, 1, 2.
+    Every grid below is drawn with one stratum per row.
+  end note
 }
 
 partition "coordinates: the axis LABELS" {
   :x0 = sort(uniform(0,1,3)) with stream(12345, COORDINATE, 0)
   x1 = sort(uniform(0,1,3)) with stream(12345, COORDINATE, 1);
   note right
-    x0 = [0.1809, 0.3500, 0.6837]
-    x1 = [0.7887, 0.9100, 0.9353]
+    x0 = 0.1809, 0.3500, 0.6837
+    x1 = 0.7887, 0.9100, 0.9353
     Placement below works in INDEX space
     (0, 1, 2) and never sees these.
   end note
 }
 
 partition "placement: LHS, then per-stratum fill" {
-  :LHS stage, stream(12345, LHS), n_s = max(shape) = 3
-  a permutation per axis, so every coordinate of every
-  axis is used at least once;
+  :<b>LHS stage</b>, stream(12345, LHS), n_s = max(shape) = 3
+  one permutation per axis:
+    x0 = 0, 1, 2
+    x1 = 1, 2, 0
+  -> sites (0,1), (1,2), (2,0);
   note right
-    LHS points (index space):
-      x0 = [0, 1, 2]
-      x1 = [1, 2, 0]
-    i.e. sites (0,1), (1,2), (2,0)
+    after the LHS stage
+    (L = LHS site, . = vacant)
+            x1=0 x1=1 x1=2
+      x0=0   .    L    .
+      x0=1   .    .    L
+      x0=2   L    .    .
+    Every row and every column holds a site:
+    each coordinate of each axis is used.
   end note
 
-  :strata are the 3 hyperplanes of dim_split = 0
-  LHS already takes 1 site in each, so 2 are free in each
-  apportion(6 - 3 = 3 fill points) -> <b>[1, 1, 1]</b>;
+  :<b>fill counts</b>
+  6 - 3 = 3 fill points, apportioned over the strata
+  by free sites (2 per row once the LHS site is taken)
+  -> fill per stratum = 1, 1, 1;
 
-  :per stratum j: rng = stream(12345, STRATUM, j)
-  1 fill site drawn from the 2 free ones, then 1 value;
+  :<b>stratum 0</b>, rng = stream(12345, STRATUM, 0)
+  free sites x1 = 0, 2; rank 0 drawn -> (0,0)
+  values for LHS site, then fill site: 0.550, 0.320;
   note right
-    stratum 0: LHS (0,1) + fill (0,0)
-    stratum 1: LHS (1,2) + fill (1,0)
-    stratum 2: LHS (2,0) + fill (2,1)
-    values, in that order:
-      0.550  0.320  0.742  0.023  0.547  0.134
+    after stratum 0
+    (f = fill site)
+            x1=0 x1=1 x1=2
+      x0=0   f    L    .
+      x0=1   .    .    L
+      x0=2   L    .    .
+  end note
+
+  :<b>stratum 1</b>, rng = stream(12345, STRATUM, 1)
+  free sites x1 = 0, 1; rank 0 drawn -> (1,0)
+  values: 0.742, 0.023;
+  note right
+    after stratum 1
+            x1=0 x1=1 x1=2
+      x0=0   f    L    .
+      x0=1   f    .    L
+      x0=2   L    .    .
+  end note
+
+  :<b>stratum 2</b>, rng = stream(12345, STRATUM, 2)
+  free sites x1 = 1, 2; rank 0 drawn -> (2,1)
+  values: 0.547, 0.134;
+  note right
+    after stratum 2
+            x1=0 x1=1 x1=2
+      x0=0   f    L    .
+      x0=1   f    .    L
+      x0=2   L    f    .
+    A stratum reads only its own stream, so it
+    can be generated alone: this is what the
+    parallel path relies on (Example 6).
   end note
 
   :record = full([3,3], NaN); record[indices] = values;
   note right
-    <b>var0 record</b> (index space, . = vacant site)
+    <b>var0 record</b> (. = vacant site)
              x1=0    x1=1    x1=2
       x0=0   0.320   0.550     .
       x0=1   0.023     .     0.742
@@ -113,17 +152,16 @@ partition "two in-memory stores of the same 6 observations" {
 
 partition "disk" {
   :setup_output_paths(overwrite=True) clears both directories;
-  :ds.nc                       10500 B
+  :netCDF/ds.nc                10500 B
   parquet/ddf_0.parquet         3325 B
   parquet/_metadata             2891 B
   parquet/_common_metadata      2387 B;
   note right
-    netCDF is written uncompressed, parquet with
-    dask's default Snappy.
+    Each writer uses its library's default:
+    netCDF uncompressed, parquet Snappy.
     The payload is 9 doubles (72 B) against 6 rows:
     at this size the container dominates and the
     two figures say nothing about the formats.
-    The tutorial grids exist to be read, not measured.
   end note
 }
 

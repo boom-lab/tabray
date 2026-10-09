@@ -136,11 +136,12 @@ Every RNG comes from `stream(seed, tag, *index)` (`utils/streams.py`); tags live
 - A module-level import of the package is `import tabray as tr`, used as `tr.<name>` (like `numpy as np`).
 - `docs/`: never track `.pdf` renders (`*.pdf` is in `.gitignore`).
 - Review diagrams (`docs/review_*.puml`): commit them to the PR branch so the PR history keeps them, and delete them before the PR merges.
-- Dataflow examples (`docs/dataflow_example_*.puml`) stay in the repository. They show the code's mechanics and architecture through worked examples from real runs: detailed enough to follow each step, no more. Each generation step shows a grid of the sites filled at that point.
+- Dataflow examples (`docs/dataflow_example_*.puml`) stay in the repository. They show the code's mechanics and architecture through worked examples from real runs: detailed enough to follow each step, no more. Each generation step shows a grid of the sites filled at that point. Take every number from a run of the current code (scratch tracer: call `RecordGenerator._global_stage`, `generate_stratified_indices(strata=[j])`, `generate_multivar_stratified`), and rerun when generation semantics change: the examples do not fail when they go stale. `notebooks/dataflow_examples.ipynb` runs the same calls; keep the two in step.
+- Writing a `.puml` activity diagram: a line ending in `]` closes the activity early, `[[x]]` is a link, `__x__` underlines, and a line starting with `=` becomes a heading. Escape with `~` (`~__main~__`).
 
 ## Open items
 
-`.claude/HANDOFF.md` lists unfinished work: lint exceptions to agree, `[tool.black]` target version, diagnostic S6, dataflow examples (grids at every step, more cases). Delete entries as they are done.
+`.claude/HANDOFF.md` lists unfinished work: lint exceptions to agree, `[tool.black]` target version, diagnostic S6. Delete entries as they are done.
 
 ## Known drift in the docs
 

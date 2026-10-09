@@ -34,25 +34,6 @@ Of the serial/parallel workflow plan, **S6** is the last one open.
   started; the constraint is that a variable constant along an axis cannot have
   that axis split, so the shared-dimension rule limits how far a grid divides.
 
-## Documentation
-
-Rules for `docs/` are in `.claude/CLAUDE.md`, Conventions.
-
-To do on the dataflow examples:
-- **Grids at every step.** Each generation step should show a grid of which
-  sites are filled at that point (LHS stage, each stratum's fill, each
-  variable's placement, the final record), like the Markdown grids used in
-  chat. Today `dataflow_example_single_var.puml` draws a grid only for the
-  final record, and the multi-variable example is not yet checked.
-- **More examples.** Only two exist (tutorial1 `somehow_sparse_grid`, tutorial3
-  `overlap_le1_1d`). Candidates not covered: `layout="padded"`, the parallel
-  path (`NTASKS > 1`, chunks along `dim_split`), `fixed_overlap=True`, and a
-  variable that drops a dimension on a grid with more than two dims.
-
-Writing a `.puml` activity diagram: a line ending in `]` closes the activity
-early, and `[[x]]` is read as a link. Both bite when a node quotes a Python
-literal.
-
 ## Working agreements from that session
 
 - Run everything with `/home/enrico/miniforge3/envs/tabray/bin/python`. Bare

@@ -1,0 +1,152 @@
+@startuml dataflow_example_parallel
+' Worked example: the parallel path, one variable on a 4x4 grid in two
+' chunks, compared with the serial run of the same call without max_obs.
+' Every number here is from actual runs.
+' Grids: rows x0 (= dim_split), columns x1, index space.
+' Render: plantuml docs/dataflow_example_parallel.puml
+
+title Example 6 -- the parallel path: two chunks that reproduce the serial data (experimental)
+
+skinparam shadowing false
+skinparam defaultFontName Monospaced
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam activity {
+  BackgroundColor #FCFCFC
+  BorderColor #777777
+  DiamondBackgroundColor #F2F2F2
+}
+skinparam partition {
+  BorderColor #8899AA
+  FontColor #33495E
+}
+skinparam note {
+  BackgroundColor #FFFDF0
+  BorderColor #C8C08A
+}
+
+start
+
+partition "call" {
+  :if ~__name~__ == "~__main~__":
+      GenerateData(num_obs=10, num_dims=2, ratio_dims=1,
+                   density=10/16, seed=12345, <b>max_obs=5</b>)
+      .generate(netcdf_filepath=".../netCDF/ds.nc",
+                parquet_filepath=".../parquet/ddf",
+                parquet_tmp=".../parquet/tmp");
+  note right
+    Workers start with the spawn method, which
+    re-imports the calling script: without the
+    ~__main~__ guard each worker would start the
+    run again.
+  end note
+}
+
+partition "validate and configure" {
+  :shape = [4, 4], 16 sites, <b>dim_split = 0</b>;
+
+  :<b>_multiprocessing_setup</b>
+  NTASKS = ceil(10 / 5) = 2
+  the split axis has 4 strata -> block sizes 2, 2
+  div_points = 0, 2, 4;
+  note right
+    printed:
+    "Parallel generation: 2 tasks, 5 obs per task
+      Dataset split along dimension 0
+      Block sizes along it: [2, 2]"
+    NTASKS cannot exceed the length of the split axis
+    (here 4): see diagnostic S6.
+  end note
+}
+
+partition "parallel setup (main process)" {
+  :<b>ChunkUtils.get_observations_per_chunk</b>
+  apportion 10 over the 2 blocks -> 5, 5
+  printed: "Observations per chunk: [5, 5] (total 10).";
+
+  :one argument dict per chunk, plain values only
+  ProcessPoolExecutor(spawn, max_workers = min(2, cpu_count));
+}
+
+partition "each worker: generate_chunk(chunk_id, ...)" {
+  :<b>coordinates</b>: drawn over the GLOBAL shape with the
+  same streams as serial, then the split axis is sliced
+    x0 (global) = 0.1809, 0.3500 | 0.5382, 0.6837
+    chunk 0 gets the first two, chunk 1 the last two
+    x1 = 0.2162, 0.7887, 0.9100, 0.9353 in both;
+
+  :<b>LHS stage</b>, recomputed in full by EVERY worker
+  stream(12345, LHS), n_s = 4 -> sites (0,2), (1,0), (2,1), (3,3)
+  fill per stratum = 1, 1, 2, 2 (the same apportionment);
+  note right
+    after the LHS stage, global grid
+    (L = LHS site, - - = chunk boundary)
+            x1=0 x1=1 x1=2 x1=3
+      x0=0   .    .    L    .      chunk 0
+      x0=1   L    .    .    .
+      - - - - - - - - - - - - -
+      x0=2   .    L    .    .      chunk 1
+      x0=3   .    .    .    L
+    4 points: each worker repeats this for a few
+    hundred bytes rather than receive it.
+  end note
+
+  :<b>its own strata only</b>
+  chunk 0: strata 0, 1 with stream(12345, STRATUM, 0) and (.., 1)
+  chunk 1: strata 2, 3 with stream(12345, STRATUM, 2) and (.., 3)
+  global indices, then the split axis is rebased:
+  local x0 = x0 - div_points[chunk_id];
+  note right
+    chunk 0 record, 2x4      chunk 1 record, 2x4
+    (f = fill site)          (local x0 0, 1 = global 2, 3)
+            x1=0 x1=1 x1=2 x1=3          x1=0 x1=1 x1=2 x1=3
+      x0=0   f    .    L    .      x0=2   f    L    .    f
+      x0=1   L    f    .    .      x0=3   .    f    f    L
+    No stream tuple contains a chunk id, so each stratum
+    is the same draw it is in the serial run.
+  end note
+
+  :write <b>netCDF/ds_0.nc</b> / <b>ds_1.nc</b>
+  (squeeze_constant_dims=False: chunks keep every dim)
+  and <b>parquet/tmp/chunk_0000.parquet</b> / <b>chunk_0001.parquet</b>,
+  rows in x0 order;
+}
+
+partition "consolidation (main process)" {
+  :<b>_consolidate_parquet_files</b>
+  dd.read_parquet(tmp/chunk_*.parquet).repartition("300MB")
+  -> parquet/ddf_0.parquet, then the tmp directory is removed;
+
+  :merge_nc=False (the default): the two chunk files stay
+  <b>_describe</b> opens them together with open_mfdataset
+  along x0 and prints the description;
+  note right
+    record, both chunks concatenated along x0
+             x1=0    x1=1    x1=2    x1=3
+      x0=0   0.320     .     0.550     .
+      x0=1   0.742   0.023     .       .
+      x0=2   0.868   0.134     .     0.653
+      x0=3     .     0.412   0.538   0.761
+    Identical to the serial record, value for value.
+  end note
+}
+
+:return (None, None) -- the data exist only on disk;
+
+partition "disk, parallel against serial" {
+  :parallel                          serial
+  netCDF/ds_0.nc         10508 B    netCDF/ds.nc         10500 B
+  netCDF/ds_1.nc         10508 B
+  parquet/ddf_0.parquet   3388 B    parquet/ddf_0.parquet 3407 B
+  parquet/_metadata       2891 B    parquet/_metadata     2891 B;
+  note right
+    Same 10 rows with the same x0, x1, record values in
+    both parquet outputs. The only column that differs is
+    dask's ~__null_dask_index~__: 0..9 in serial, restarting
+    in each chunk in parallel (0..3, then 0..5).
+  end note
+}
+
+stop
+
+@enduml

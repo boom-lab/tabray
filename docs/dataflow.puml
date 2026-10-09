@@ -1,6 +1,7 @@
 @startuml dataflow
 ' How a tabray run turns parameters into two files on disk.
 ' Terminology: docs/explainer.md, docs/explainer_multivar.md.
+' Worked examples with grids at each step: docs/dataflow_example_*.puml.
 ' Render: plantuml docs/dataflow.puml
 
 title tabray: from parameters to netCDF and parquet on disk
@@ -111,6 +112,8 @@ if (NTASKS) then (== 1: serial)
     LHS stage (global): n_s = max(shape), stream(seed, LHS),
       every coordinate of every axis used at least once
     apportion(num_obs - n_s) over strata by free sites
+    (layout="padded": no LHS stage; each line fills its
+     first k cells of padded_dim, see Example 5)
     per stratum j: rng = stream(seed, STRATUM, j)
       sites  = rng.choice(free ranks) -> _ranks_to_local
       values = rng.uniform(0, 1), drawn after the sites;
@@ -171,8 +174,8 @@ if (NTASKS) then (== 1: serial)
     no encoding is passed, so the file is uncompressed;
     :dd.from_pandas(df, npartitions=1).to_parquet(engine="pyarrow")
     no compression keyword is passed, so dask's default,
-    Snappy, applies: the two formats are written on
-    different terms (see .claude/HANDOFF.md, Compression);
+    Snappy, applies: each format is written with its
+    library's defaults;
   }
 
   :return (DataArray or Dataset, DataFrame);
