@@ -31,9 +31,9 @@ def fixture_known():
 def test_counts_from_the_data(known):
     table = DatasetDescription.describe_dataset(known)
     assert table.attrs["grid"] == {"x0": 2, "x1": 3}
-    assert table.loc["var0", "own_grid"] == 6
-    assert table.loc["var0", "occupied"] == 2
-    assert table.loc["var0", "unused"] == 1  # x1 = 3
+    assert table.loc["var0", "var_sites"] == 6
+    assert table.loc["var0", "var_sites_occupied"] == 2
+    assert table.loc["var0", "unused_coords"] == 1  # x1 = 3
     assert np.isnan(table.loc["var0", "f1"])
     assert table.loc["var1", "dims"] == ("x1",)
     assert table.loc["var1", "density"] == pytest.approx(2 / 3)
@@ -54,7 +54,14 @@ def test_parquet_agrees_with_netcdf(known, tmp_path):
     frame.to_parquet(path)
     nc = DatasetDescription.describe_dataset(known)
     pq = DatasetDescription.describe_dataset(path, coords=["x0", "x1"])
-    columns = ["dims", "own_grid", "occupied", "density", "f1", "unused"]
+    columns = [
+        "dims",
+        "var_sites",
+        "var_sites_occupied",
+        "density",
+        "f1",
+        "unused_coords",
+    ]
     pd.testing.assert_frame_equal(nc[columns], pq[columns])
 
 

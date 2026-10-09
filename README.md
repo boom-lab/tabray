@@ -245,7 +245,7 @@ DatasetDescription.describe_dataset("data.nc")
 DatasetDescription.describe_dataset("parquet_dir", coords=["x0", "x1", "x2"])
 ```
 
-One row per variable: its dimensions, own grid, occupied cells, density, F1 against the first
+One row per variable: its dimensions, sites (`var_sites`), occupied sites, density, F1 against the first
 variable, coordinates along its dimensions holding no value, and stored dtype. Parquet has no
 axes, so the grid is the coordinate values that appear, and a variable's dimensions are the
 coordinate columns along which it takes more than one value.
