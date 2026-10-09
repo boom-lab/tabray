@@ -170,22 +170,23 @@ partition "two in-memory stores, which differ in shape here" {
     coordinate carries no information along that axis,
     and a NaN slab would inflate the array side, which
     is the thing being measured.
-    It does cost var1's x0 label -- the netCDF no longer
-    says which x0 the value sat at; the parquet does.
+    The parquet drops it too: var1's value holds at every
+    x0, so it repeats on each row with its x1.
   end note
 
   :<b>ParquetBuilder.build_multi_var_dataframe</b>
-  one row per OCCUPIED coordinate (8 of them, the union),
-  one column per variable, x1 (= dim_split) slowest;
+  one row per var0 site (8), one column per variable,
+  x1 (= dim_split) slowest; var1 (x1 only) repeats on
+  every row with its x1;
   note right
     |= x0 |= x1 |= var0 |= var1 |
-    | 0.180929 | 0.788706 | 0.320146 | NaN |
+    | 0.180929 | 0.788706 | 0.320146 | 0.841526 |
     | 0.683725 | 0.788706 | 0.550290 | 0.841526 |
-    | 0.180929 | 0.910005 | 0.742040 | NaN |
-    | 0.349984 | 0.910005 | 0.802223 | NaN |
+    | 0.180929 | 0.910005 | 0.742040 | 0.327880 |
+    | 0.349984 | 0.910005 | 0.802223 | 0.327880 |
     | 0.683725 | 0.910005 | 0.023239 | 0.327880 |
-    | 0.180929 | 0.935274 | 0.134245 | NaN |
-    | 0.349984 | 0.935274 | 0.547495 | NaN |
+    | 0.180929 | 0.935274 | 0.134245 | 0.758960 |
+    | 0.349984 | 0.935274 | 0.547495 | 0.758960 |
     | 0.683725 | 0.935274 | 0.868300 | 0.758960 |
     A variable absent at a coordinate costs one NaN cell
     per row here, and a whole grid slot on the array side.

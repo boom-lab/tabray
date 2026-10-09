@@ -171,7 +171,9 @@ dataarray, dataframe = gen.generate(
 print(dataarray.data_vars)  # ['var0', 'var1', 'var2']
 
 # The DataFrame has one row per site holding at least one variable and one
-# column per variable, NaN where that variable is absent
+# column per variable, NaN where that variable is absent. A variable on fewer
+# dimensions repeats its value on every row matching it on its own dimensions;
+# a value no row matches gets a row with NaN in the dimensions it drops
 print(dataframe.columns)  # ['x0', 'x1', 'x2', 'var0', 'var1', 'var2']
 ```
 
@@ -248,8 +250,10 @@ DatasetDescription.describe_dataset("data.nc", reference="temp")  # overlap agai
 
 One row per variable: its dimensions, sites (`var_sites`), occupied sites, density, overlap with the reference
 variable (`overlap`, and `overlap_reverse` divided by the variable's own sites), coordinates along its dimensions holding no value, and stored dtype. Parquet has no
-axes, so the grid is the coordinate values that appear, and a variable's dimensions are the
-coordinate columns along which it takes more than one value.
+axes, so the grid is the coordinate values that appear. A variable's dimensions are the
+coordinate columns it does not drop: it drops a column that is NaN on one of its rows, or along
+which it repeats (one value per combination of the other columns, on several rows). A variable
+constant along a real dimension therefore reads as not having it.
 The reference is `reference` if given, else the variable with the most occupied sites (first in file order on a tie); its row comes first.
 `notebooks/analyse_dataset.ipynb` generates a small dataset, then describes its netCDF and parquet files separately and compares the two.
 

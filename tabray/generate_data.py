@@ -684,6 +684,7 @@ class GenerateData:
             self.num_vars,
             self.num_dims,
             order_dim=self.dim_split,
+            var_constant_dims=self.var_constant_dims,
         )
         return self._dataframe
 

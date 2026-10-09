@@ -147,9 +147,8 @@ partition "two in-memory stores" {
   overlap_actual=[0.5], overlap_actual_reverse=[1.0];
 
   :<b>ParquetBuilder.build_multi_var_dataframe</b>
-  one row per (x0, x1, x2) held by either variable:
-  12 var0 sites + 2 var1-only sites = 14 rows
-  var1's rows carry x2 = 0.139544, its pinned label;
+  one row per var0 site: 12 rows; var1 repeats on every
+  row with its (x0, x1), all 4 of which var0 holds;
   note right
     DatasetDescription of the written file:
     |= var |= dims |= var_sites |= occupied |= overlap |= overlap_reverse |= unused_coords |
@@ -161,7 +160,7 @@ partition "two in-memory stores" {
 
 partition "disk" {
   :netCDF/ds.nc                13681 B
-  parquet/ddf_0.parquet         4510 B
+  parquet/ddf_0.parquet         4500 B
   parquet/_metadata             3765 B
   parquet/_common_metadata      3025 B;
 }
