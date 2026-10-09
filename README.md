@@ -285,14 +285,14 @@ dataset, df = gen.generate()
   dtypes, the reserved code for integers). One value for all variables, or one per variable.
   Argo files use `99999.0` in a `float32` variable, in preference to NaN; that is expressible
   here. For packed dtypes the fill code is reserved, so no real value can collide with it.
-- **layout** (str, optional): How the occupied cells are arranged — `"scattered"` (default,
+- (experimental) **layout** (str, optional): How the occupied cells are arranged — `"scattered"` (default,
   uniformly at random) or `"padded"` (each line fills positions `0..k-1` of one axis, as Argo and
   CrocoLake profiles do). One layout for the whole dataset: every variable that varies along the
   padded axis is padded; a variable without that axis is scattered. `density` says how many cells
   are occupied and nothing about where they sit; compressed with DEFLATE, the arrangement changes
   array size by 2.3× at a fixed density and reverses which format is smaller (this package writes
   uncompressed files). `docs/layout_plan.md` has the measurements.
-- **padded_dim** (int, optional): The axis whose first k cells each line fills under `layout="padded"`
+- (experimental) **padded_dim** (int, optional): The axis whose first k cells each line fills under `layout="padded"`
   (default: the last dimension). It cannot be the split dimension, so the split is chosen from the
   remaining axes. `overlap` cannot be set alongside `layout="padded"`: with every line filling
   its first k cells of the same axis the achieved F1 follows from the densities, so no target can be
