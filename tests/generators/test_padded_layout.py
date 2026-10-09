@@ -39,7 +39,6 @@ class TestPaddedStratumCounts:
         counts, _ = RecordGenerator.padded_stratum_counts(
             shape,
             obs,
-            42,
             0,
             len(shape) - 1,
         )
@@ -48,7 +47,7 @@ class TestPaddedStratumCounts:
     def test_every_line_gets_at_least_one(self):
         shape = [4, 5, 6]
         lines = 5  # the middle dimension
-        counts, _ = RecordGenerator.padded_stratum_counts(shape, 100, 42, 0, 2)
+        counts, _ = RecordGenerator.padded_stratum_counts(shape, 100, 0, 2)
         assert (counts >= lines).all()
 
     def test_one_stratum_can_afford_the_full_length(self):
@@ -56,7 +55,6 @@ class TestPaddedStratumCounts:
         counts, carrier = RecordGenerator.padded_stratum_counts(
             shape,
             obs,
-            42,
             0,
             1,
         )
@@ -65,12 +63,12 @@ class TestPaddedStratumCounts:
     def test_too_few_observations_raises(self):
         """Fewer than one per line plus one full run cannot cover the axes."""
         with pytest.raises(ValueError, match="for a padded layout"):
-            RecordGenerator.padded_stratum_counts([20, 520], 100, 42, 0, 1)
+            RecordGenerator.padded_stratum_counts([20, 520], 100, 0, 1)
 
     def test_more_observations_than_cells_raises(self):
         """The apportionment would cap it and come out short with no error."""
         with pytest.raises(ValueError, match="exceeds the"):
-            RecordGenerator.padded_stratum_counts([5, 4, 3], 80, 42, 0, 2)
+            RecordGenerator.padded_stratum_counts([5, 4, 3], 80, 0, 2)
 
 
 class TestPaddedPlacement:
@@ -126,9 +124,9 @@ class TestPaddedPlacement:
             assert grid[row, :length].all()
             assert not grid[row, length:].any()
 
-    def test_lengths_vary(self):
-        """Uniform weights gave every profile the same length. CrocoLake's run
-        1 / 70 / 155 / 1042 for minimum, median, mean and maximum."""
+    def test_lengths_are_even(self):
+        """Equal weights: every line but the full-length one gets the same k,
+        give or take one cell."""
         indices, _ = RecordGenerator.generate_padded_indices(
             [2000, 1042],
             310516,
@@ -138,8 +136,8 @@ class TestPaddedPlacement:
         )
         lengths = occupancy([2000, 1042], indices).sum(axis=1)
         assert lengths.max() == 1042
-        assert np.median(lengths) < lengths.mean()  # skewed, not uniform
-        assert lengths.min() < np.median(lengths) / 2
+        others = np.sort(lengths)[:-1]
+        assert others.max() - others.min() <= 1
 
     def test_serial_and_parallel_agree(self):
         """A caller asking for a subset of strata gets the same slices."""

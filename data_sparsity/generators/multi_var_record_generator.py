@@ -268,14 +268,12 @@ class MultiVarRecordGenerator:
         count: int,
         sizes: List[int],
         padded_axis: int,
-        rng: np.random.Generator,
-        sigma: float = 0.8,
     ) -> np.ndarray:
         """A non-reference variable's cells in one stratum; each line fills its first k cells.
 
         - line: one combination of the variable's stratum dims other than
           the padded one; each holds positions 0..k-1 of the padded axis
-        - k per line: count apportioned by lognormal weights, capped at the
+        - k per line: count apportioned with equal weights, capped at the
           padded axis length; a line may stay empty (no coverage guarantee
           for non-reference variables)
 
@@ -283,8 +281,6 @@ class MultiVarRecordGenerator:
             count: Cells to place in this stratum
             sizes: Sizes of the variable's dims within the stratum
             padded_axis: Position of the padded dim within ``sizes``
-            rng: The variable's stream for this stratum
-            sigma: Spread of the lognormal weights
 
         Returns:
             Cell indices, raveled over ``sizes``
@@ -292,10 +288,9 @@ class MultiVarRecordGenerator:
         n_padded = sizes[padded_axis]
         line_sizes = [n for axis, n in enumerate(sizes) if axis != padded_axis]
         lines = int(np.prod(line_sizes)) if line_sizes else 1
-        weights = rng.lognormal(0.0, sigma, size=lines)
         lengths = ChunkUtils.apportion(
             count,
-            weights,
+            np.ones(lines),
             np.full(lines, n_padded, dtype=np.int64),
         )
         line_index = np.repeat(np.arange(lines, dtype=np.int64), lengths)
@@ -502,7 +497,6 @@ class MultiVarRecordGenerator:
                         n_here,
                         sizes,
                         dims.index(padded_dim),
-                        rng,
                     )
                     chosen = cells
                     outside = np.empty(0, dtype=np.int64)

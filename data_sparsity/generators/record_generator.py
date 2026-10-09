@@ -250,7 +250,6 @@ class RecordGenerator:
         counts, carrier = RecordGenerator.padded_stratum_counts(
             shape,
             num_obs,
-            seed,
             split_dim,
             padded_dim,
         )
@@ -267,7 +266,7 @@ class RecordGenerator:
                 continue
             rng = stream(seed, Stream.STRATUM, stratum)
             lengths = RecordGenerator._first_occupied_per_line(
-                count, lines, n_padded, rng, full_line=(stratum == carrier)
+                count, lines, n_padded, full_line=(stratum == carrier)
             )
 
             # one line per column of the line space, each contributing a run
@@ -300,17 +299,15 @@ class RecordGenerator:
     def padded_stratum_counts(
         global_shape: List[int],
         num_obs: int,
-        seed: int,
         split_dim: int,
         padded_dim: int,
-        sigma: float = 1.5,
     ) -> Tuple[np.ndarray, int]:
         """Observations per stratum under the padded layout, and which stratum
         carries the full-length line.
 
         No LHS stage: coverage comes from filling the first k cells of each line, so the
-        counts are a plain apportionment over stratum capacity with a floor of
-        one observation per line. One line has to reach the last coordinate of
+        counts are a plain apportionment with equal weights over the strata,
+        capped by stratum capacity, with a floor of one observation per line. One line has to reach the last coordinate of
         the padded axis, or that coordinate goes unused; the stratum with the
         largest count is raised to afford it and the difference comes back from
         the others, bounded so none drops below its own floor.
@@ -321,16 +318,8 @@ class RecordGenerator:
         Args:
             global_shape: Full grid shape
             num_obs: Total observations across the whole grid
-            seed: Base random seed
             split_dim: Dimension indexing the strata
             padded_dim: Dimension whose first k cells each line fills
-            sigma: Spread of the lognormal weighting the strata. 1.5 puts the
-                median near CrocoLake's, whose profiles run 1 / 70 / 155 / 1042
-                for minimum, median, mean and maximum levels; the generated
-                minimum comes out higher than the real one because the
-                apportionment redistributes what will not fit under the cap,
-                which lifts the low tail. Raising it further is self-defeating:
-                at 2.0 the cap dominates and the minimum climbs.
 
         Returns:
             Tuple of (counts per stratum, index of the stratum holding the
@@ -373,15 +362,9 @@ class RecordGenerator:
                 f"observation, and one line must reach coordinate "
                 f"{n_padded - 1} of the padded axis."
             )
-        # Lognormal weights rather than uniform, because on a two-dimensional
-        # grid each stratum is one line and the profile-to-profile variation in
-        # length comes from here, not from _first_occupied_per_line. Uniform weights
-        # gave every profile the same length: median 155 of a maximum 1042,
-        # where Argo's median is 70.
-        weights = stream(seed, Stream.PADDED).lognormal(0.0, sigma, num_strata)
         counts = floor + ChunkUtils.apportion(
             int(num_obs) - int(floor.sum()),
-            weights,
+            np.ones(num_strata),
             room,
         )
 
@@ -403,36 +386,29 @@ class RecordGenerator:
         count: int,
         lines: int,
         n_padded: int,
-        rng: np.random.Generator,
         full_line: bool,
-        sigma: float = 0.8,
     ) -> np.ndarray:
         """How far along the padded axis each line reaches.
 
-        Lengths are lognormal in shape, which is closer to real profile data
-        than a uniform: Argo's levels per profile have a median of 70 against a
-        maximum of 1042. The draw sets the proportions and an apportionment
-        turns them into whole numbers summing to ``count``, so density stays
-        exact whatever the distribution does.
+        - one cell per line, then the rest apportioned with equal weights,
+          capped at n_padded per line; the k values sum to ``count``
+        - full_line: line 0 runs the whole padded axis
 
         Args:
             count: Observations this stratum must place
             lines: How many lines it holds
             n_padded: Length of the padded axis
-            rng: This stratum's generator
             full_line: Whether line 0 must reach the last coordinate
-            sigma: Spread of the lognormal
 
         Returns:
             Array of ``lines`` values k, each line filling its first k cells (1..n_padded)
         """
-        weights = rng.lognormal(0.0, sigma, size=lines)
+        weights = np.ones(lines)
         lengths = np.ones(lines, dtype=np.int64)
         if full_line:
             lengths[0] = n_padded
             room = np.full(lines, n_padded - 1, dtype=np.int64)
             room[0] = 0
-            weights = weights.copy()
             weights[0] = 0.0
         else:
             room = np.full(lines, n_padded - 1, dtype=np.int64)

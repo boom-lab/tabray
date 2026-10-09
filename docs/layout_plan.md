@@ -201,8 +201,9 @@ do; it is not information about the data.
   depths would be the case that asks for it.
 * Settled: `layout` is one per dataset, not per variable (stage 4). Argo's
   per-profile scalars lack the padded axis, so they are scattered under either layout.
-* What distribution for `k`? Argo's levels per profile have median 70 and maximum 1042, so a
-  lognormal is closer than a uniform. The measured quartiles are worth copying.
+* Settled: `k` comes from equal weights -- each stratum gets an equal share of the count,
+  each line an equal share of its stratum's, capped at the axis length. A skewed distribution
+  (Argo: median 70, maximum 1042 levels) was considered and not requested.
 
 ## Verification owed
 

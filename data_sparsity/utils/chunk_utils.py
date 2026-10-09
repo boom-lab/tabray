@@ -34,8 +34,8 @@ class ChunkUtils:
         one only when that floor is below the exact share. Callers pass the
         free sites per bin and never more observations than sites.
 
-        With weights that are not capacities -- the padded layout's lognormal
-        spread -- pass ``capacity``: units that do not fit a bin go to bins
+        With weights that are not capacities -- the padded layout's equal
+        weights -- pass ``capacity``: units that do not fit a bin go to bins
         with room, in proportion to that room.
 
         Args:
