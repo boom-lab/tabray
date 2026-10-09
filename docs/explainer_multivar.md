@@ -78,6 +78,13 @@ X0 | Y0 | Z3 | Var1_003 | nan |
 X | Y | Z | Var1 | Var2
 X0 | Y0 | Z0 | Var1_000 | Var2_00 |
 
+2b) Var1 measured at multiple Z at (X0, Y0), Var2 measured at (X0, Y0): Var2 does not depend on Z, so its value repeats on every row at (X0, Y0)
+
+X | Y | Z | Var1 | Var2
+X0 | Y0 | Z0 | Var1_000 | Var2_00 |
+X0 | Y0 | Z1 | Var1_001 | Var2_00 |
+X0 | Y0 | Z2 | Var1_002 | Var2_00 |
+
 3) Var1 not measured at any (X0, Y0, Z), Var2 measured at (X0, Y0)
 
 X | Y | Z | Var1 | Var2

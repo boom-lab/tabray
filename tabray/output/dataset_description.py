@@ -133,20 +133,28 @@ class DatasetDescription:
         """Parquet has no axes, so two things are inferred from the rows.
 
         - grid: the coordinate values that appear in any row
-        - a variable's dims: the coords along which it takes more than one
-          value (a variable with one value per axis looks constant)
+        - a variable's dims: the coords it does not drop (``_drops``)
+        - occupied sites: distinct rows over the variable's dims
         """
         frame = dd.read_parquet(path)
         names = [c for c in frame.columns if c not in coords]
         grid = {c: int(frame[c].nunique().compute()) for c in coords}
-        occupied = {n: int(c) for n, c in frame[names].count().compute().items()}
+        var_dims, seen, occupied = {}, {}, {}
+        for name in names:
+            held = frame[frame[name].notnull()][coords + [name]]
+            seen[name] = {c: int(held[c].nunique().compute()) for c in coords}
+            var_dims[name] = [
+                c
+                for c in coords
+                if grid[c] == 1 or not DatasetDescription._drops(held, coords, c)
+            ]
+            occupied[name] = len(held[var_dims[name]].drop_duplicates())
         ref_name = DatasetDescription._pick_reference(occupied, reference)
         ref_rows = frame[frame[ref_name].notnull()][coords]
         rows = {}
         for name in [ref_name] + [n for n in names if n != ref_name]:
             held = frame[frame[name].notnull()][coords]
-            seen = {c: int(held[c].nunique().compute()) for c in coords}
-            dims = [c for c in coords if seen[c] > 1 or grid[c] == 1]
+            dims = var_dims[name]
             var_sites_occupied = occupied[name]
             var_sites = int(np.prod([grid[c] for c in dims]))
             density = var_sites_occupied / var_sites if var_sites else 0.0
@@ -161,7 +169,7 @@ class DatasetDescription:
                 shared = int(proj_ref.merge(proj_var, on=common).shape[0].compute())
                 overlap = shared / max(int(proj_ref.shape[0].compute()), 1)
                 overlap_reverse = shared / max(int(proj_var.shape[0].compute()), 1)
-            unused_coords = sum(grid[c] - seen[c] for c in dims)
+            unused_coords = sum(grid[c] - seen[name][c] for c in dims)
             rows[name] = [
                 tuple(dims),
                 var_sites,
@@ -179,3 +187,22 @@ class DatasetDescription:
         )
         table.attrs["grid"] = grid
         return table
+
+    @staticmethod
+    def _drops(held: dd.DataFrame, coords: List[str], coord: str) -> bool:
+        """Whether a variable drops ``coord``, from the rows it holds.
+
+        - a row with ``coord`` NaN: the variable has no position along it
+        - repeated: one value per key over the other coords (V == K) and some
+          key on several rows (R > K); K, V = distinct keys, (key, value) pairs
+        - a variable constant along a real dim reads as repeated
+        """
+        name = held.columns[-1]
+        other = [c for c in coords if c != coord]
+        if bool(held[coord].isnull().any().compute()):
+            return True
+        if not other:
+            return False
+        keys = len(held[other].drop_duplicates())
+        values = len(held[other + [name]].drop_duplicates())
+        return values == keys and len(held) > keys

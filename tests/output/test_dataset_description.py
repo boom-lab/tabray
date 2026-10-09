@@ -43,40 +43,50 @@ def test_counts_from_the_data(known):
     assert table.loc["var1", "overlap_reverse"] == pytest.approx(0.5)
 
 
+COLUMNS = DatasetDescription.COLUMNS[:-1]  # all but dtype
+
+
 def test_parquet_agrees_with_netcdf(known, tmp_path):
-    """Rows as ParquetBuilder writes them: var1 pinned to x0 = 10."""
-    frame = pd.DataFrame(
-        {
-            "x0": [10, 10, 10, 20],
-            "x1": [1, 2, 3, 2],
-            "var0": [1.0, np.nan, np.nan, 1.0],
-            "var1": [np.nan, 2.0, 3.0, np.nan],
-        }
-    )
-    path = str(tmp_path / "d.parquet")
-    frame.to_parquet(path)
     nc = DatasetDescription.describe_dataset(known)
-    pq = DatasetDescription.describe_dataset(path, coords=["x0", "x1"])
-    columns = [
-        "dims",
-        "var_sites",
-        "var_sites_occupied",
-        "density",
-        "overlap",
-        "overlap_reverse",
-        "unused_coords",
-    ]
-    pd.testing.assert_frame_equal(nc[columns], pq[columns])
+    pq = DatasetDescription.describe_dataset(
+        known_parquet(tmp_path), coords=["x0", "x1"]
+    )
+    pd.testing.assert_frame_equal(nc[COLUMNS], pq[COLUMNS])
+
+
+def test_parquet_with_repeated_variables_agrees_with_netcdf(tmp_path):
+    """var1 on (x0, x1) repeats along x2, var2 on x0 along x1 and x2."""
+    with contextlib.redirect_stdout(io.StringIO()):
+        gen = GenerateData(
+            num_obs=400,
+            num_dims=3,
+            ratio_dims=(1, 2, 3),
+            density=[0.4, 0.3, 0.2],
+            seed=7,
+            num_vars=3,
+            var_dims=[3, [0, 1], [0]],
+        )
+        gen.generate(
+            netcdf_filepath=str(tmp_path / "d.nc"),
+            parquet_filepath=str(tmp_path / "pq" / "d.parquet"),
+        )
+    pq = DatasetDescription.describe_dataset(
+        str(tmp_path / "pq" / "d_0.parquet"), coords=["x0", "x1", "x2"]
+    )
+    pd.testing.assert_frame_equal(gen.description[COLUMNS], pq[COLUMNS])
 
 
 def known_parquet(tmp_path):
-    """``known`` as ParquetBuilder writes it: var1 pinned to x0 = 10."""
+    """``known`` as ParquetBuilder writes it: var1 repeated along x0.
+
+    var1 at x1 = 3 matches no var0 row, so its row has x0 = NaN.
+    """
     frame = pd.DataFrame(
         {
-            "x0": [10, 10, 10, 20],
-            "x1": [1, 2, 3, 2],
-            "var0": [1.0, np.nan, np.nan, 1.0],
-            "var1": [np.nan, 2.0, 3.0, np.nan],
+            "x0": [10, 20, np.nan],
+            "x1": [1, 2, 3],
+            "var0": [1.0, 1.0, np.nan],
+            "var1": [np.nan, 2.0, 3.0],
         }
     )
     path = str(tmp_path / "d.parquet")

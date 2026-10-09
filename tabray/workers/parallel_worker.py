@@ -360,6 +360,7 @@ def generate_chunk(
             num_vars,
             num_dims,
             order_dim=dim_split,
+            var_constant_dims=var_constant_dims,
         )
 
         # Save to the scratch directory. write_metadata=False: several workers

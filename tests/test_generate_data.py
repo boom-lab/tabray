@@ -595,15 +595,11 @@ class TestMultiVariableEdgeCases:
 
         assert all(var0_df[col].nunique() > 1 for col in ["x0", "x1", "x2", "x3"])
 
-        var1_varying_dims = [
-            col for col in ["x0", "x1", "x2", "x3"] if var1_df[col].nunique() > 1
-        ]
-        var1_constant_dims = [
-            col for col in ["x0", "x1", "x2", "x3"] if var1_df[col].nunique() == 1
-        ]
-
-        assert len(var1_varying_dims) == 3
-        assert len(var1_constant_dims) == 1
+        # var1 repeats across the dim it drops: one value per own-dims cell
+        own = [f"x{d}" for d in gen.var_dims_indices[1]]
+        assert len(own) == 3
+        assert (var1_df.groupby(own)["var1"].nunique() == 1).all()
+        assert len(var1_df[own].drop_duplicates()) == gen.var_num_obs[1]
 
         # Every var1 site sits on the reference (overlap_reverse = 1), and the
         # overlap is the most 32 sites can reach against a 161-cell projected
@@ -614,7 +610,7 @@ class TestMultiVariableEdgeCases:
         assert gen.overlap_actual[0] == pytest.approx(32 / 161)
 
     def test_constant_dimensions_remain_constant(self):
-        """Variables with fewer varying dims should keep one dimension constant."""
+        """A variable on fewer dims holds one value along the dim it drops."""
         gen = GenerateData(
             num_obs=150,
             num_dims=3,
@@ -631,15 +627,11 @@ class TestMultiVariableEdgeCases:
         assert "var1" in dataset
 
         var1_df = dataframe[dataframe["var1"].notna()]
-        var1_constant_dims = [
-            col for col in ["x0", "x1", "x2"] if var1_df[col].nunique() == 1
-        ]
-        var1_varying_dims = [
-            col for col in ["x0", "x1", "x2"] if var1_df[col].nunique() > 1
-        ]
-
-        assert len(var1_constant_dims) == 1
-        assert len(var1_varying_dims) == 2
+        # var1 repeats across the dim it drops: one value per own-dims cell
+        own = [f"x{d}" for d in gen.var_dims_indices[1]]
+        assert len(own) == 2
+        assert (var1_df.groupby(own)["var1"].nunique() == 1).all()
+        assert len(var1_df[own].drop_duplicates()) == gen.var_num_obs[1]
 
         var0_df = dataframe[dataframe["var0"].notna()]
         assert all(var0_df[col].nunique() > 1 for col in ["x0", "x1", "x2"])

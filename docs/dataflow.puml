@@ -161,8 +161,11 @@ if (NTASKS) then (== 1: serial)
       squeeze_constant_dims: a variable pinned to one coordinate
       loses that dimension instead of storing a NaN slab;
       :<b>ParquetBuilder.build_multi_var_dataframe</b>
-      one row per OCCUPIED coordinate, one column per variable,
-      NaN where a variable has no value there, dim_split slowest;
+      one row per OCCUPIED coordinate of a full-dims variable, one
+      column per variable, NaN where a variable has no value there;
+      a fewer-dims variable repeats on every row matching its own
+      dims, else gets a row with NaN on the dims it drops;
+      dim_split slowest;
     endif
   }
 

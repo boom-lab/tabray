@@ -292,3 +292,55 @@ class TestBuildMultiVarDataframe:
 
         for i in range(num_vars):
             assert f"var{i}" in result.columns
+
+
+class TestRepeatFewerDims:
+    """A variable on fewer dims repeats across the dims it drops."""
+
+    @staticmethod
+    def build(var_constant_dims):
+        """var0 full; var1, var2 on (x0, x1); var3 on x0.
+
+        - var1 (0, 0) -> 5 repeats on both var0 rows at (0, 0); (1, 1) -> 6
+          matches no var0 row -> row (1, 1, NaN)
+        - var2 (1, 1) -> 7 shares that row
+        - var3 x0 = 1 -> 8 fills every row at x0 = 1
+        """
+        var0 = np.full((2, 2, 2), np.nan)
+        var0[0, 0, 0], var0[0, 0, 1], var0[1, 0, 0] = 1.0, 2.0, 3.0
+        var1 = np.full((2, 2, 2), np.nan)
+        var1[0, 0, 1], var1[1, 1, 1] = 5.0, 6.0
+        var2 = np.full((2, 2, 2), np.nan)
+        var2[1, 1, 0] = 7.0
+        var3 = np.full((2, 2, 2), np.nan)
+        var3[1, 0, 0] = 8.0
+        records = {"var0": var0, "var1": var1, "var2": var2, "var3": var3}
+        coordinates = {
+            "x0": np.array([0.0, 1.0]),
+            "x1": np.array([10.0, 20.0]),
+            "x2": np.array([100.0, 200.0]),
+        }
+        return ParquetBuilder.build_multi_var_dataframe(
+            records, coordinates, 4, 3, var_constant_dims=var_constant_dims
+        )
+
+    def test_values_repeat_and_unmatched_cells_get_nan_coordinates(self):
+        nan = np.nan
+        expected = pd.DataFrame(
+            {
+                "x0": [0.0, 0.0, 1.0, 1.0],
+                "x1": [10.0, 10.0, 10.0, 20.0],
+                "x2": [100.0, 200.0, 100.0, nan],
+                "var0": [1.0, 2.0, 3.0, nan],
+                "var1": [5.0, 5.0, nan, 6.0],
+                "var2": [nan, nan, nan, 7.0],
+                "var3": [nan, nan, 8.0, 8.0],
+            }
+        )
+        result = self.build([[], [2], [2], [1, 2]])
+        pd.testing.assert_frame_equal(result, expected)
+
+    def test_no_constant_dims_keeps_one_row_per_cell(self):
+        """None and all-empty give the full-dims layout."""
+        pd.testing.assert_frame_equal(self.build(None), self.build([[]] * 4))
+        assert len(self.build(None)) == 5  # 3 var0 cells + (1, 1, 0), (1, 1, 1)
