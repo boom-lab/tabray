@@ -2,7 +2,7 @@
 
 import pytest
 import numpy as np
-from data_sparsity.config import MultiVarDimensionsConfig
+from tabray.config import MultiVarDimensionsConfig
 
 
 class TestSelectRandomDims:

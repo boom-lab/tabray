@@ -2,7 +2,7 @@
 
 import pytest
 import numpy as np
-from data_sparsity.validators import ParameterValidator
+from tabray.validators import ParameterValidator
 
 
 class TestValidateNumObs:

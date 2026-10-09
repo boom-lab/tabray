@@ -1,4 +1,4 @@
-# Data Sparsity Analysis
+# tabray - A data sparsity analysis toolset
 
 The goal of this repository is to study the performance of _read_ operations of different data when stored in tabular or array structure. I'll start using netCDF for arrays and parquet for tabular, as they are the most commonly discussed. The number of permutations on how to do this are possibly infinite, so I'm picking a few guided by the following principles:
 
@@ -30,7 +30,7 @@ pip install -e ".[dev]"
 
 ```bash
 conda env create -f environment.yml
-conda activate data_sparsity
+conda activate tabray
 ```
 
 The conda environment includes pytest and other test dependencies by default.
@@ -42,7 +42,7 @@ The conda environment includes pytest and other test dependencies by default.
 Generate synthetic observation data and save to both NetCDF and Parquet formats:
 
 ```python
-from data_sparsity.generate_data import GenerateData
+from tabray.generate_data import GenerateData
 
 # Create a data generator
 gen = GenerateData(
@@ -66,7 +66,7 @@ print(f"Array shape: {dataarray.shape}")
 ### Generate Data Without Saving
 
 ```python
-from data_sparsity.generate_data import GenerateData
+from tabray.generate_data import GenerateData
 
 gen = GenerateData(
     num_obs=500,
@@ -89,7 +89,7 @@ print(dataframe.head())
 Setting `max_obs` below `num_obs` splits the grid into chunks and generates each chunk in its own process. A parallel run writes the same data as a serial run with the same parameters and seed.
 
 ```python
-from data_sparsity.generate_data import GenerateData
+from tabray.generate_data import GenerateData
 
 # Generate a large single-variable dataset with parallel processing
 gen = GenerateData(
@@ -147,7 +147,7 @@ gen_multi.generate(
 Generate datasets with multiple observation variables measured at potentially different points and dimensions:
 
 ```python
-from data_sparsity.generate_data import GenerateData
+from tabray.generate_data import GenerateData
 
 # Generate a dataset with 3 variables
 gen = GenerateData(
@@ -239,7 +239,7 @@ dataset, df = gen.generate()
 as `gen.description`. The same works on any netCDF or parquet dataset:
 
 ```python
-from data_sparsity.output import DatasetDescription
+from tabray.output import DatasetDescription
 
 DatasetDescription.describe_dataset("data.nc")
 DatasetDescription.describe_dataset("parquet_dir", coords=["x0", "x1", "x2"])
@@ -343,7 +343,7 @@ pytest
 pytest -v
 
 # Run with coverage report
-pytest --cov=data_sparsity --cov-report=html
+pytest --cov=tabray --cov-report=html
 
 # Run specific test file
 pytest tests/validators/test_parameter_validator.py

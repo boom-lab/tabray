@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from data_sparsity.output import VariableEncoding
+from tabray.output import VariableEncoding
 
 
 class TestDtypeAndPackAreSeparate:

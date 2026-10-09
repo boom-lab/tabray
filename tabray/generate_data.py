@@ -17,31 +17,31 @@ from numpy.typing import ArrayLike
 import pandas as pd
 import xarray as xr
 
-from data_sparsity.validators import (
+from tabray.validators import (
     ParameterValidator,
     DimensionValidator,
     SparsityValidator,
 )
-from data_sparsity.config import (
+from tabray.config import (
     MultiVarSparsityConfig,
     MultiVarDimensionsConfig,
     MultiVarOverlapConfig,
 )
-from data_sparsity.generators import (
+from tabray.generators import (
     CoordinateGenerator,
     MultiVarRecordGenerator,
 )
-from data_sparsity.output import (
+from tabray.output import (
     DatasetDescription,
     VariableEncoding,
     NetCDFBuilder,
     ParquetBuilder,
     PathManager,
 )
-from data_sparsity.utils import (
+from tabray.utils import (
     ChunkUtils,
 )
-from data_sparsity.utils.streams import Stream, stream
+from tabray.utils.streams import Stream, stream
 
 
 class GenerateData:
@@ -568,7 +568,7 @@ class GenerateData:
         self._records = records
         self.overlap_actual = overlap_actual
         if self.num_vars > 1:
-            from data_sparsity.generators import OverlapCalculator
+            from tabray.generators import OverlapCalculator
 
             report = OverlapCalculator.compute_overlap_report(
                 records,
@@ -842,7 +842,7 @@ class GenerateData:
         """
         from concurrent.futures import ProcessPoolExecutor, as_completed
         import multiprocessing
-        from data_sparsity.workers import generate_chunk
+        from tabray.workers import generate_chunk
 
         # Output directories already exist: setup_output_paths created them.
         # Scratch chunks go in their own directory, not alongside the real

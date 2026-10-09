@@ -2,7 +2,7 @@
 
 import pytest
 import numpy as np
-from data_sparsity.validators import DimensionValidator
+from tabray.validators import DimensionValidator
 
 
 class TestComputeNbCoordsDim1:

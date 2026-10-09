@@ -2,7 +2,7 @@
 
 import pytest
 import numpy as np
-from data_sparsity.generators.observation_generator import ObservationGenerator
+from tabray.generators.observation_generator import ObservationGenerator
 
 
 class TestGenerateObservations:

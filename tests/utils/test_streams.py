@@ -1,6 +1,6 @@
 """Tests for the random stream registry.
 
-The point of data_sparsity.utils.streams is that two purposes never share a
+The point of tabray.utils.streams is that two purposes never share a
 stream. These tests pin that property, including the NumPy behaviour that
 makes it non-obvious: SeedSequence ignores trailing zeros.
 """
@@ -10,7 +10,7 @@ import itertools
 import numpy as np
 import pytest
 
-from data_sparsity.utils.streams import Stream, stream
+from tabray.utils.streams import Stream, stream
 
 
 def first_draws(rng, n=5):

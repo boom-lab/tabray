@@ -13,9 +13,9 @@ import numpy as np
 import xarray as xr
 import pytest
 
-from data_sparsity.generators.record_generator import RecordGenerator
-from data_sparsity.generate_data import GenerateData
-from data_sparsity.validators import SparsityValidator
+from tabray.generators.record_generator import RecordGenerator
+from tabray.generate_data import GenerateData
+from tabray.validators import SparsityValidator
 
 
 def occupancy(shape, indices):

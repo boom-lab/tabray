@@ -2,7 +2,7 @@
 
 import pytest
 import numpy as np
-from data_sparsity.generators.overlap_calculator import OverlapCalculator
+from tabray.generators.overlap_calculator import OverlapCalculator
 
 
 class TestExtractCoordinateSet:

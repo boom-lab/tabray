@@ -543,7 +543,7 @@ A fourth was structural rather than arithmetic: `seed + 6000 + var_idx` carried 
 index, so a variable constant on two dimensions drew the same coordinate index on both.
 
 **Fixed.** Every stream now comes from `stream(seed, tag, *index)` in
-`data_sparsity/utils/streams.py`, with tags in a `Stream` class. Adding a purpose means adding a
+`tabray/utils/streams.py`, with tags in a `Stream` class. Adding a purpose means adding a
 tag where the existing values are visible, instead of picking an offset and hoping it misses.
 Constant coordinates gained the missing dimension index. Verified: the seven streams involved in
 the collisions above are pairwise distinct.

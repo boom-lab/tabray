@@ -2,7 +2,7 @@
 
 import pytest
 import numpy as np
-from data_sparsity.config import MultiVarOverlapConfig
+from tabray.config import MultiVarOverlapConfig
 
 
 class TestValidateOverlapValue:

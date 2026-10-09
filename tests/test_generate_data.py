@@ -7,7 +7,7 @@ import pandas as pd
 import os
 import tempfile
 import shutil
-from data_sparsity.generate_data import GenerateData
+from tabray.generate_data import GenerateData
 
 
 class TestInitialization:
@@ -1842,7 +1842,7 @@ class TestHybridLHSSampling:
 
     def test_lhs_base_coverage(self):
         """The Latin hypercube (LHS) stage uses every coordinate of every dimension."""
-        from data_sparsity.generators.record_generator import RecordGenerator
+        from tabray.generators.record_generator import RecordGenerator
 
         rng = np.random.default_rng(42)
         shape = [5, 7, 5]
@@ -1868,7 +1868,7 @@ class TestHybridLHSSampling:
 
     def test_stratified_rejects_too_few_observations(self):
         """Fewer observations than the longest axis cannot cover it."""
-        from data_sparsity.generators.record_generator import RecordGenerator
+        from tabray.generators.record_generator import RecordGenerator
 
         with pytest.raises(ValueError, match=r"num_obs .* < max\(shape\)"):
             RecordGenerator.generate_stratified_indices([4, 7, 10], 5, 1, 2)
@@ -1880,7 +1880,7 @@ class TestHybridLHSSampling:
         for every coordinate to be used. Axes shorter than n_s therefore repeat
         coordinates.
         """
-        from data_sparsity.generators.record_generator import RecordGenerator
+        from tabray.generators.record_generator import RecordGenerator
 
         rng = np.random.default_rng(42)
         shape = [5, 7, 3]
@@ -1900,7 +1900,7 @@ class TestHybridLHSSampling:
         A valid grid has every coordinate occupied at least once; an unused
         coordinate carries no information and should not be part of the grid.
         """
-        from data_sparsity.generators.record_generator import RecordGenerator
+        from tabray.generators.record_generator import RecordGenerator
 
         for shape in ([4, 7, 10], [3, 3], [5, 5, 20], [2, 3, 5, 7], [12]):
             lhs_indices = RecordGenerator.generate_lhs_indices(
@@ -1927,7 +1927,7 @@ class TestHybridLHSSampling:
         An unused coordinate is stored without describing a data point, so a
         valid grid has none.
         """
-        from data_sparsity.generators.record_generator import RecordGenerator
+        from tabray.generators.record_generator import RecordGenerator
 
         indices, values = RecordGenerator.generate_stratified_indices(
             global_shape=shape,

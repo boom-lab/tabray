@@ -2,7 +2,7 @@
 
 import pytest
 import numpy as np
-from data_sparsity.config import MultiVarSparsityConfig
+from tabray.config import MultiVarSparsityConfig
 
 
 class TestFromScalar:

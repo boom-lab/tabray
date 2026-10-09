@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from data_sparsity.utils.viz import plot_grid_case
+from tabray.utils.viz import plot_grid_case
 
 
 def test_plot_grid_case_supports_one_dimensional_variables(monkeypatch):

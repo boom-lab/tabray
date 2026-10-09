@@ -6,10 +6,10 @@ with controlled overlap between them.
 
 from typing import Dict, Iterable, List, Tuple, Union, Optional
 import numpy as np
-from data_sparsity.generators.record_generator import RecordGenerator
-from data_sparsity.utils.chunk_utils import ChunkUtils
-from data_sparsity.utils.streams import Stream, stream
-from data_sparsity.generators.overlap_calculator import OverlapCalculator
+from tabray.generators.record_generator import RecordGenerator
+from tabray.utils.chunk_utils import ChunkUtils
+from tabray.utils.streams import Stream, stream
+from tabray.generators.overlap_calculator import OverlapCalculator
 
 
 class MultiVarRecordGenerator:

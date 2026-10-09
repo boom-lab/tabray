@@ -2,7 +2,7 @@
 
 import pytest
 import numpy as np
-from data_sparsity.generators.record_generator import RecordGenerator
+from tabray.generators.record_generator import RecordGenerator
 
 
 class TestInitializeRecord:
