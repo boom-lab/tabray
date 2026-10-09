@@ -14,14 +14,15 @@ import xarray as xr
 
 
 class DatasetDescription:
-    """One row per variable: dims, sites, occupied sites, density, F1."""
+    """One row per variable: dims, sites, occupied sites, density, overlap."""
 
     COLUMNS = [
         "dims",
         "var_sites",
         "var_sites_occupied",
         "density",
-        "f1",
+        "overlap",
+        "overlap_reverse",
         "unused_coords",
         "dtype",
     ]
@@ -35,8 +36,9 @@ class DatasetDescription:
 
         - var_sites = prod(axis lengths of the variable's dims)
         - density = var_sites_occupied / var_sites
-        - f1 = |proj(S0) & Si| / |proj(S0)| on the variable's dims, S0 = the
+        - overlap = |proj(S0) & Si| / |proj(S0)| on the variable's dims, S0 = the
           first variable (NaN for it)
+        - overlap_reverse = |proj(S0) & Si| / |Si| (NaN for the first variable)
         - unused_coords = coordinates along the variable's dims holding no value
 
         Args:
@@ -71,11 +73,12 @@ class DatasetDescription:
             density = var_sites_occupied / var_sites if var_sites else 0.0
             drop = [d for d in ref.dims if d not in mask.dims]
             proj_ref = ref.any(dim=drop) if drop else ref
-            overlap = (
-                np.nan
-                if mask is ref
-                else int((proj_ref & mask).sum()) / max(int(proj_ref.sum()), 1)
-            )
+            if mask is ref:
+                overlap = overlap_reverse = np.nan
+            else:
+                shared = int((proj_ref & mask).sum())
+                overlap = shared / max(int(proj_ref.sum()), 1)
+                overlap_reverse = shared / max(var_sites_occupied, 1)
             unused_coords = sum(
                 int((~mask.any(dim=[o for o in mask.dims if o != d])).sum())
                 for d in mask.dims
@@ -87,6 +90,7 @@ class DatasetDescription:
                 var_sites_occupied,
                 density,
                 overlap,
+                overlap_reverse,
                 unused_coords,
                 dtype,
             ]
@@ -119,14 +123,13 @@ class DatasetDescription:
             var_sites = int(np.prod([grid[c] for c in dims]))
             density = var_sites_occupied / var_sites if var_sites else 0.0
             if name == names[0]:
-                overlap = np.nan
+                overlap = overlap_reverse = np.nan
             else:
                 proj_ref = ref_rows[dims].drop_duplicates()
-                shared = proj_ref.merge(held[dims].drop_duplicates(), on=dims)
-                overlap = int(shared.shape[0].compute()) / max(
-                    int(proj_ref.shape[0].compute()),
-                    1,
-                )
+                proj_var = held[dims].drop_duplicates()
+                shared = int(proj_ref.merge(proj_var, on=dims).shape[0].compute())
+                overlap = shared / max(int(proj_ref.shape[0].compute()), 1)
+                overlap_reverse = shared / max(int(proj_var.shape[0].compute()), 1)
             unused_coords = sum(grid[c] - seen[c] for c in dims)
             rows[name] = [
                 tuple(dims),
@@ -134,6 +137,7 @@ class DatasetDescription:
                 var_sites_occupied,
                 density,
                 overlap,
+                overlap_reverse,
                 unused_coords,
                 str(frame[name].dtype),
             ]

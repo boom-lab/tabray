@@ -60,21 +60,6 @@ literal.
   tree; a test run there proves nothing about this project.
 - Do not commit unless asked. The user committed the formatting work themselves.
 
-## Rename F1/F2 to overlap/overlap_reverse (agreed 2026-10-08, not started)
-
-Drop "F1"/"f1" everywhere; F1 is just "overlap", F2 is "overlap_reverse"
-(the explainer's "reverse ratio", `O'_i`). About 100 hits in 17 files:
-- `OverlapCalculator.compute_overlap_report`: `report["f1"]` -> `"overlap"`,
-  `report["f2"]` -> `"overlap_reverse"`; same in its print and callers
-- netCDF attrs and `create_multivar_attrs` args: `overlap_actual_f1` ->
-  `overlap_actual`, `overlap_actual_f2` -> `overlap_actual_reverse`;
-  `GenerateData.overlap_actual_f2` likewise. Changes every multi-variable
-  file's attributes; no test compares stored files
-- `DatasetDescription`: column `f1` -> `overlap`, add `overlap_reverse`
-  (shared / |proj(S_i)|, from the count already computed)
-- text: `OVERLAP_CONVENTION`, README, CLAUDE.md, tests, `.puml` diagrams,
-  `docs/layout_plan.md`, `docs/review_diagrams.md`
-
 ## Rename the package `data_sparsity` to `tabray`
 
 The import package is `data_sparsity`; the distribution in `pyproject.toml`,

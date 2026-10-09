@@ -53,8 +53,9 @@ class NetCDFBuilder:
     # overlap can be divided by var0's sites or by the other variable's, and a
     # reader may assume either.
     OVERLAP_CONVENTION = (
-        "F1 = |proj(S0) & proj(Si)| / |proj(S0)|: share of var0's sites that "
-        "also carry the variable, measured on the dimensions the two share"
+        "overlap = |proj(S0) & proj(Si)| / |proj(S0)|: share of var0's sites "
+        "that also carry the variable, measured on the dimensions the two "
+        "share; overlap_actual_reverse divides by |proj(Si)| instead"
     )
 
     @staticmethod
@@ -64,8 +65,8 @@ class NetCDFBuilder:
         var_num_obs,
         overlap_target,
         fixed_overlap,
-        overlap_actual_f1=None,
-        overlap_actual_f2=None,
+        overlap_actual=None,
+        overlap_actual_reverse=None,
     ) -> Dict:
         """Build the multi-variable attributes, identically for serial and parallel.
 
@@ -79,8 +80,8 @@ class NetCDFBuilder:
             var_num_obs: Observation count per variable
             overlap_target: Requested overlap for var1..varN-1
             fixed_overlap: Per-variable fixed-overlap flags
-            overlap_actual_f1: Achieved overlap, if measured
-            overlap_actual_f2: The reverse ratio, if measured
+            overlap_actual: Achieved overlap, if measured
+            overlap_actual_reverse: The reverse ratio, if measured
 
         Returns:
             Dictionary of attributes to merge into the base set
@@ -107,10 +108,10 @@ class NetCDFBuilder:
             "overlap_convention": NetCDFBuilder.OVERLAP_CONVENTION,
             "fixed_overlap": [int(bool(flag)) for flag in as_list(fixed_overlap)],
         }
-        if overlap_actual_f1 is not None:
-            attrs["overlap_actual_f1"] = as_list(overlap_actual_f1)
-        if overlap_actual_f2 is not None:
-            attrs["overlap_actual_f2"] = as_list(overlap_actual_f2)
+        if overlap_actual is not None:
+            attrs["overlap_actual"] = as_list(overlap_actual)
+        if overlap_actual_reverse is not None:
+            attrs["overlap_actual_reverse"] = as_list(overlap_actual_reverse)
         return attrs
 
     @staticmethod

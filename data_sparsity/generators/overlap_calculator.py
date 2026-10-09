@@ -90,18 +90,13 @@ class OverlapCalculator:
             var_dims_indices: Dimensions each variable varies along
 
         Returns:
-            Dict with 'overlap', 'overlap_reverse', 'shared', 'ref_size' and 'var_size' arrays,
-            one entry per non-reference variable
+            Dict with 'overlap', 'overlap_reverse', 'shared', 'ref_size' and
+            'var_size' arrays, one entry per non-reference variable
         """
         empty = np.array([], dtype=float)
         if num_vars <= 1:
-            return {k: empty for k in (
-                    "overlap",
-                    "overlap_reverse",
-                    "shared",
-                    "ref_size",
-                    "var_size",
-                )}
+            keys = ("overlap", "overlap_reverse", "shared", "ref_size", "var_size")
+            return {k: empty for k in keys}
 
         ref_full = OverlapCalculator.extract_coordinate_set(records["var0"], num_dims)
         overlap, reverse, shared, ref_size, var_size = [], [], [], [], []
@@ -150,7 +145,7 @@ class OverlapCalculator:
         print(
             "Achieved overlap against var0 "
             "(overlap = share of var0's sites also carrying the variable; "
-            "reverse = share of the variable's sites also carrying var0):"
+            "overlap_r = share of the variable's sites also carrying var0):"
         )
         for idx in range(report["overlap"].size):
             target = (
@@ -158,7 +153,7 @@ class OverlapCalculator:
             )
             print(
                 f"  var{idx + 1}: overlap {report['overlap'][idx]:.4f}   "
-                f"reverse {report['overlap_reverse'][idx]:.4f}   "
+                f"overlap_r {report['overlap_reverse'][idx]:.4f}   "
                 f"({report['shared'][idx]} shared of {report['ref_size'][idx]} "
                 f"var0 sites, {report['var_size'][idx]} own sites){target}"
             )

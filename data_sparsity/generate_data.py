@@ -167,7 +167,7 @@ class GenerateData:
                 raise ValueError(
                     "overlap cannot be set with layout='padded'. With every "
                     "line filling its first k cells of the same axis the "
-                    "intersection is min(k_0, k_i), so F1 is the ratio of the "
+                    "intersection is min(k_0, k_i), so the overlap is the ratio of the "
                     "densities and no target can be honoured. The achieved "
                     "value is printed after generation."
                 )
@@ -184,7 +184,7 @@ class GenerateData:
         self.var_constant_coord_indices = None
         self.overlap_target = None
         self.overlap_actual = None
-        self.overlap_actual_f2 = None
+        self.overlap_actual_reverse = None
 
         # Validate and configure
         self._validate_parameters()
@@ -433,7 +433,7 @@ class GenerateData:
         self.var_constant_coord_indices = {0: {}}
         self.overlap_target = None
         self.overlap_actual = None
-        self.overlap_actual_f2 = None
+        self.overlap_actual_reverse = None
 
     def _configure_multi_var(self) -> None:
         """Configure for multiple variables case."""
@@ -576,8 +576,8 @@ class GenerateData:
                 self.num_dims,
                 self.var_dims_indices,
             )
-            self.overlap_actual = report["f1"]
-            self.overlap_actual_f2 = report["f2"]
+            self.overlap_actual = report["overlap"]
+            self.overlap_actual_reverse = report["overlap_reverse"]
 
         return self._to_stored(records)
 
@@ -646,8 +646,8 @@ class GenerateData:
                 var_num_obs=self.var_num_obs,
                 overlap_target=self.overlap_target,
                 fixed_overlap=self.fixed_overlap,
-                overlap_actual_f1=self.overlap_actual,
-                overlap_actual_f2=self.overlap_actual_f2,
+                overlap_actual=self.overlap_actual,
+                overlap_actual_reverse=self.overlap_actual_reverse,
             )
         )
 

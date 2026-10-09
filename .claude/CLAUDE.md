@@ -62,7 +62,7 @@ GenerateData.generate  ->  generators/   CoordinateGenerator, MultiVarRecordGene
 ### Overlap
 
 - `var0` is the reference, placed first, and must be the largest variable (`validate_density_refvar` raises otherwise).
-- Overlap is **F1** (`docs/explainer_multivar.md`): `|proj(S0) & proj(Si)| / |proj(S0)|`. Single entry point: `OverlapCalculator.compute_overlap_report`.
+- Overlap (`docs/explainer_multivar.md`): `overlap = |proj(S0) & proj(Si)| / |proj(S0)|`, the targeted quantity; `overlap_reverse` divides by `|proj(Si)|`. Single entry point: `OverlapCalculator.compute_overlap_report`.
 - Placement is per stratum (`generate_multivar_stratified`): overlap cells from var0's footprint in each hyperplane, the rest from cells held by neither. Unreachable target → warning, density wins.
 - Overlap count per stratum:
   - variable on all dims: total `round(t_i * sum_j p_j)`, apportioned across strata by largest remainder (`RecordGenerator.stratum_counts` rederives var0's counts under chunking);
@@ -77,7 +77,7 @@ GenerateData.generate  ->  generators/   CoordinateGenerator, MultiVarRecordGene
 - A line (one combination of the dims other than split and padded) holds positions `0..k-1` of the padded axis.
 - Coverage comes from the construction, not the LHS stage, which `padded` skips: every line holds an observation; one line runs the full length.
 - Minimum density = `(prod(shape)/n_padded + n_padded - 1) / prod(shape)` (`compute_min_density(..., padded_dim)`).
-- `overlap` raises under `padded`: each line of every variable fills its first k cells of one axis, so F1 follows from the densities.
+- `overlap` raises under `padded`: each line of every variable fills its first k cells of one axis, so the overlap follows from the densities.
 - The padded axis cannot be `dim_split` (`_choose_split_dim` excludes it).
 - Stratum counts: `padded_stratum_counts`, equal weights capped per stratum (`ChunkUtils.apportion(..., capacity)`), one stratum raised to carry the full-length line; k per line also from equal weights.
 - `_print_updated_config` prints which minimum-density bound applied (var0's coverage bound).
@@ -139,7 +139,7 @@ Every RNG comes from `stream(seed, tag, *index)` (`utils/streams.py`); tags live
 
 ## Open items
 
-`.claude/HANDOFF.md` lists unfinished work: lint exceptions to agree, `[tool.black]` target version, diagnostic S6, dataflow examples (grids at every step, more cases), the F1/F2 -> overlap/overlap_reverse rename, the `data_sparsity` -> `tabray` package rename. Delete entries as they are done.
+`.claude/HANDOFF.md` lists unfinished work: lint exceptions to agree, `[tool.black]` target version, diagnostic S6, dataflow examples (grids at every step, more cases), the `data_sparsity` -> `tabray` package rename. Delete entries as they are done.
 
 ## Known drift in the docs
 

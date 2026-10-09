@@ -136,8 +136,9 @@ if (NTASKS) then (== 1: serial)
     :scatter into the arrays: records[var_i][indices] = values;
 
     :<b>OverlapCalculator.compute_overlap_report</b>
-    F1 = |proj(S0) & proj(Si)| / |proj(S0)|, F2 = the reverse
-    -> overlap_actual, overlap_actual_f2, printed;
+    overlap = |proj(S0) & proj(Si)| / |proj(S0)|,
+    overlap_reverse = ... / |proj(Si)|
+    -> overlap_actual, overlap_actual_reverse, printed;
   }
 
   partition "output/  (two in-memory stores of the same data)" {
@@ -152,7 +153,8 @@ if (NTASKS) then (== 1: serial)
       :<b>NetCDFBuilder.build_dataset</b>
       one DataArray per var0..varN, attrs += create_multivar_attrs
       (num_vars, var_densities, var_num_obs, overlap_target,
-       overlap_convention, fixed_overlap, overlap_actual_f1/f2)
+       overlap_convention, fixed_overlap, overlap_actual,
+       overlap_actual_reverse)
       squeeze_constant_dims: a variable pinned to one coordinate
       loses that dimension instead of storing a NaN slab;
       :<b>ParquetBuilder.build_multi_var_dataframe</b>

@@ -137,12 +137,12 @@ class TestComputeOverlapReport:
             var_dims_indices=[[0, 1]] * 3,
         )
 
-        np.testing.assert_array_equal(report["f1"], np.array([1.0, 0.0]))
-        np.testing.assert_array_equal(report["f2"], np.array([1.0, 0.0]))
+        np.testing.assert_array_equal(report["overlap"], np.array([1.0, 0.0]))
+        np.testing.assert_array_equal(report["overlap_reverse"], np.array([1.0, 0.0]))
         np.testing.assert_array_equal(report["shared"], np.array([4, 0]))
 
-    def test_f1_and_f2_use_different_denominators(self):
-        """F1 divides by the reference's size, F2 by the variable's own."""
+    def test_overlap_and_reverse_use_different_denominators(self):
+        """overlap divides by var0's size, overlap_reverse by the variable's own."""
         records = {
             "var0": np.full((5, 5), np.nan),
             "var1": np.full((5, 5), np.nan),
@@ -154,8 +154,8 @@ class TestComputeOverlapReport:
             records, num_vars=2, num_dims=2, var_dims_indices=[[0, 1]] * 2
         )
 
-        np.testing.assert_allclose(report["f1"], [4 / 6])
-        np.testing.assert_allclose(report["f2"], [1.0])
+        np.testing.assert_allclose(report["overlap"], [4 / 6])
+        np.testing.assert_allclose(report["overlap_reverse"], [1.0])
         np.testing.assert_array_equal(report["shared"], [4])
         np.testing.assert_array_equal(report["ref_size"], [6])
         np.testing.assert_array_equal(report["var_size"], [4])
@@ -180,6 +180,6 @@ class TestComputeOverlapReport:
             records, num_vars=2, num_dims=2, var_dims_indices=[[0, 1]] * 2
         )
 
-        np.testing.assert_array_equal(projected["f1"], [1.0])
+        np.testing.assert_array_equal(projected["overlap"], [1.0])
         np.testing.assert_array_equal(projected["shared"], [1])
-        np.testing.assert_array_equal(full["f1"], [0.0])
+        np.testing.assert_array_equal(full["overlap"], [0.0])
