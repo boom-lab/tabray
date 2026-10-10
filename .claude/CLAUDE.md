@@ -94,6 +94,7 @@ GenerateData.generate  ->  generators/   CoordinateGenerator, MultiVarRecordGene
 - Integers = `lo + floor(u * (hi - lo + 1))` from the uniform draw, never `rng.integers`: a dtype change must not move occupied sites.
 - Packed float: fill code reserved; `scale_factor`/`add_offset` are `float32`, except for `int32` (`float64`).
 - Integer `fill_value` must sit outside `value_range`; the parquet column is nullable (`Int16`).
+- `S<k>` strings: codes through the integer transform, text only on write (`to_text`, `NetCDFBuilder.codes_to_text`, `ParquetBuilder.cast_values`); parquet `string[pyarrow]`. `value_range` with min == max: a constant.
 - `to_stored` runs once (`GenerateData._to_stored` + worker counterpart) before both writers; scale from `VALUE_RANGE`, never from the data.
 
 ### Determinism and the serial/parallel contract

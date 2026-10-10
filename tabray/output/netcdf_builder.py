@@ -226,25 +226,59 @@ class NetCDFBuilder:
         Returns:
             Encoding dict keyed by variable name
         """
+        encoding = {}
+        for name, var_encoding in NetCDFBuilder._match_encodings(data, var_encodings):
+            encoding[name] = var_encoding.netcdf_encoding()
+
+        return {k: v for k, v in encoding.items() if v}
+
+    @staticmethod
+    def _match_encodings(data, var_encodings: list = None) -> list:
+        """(name, VariableEncoding) per variable of ``data`` that has one.
+
+        ``varN`` takes the Nth encoding; a single-variable DataArray (named
+        ``record``) takes the first.
+        """
         if isinstance(data, xr.DataArray):
             names = [data.name] if data.name is not None else []
         else:
             names = list(data.data_vars)
-
-        encoding = {}
+        pairs = []
         for position, name in enumerate(names):
-            entry = {}
-            if var_encodings:
-                index = (
-                    int(name[3:])
-                    if name.startswith("var") and name[3:].isdigit()
-                    else position
-                )
-                if index < len(var_encodings):
-                    entry.update(var_encodings[index].netcdf_encoding())
-            encoding[name] = entry
+            index = (
+                int(name[3:])
+                if name.startswith("var") and name[3:].isdigit()
+                else position
+            )
+            if var_encodings and index < len(var_encodings):
+                pairs.append((name, var_encodings[index]))
+        return pairs
 
-        return {k: v for k, v in encoding.items() if v}
+    @staticmethod
+    def codes_to_text(data, var_encodings: list = None):
+        """Replace each string variable's codes by its text, as bytes.
+
+        Returns a copy; the generated data keep the codes.
+        """
+        for name, var_encoding in NetCDFBuilder._match_encodings(data, var_encodings):
+            if not var_encoding.text_width:
+                continue
+            target = data if isinstance(data, xr.DataArray) else data[name]
+            text = target.copy(data=var_encoding.to_text(target.values, as_bytes=True))
+            data = text if isinstance(data, xr.DataArray) else data.assign({name: text})
+        return data
+
+    @staticmethod
+    def fix_text_width(data: xr.Dataset, var_encodings: list = None) -> xr.Dataset:
+        """Strings read back from chunk files (object, NaN) -> ``S<k>``.
+
+        A dask array of objects is loaded whole to find its width; a fixed
+        width streams. Vacant -> the 1-byte fill, the bytes a NaN is written as.
+        """
+        for name, var_encoding in NetCDFBuilder._match_encodings(data, var_encodings):
+            if var_encoding.text_width:
+                data[name] = data[name].fillna(b" ").astype(var_encoding.dtype)
+        return data
 
     @staticmethod
     def save_to_file(
@@ -273,5 +307,6 @@ class NetCDFBuilder:
             )
 
         encoding = NetCDFBuilder.build_encoding(data, var_encodings)
+        data = NetCDFBuilder.codes_to_text(data, var_encodings)
         data.to_netcdf(filepath, encoding=encoding)
         print(f"Saved to {filepath}")

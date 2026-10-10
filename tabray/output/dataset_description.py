@@ -148,7 +148,10 @@ class DatasetDescription:
                 for c in coords
                 if grid[c] == 1 or not DatasetDescription._drops(held, coords, c)
             ]
-            occupied[name] = len(held[var_dims[name]].drop_duplicates())
+            # a constant drops every coord: one site, like a scalar
+            occupied[name] = (
+                len(held[var_dims[name]].drop_duplicates()) if var_dims[name] else 1
+            )
         ref_name = DatasetDescription._pick_reference(occupied, reference)
         ref_rows = frame[frame[ref_name].notnull()][coords]
         rows = {}
@@ -195,7 +198,8 @@ class DatasetDescription:
         - a row with ``coord`` NaN: the variable has no position along it
         - repeated: one value per key over the other coords (V == K) and some
           key on several rows (R > K); K, V = distinct keys, (key, value) pairs
-        - a variable constant along a real dim reads as repeated
+        - a variable constant along a real dim reads as repeated; a constant
+          drops every coord
         """
         name = held.columns[-1]
         other = [c for c in coords if c != coord]
