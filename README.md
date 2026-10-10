@@ -292,11 +292,14 @@ The reference is `reference` if given, else the variable with the most occupied 
 - **max_obs** (int, optional): Maximum number of observations per chunk (default: `None`, serial generation). When `num_obs` exceeds this value, the dataset is split into chunks and generated in parallel (see **Parallel Generation for Large Datasets**).
 - **max_workers** (int, optional): Maximum number of processes running at once in parallel generation (default: the CPU count)
 - **dtype** (str or list, optional): What each variable holds: `float64` (default), `float32`,
-  or an integer type (`int8`, `int16`, `int32`) for a variable of counts, flags or identifiers.
-  One value for all variables, or one per variable.
+  an integer type (`int8`, `int16`, `int32`) for a variable of counts, flags or identifiers, or
+  `S<k>` for strings of k characters (Argo's `PLATFORM_NUMBER` is `S8`). A string is written as
+  characters along a `string<k>` dimension in netCDF, blank when vacant, and as a pyarrow-backed
+  string column in parquet. One value for all variables, or one per variable.
 - **value_range** (tuple or list, optional): The (min, max) a variable spans, inclusive.
   Defaults to `(0, 1)` for floats and `(0, 100)` for integers. One pair for all variables, or
-  one per variable. For a packed float it also sets the packing scale, so a value cannot fall
+  one per variable. `min == max` gives a constant variable. For `S<k>` it is the range of codes:
+  `(0, n - 1)` gives n distinct strings, at most `36**k`. For a packed float it also sets the packing scale, so a value cannot fall
   outside the grid that stores it. For an integer variable the width sets the column's
   **cardinality**: `(0, 8)` is flag-like data, which both formats encode very differently from
   the near-continuous `(0, 50000)`.

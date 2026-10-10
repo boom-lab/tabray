@@ -209,7 +209,14 @@ class ParquetBuilder:
             return dataframe
         for index, encoding in enumerate(var_encodings):
             for column in (f"var{index}", "record" if index == 0 else None):
-                if column and column in dataframe.columns:
+                if column and column in dataframe.columns and encoding.text_width:
+                    # codes -> pyarrow-backed strings
+                    dataframe[column] = pd.Series(
+                        encoding.to_text(dataframe[column].to_numpy(dtype=float)),
+                        index=dataframe.index,
+                        dtype=encoding.pandas_dtype(),
+                    )
+                elif column and column in dataframe.columns:
                     dataframe[column] = dataframe[column].astype(
                         encoding.pandas_dtype()
                     )

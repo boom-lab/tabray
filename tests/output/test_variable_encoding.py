@@ -5,11 +5,17 @@ variable to int16 with scale_factor/add_offset, Argo writes plain float32 with
 a 99999.0 sentinel. Both must be expressible, and so must plain float64.
 """
 
+import contextlib
+import glob
+import io
+
 import numpy as np
+import pandas as pd
 import pytest
 import xarray as xr
 
-from tabray.output import VariableEncoding
+from tabray.generate_data import GenerateData
+from tabray.output import DatasetDescription, VariableEncoding
 
 
 class TestDtypeAndPackAreSeparate:
@@ -37,7 +43,7 @@ class TestDtypeAndPackAreSeparate:
 
     def test_packing_an_integer_is_refused(self):
         """There is nothing to compact: the values are already integers."""
-        with pytest.raises(ValueError, match="already holds integers"):
+        with pytest.raises(ValueError, match="does not hold floats"):
             VariableEncoding("int16", "int8")
 
     @pytest.mark.parametrize("pack", ["int8", "int16", "int32"])
@@ -318,7 +324,7 @@ class TestIntegerValues:
             VariableEncoding("int8", value_range=(0, 1000))
 
     def test_inverted_range_raises(self):
-        with pytest.raises(ValueError, match="max above min"):
+        with pytest.raises(ValueError, match="max at least min"):
             VariableEncoding("int16", value_range=(10, 2))
 
     def test_parquet_column_is_nullable(self):
@@ -349,3 +355,111 @@ class TestFloatValueRange:
         u = np.array([0.0, 0.5, 1.0])
         out = enc.to_stored(u)
         assert np.abs(out - np.array([-3.0, 21.0, 45.0])).max() < enc.scale_factor
+
+
+class TestConstant:
+    """min == max: every occupied site holds the same value."""
+
+    @pytest.mark.parametrize(
+        "dtype,pack,value_range",
+        [
+            ("int8", None, (3, 3)),
+            ("float32", None, (2.5, 2.5)),
+            ("float64", "int16", (2.5, 2.5)),
+            ("S4", None, (7, 7)),
+        ],
+    )
+    def test_one_value(self, dtype, pack, value_range):
+        u = np.array([0.0, 0.3, 0.999, np.nan])
+        out = VariableEncoding(dtype, pack, value_range=value_range).to_stored(u)
+        assert np.allclose(out[:3], value_range[0], rtol=1e-6) and np.isnan(out[3])
+
+
+class TestStrings:
+    """S<k>: strings of k characters, drawn as codes, written as text."""
+
+    def test_codes_follow_the_integer_path(self):
+        u = np.array([0.0, 0.5, 0.999, np.nan])
+        text = VariableEncoding("S4", value_range=(0, 9))
+        assert np.array_equal(
+            text.to_stored(u),
+            VariableEncoding("int16", value_range=(0, 9)).to_stored(u),
+            equal_nan=True,
+        )
+
+    def test_to_text(self):
+        enc = VariableEncoding("S2", value_range=(0, 100))
+        out = enc.to_text(np.array([0.0, 37.0, np.nan]))
+        assert list(out[:2]) == ["00", "11"] and np.isnan(out[2])
+        assert enc.to_text(np.array([35.0]), as_bytes=True)[0] == b"0Z"
+
+    def test_range_must_fit_k_characters(self):
+        with pytest.raises(ValueError, match="does not fit S1"):
+            VariableEncoding("S1", value_range=(0, 36))
+
+    def test_default_range_fits(self):
+        assert VariableEncoding("S1").value_range == (0, 35)
+
+    @pytest.mark.parametrize("kwargs", [{"pack": "int16"}, {"fill_value": 0}])
+    def test_refuses_pack_and_fill(self, kwargs):
+        with pytest.raises(ValueError):
+            VariableEncoding("S4", **kwargs)
+
+    def test_encodings(self):
+        enc = VariableEncoding("s8")
+        assert enc.dtype == "S8"
+        assert enc.netcdf_encoding() == {"dtype": "S1", "_FillValue": b" "}
+        assert enc.pandas_dtype() == pd.StringDtype("pyarrow")
+
+
+class TestStringsEndToEnd:
+    """Serial, chunked with merge_nc, both formats, and their descriptions."""
+
+    CONFIG = dict(
+        num_obs=300,
+        num_dims=3,
+        ratio_dims=[3, 2, 1],
+        density=0.2,
+        seed=7,
+        num_vars=3,
+        var_dims=[3, 3, [0, 1]],
+        dtype=["float32", "S4", "S8"],
+        value_range=[(0.0, 1.0), (0, 9), (0, 40)],
+    )
+
+    def test_serial_and_parallel_agree(self, tmp_path):
+        with contextlib.redirect_stdout(io.StringIO()):
+            GenerateData(**self.CONFIG).generate(
+                netcdf_filepath=str(tmp_path / "s/nc/t.nc"),
+                parquet_filepath=str(tmp_path / "s/pq/t"),
+            )
+            GenerateData(**self.CONFIG, max_obs=80).generate(
+                netcdf_filepath=str(tmp_path / "p/nc/t.nc"),
+                parquet_filepath=str(tmp_path / "p/pq/t"),
+                merge_nc=True,
+            )
+        serial_nc, serial_pq = (
+            str(tmp_path / "s/nc/t.nc"),
+            glob.glob(str(tmp_path / "s/pq/*.parquet"))[0],
+        )
+        with (
+            xr.open_dataset(serial_nc) as serial,
+            xr.open_dataset(tmp_path / "p/nc/t.nc") as parallel,
+        ):
+            xr.testing.assert_equal(serial, parallel)
+            assert serial["var1"].dtype == object  # bytes, NaN when vacant
+        keys = ["x0", "x1", "x2"]
+        frame = pd.read_parquet(serial_pq)
+        pd.testing.assert_frame_equal(
+            frame.sort_values(keys).reset_index(drop=True),
+            pd.read_parquet(glob.glob(str(tmp_path / "p/pq/*.parquet")))[frame.columns]
+            .sort_values(keys)
+            .reset_index(drop=True),
+        )
+        assert frame["var2"].dtype == pd.StringDtype("pyarrow")
+        assert frame["var2"].dropna().str.len().eq(8).all()
+        columns = DatasetDescription.COLUMNS[:-1]
+        pd.testing.assert_frame_equal(
+            DatasetDescription.describe_dataset(serial_nc)[columns],
+            DatasetDescription.describe_dataset(serial_pq, coords=keys)[columns],
+        )
