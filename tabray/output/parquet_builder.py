@@ -4,7 +4,7 @@ This module creates pandas DataFrame objects from generated data for
 Parquet output format.
 """
 
-from typing import Dict, List
+from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
 import dask.dataframe as dd
@@ -85,15 +85,22 @@ class ParquetBuilder:
         num_vars: int,
         num_dims: int,
         order_dim: int = 0,
+        var_constant_dims: Optional[List[List[int]]] = None,
     ) -> pd.DataFrame:
-        """Build DataFrame for multiple variables.
+        """Build DataFrame for multiple variables, a column per variable.
 
-        One row per occupied coordinate, with a column per variable and NaN
-        where a variable has no value there.
-
-        Rows are ordered by coordinate, ``order_dim`` slowest. The order is a
-        function of the data alone, so serial and chunked runs produce the
-        same rows in the same order.
+        Steps:
+        1. project: each variable onto its own dims, fmax over the constant
+           axes (fmax == the one non-NaN value along the axis)
+        2. rows: every site occupied at least once by any full-dims variable;
+           then, per variable that are constant along any dimensions, look for
+           an existing row with the same coordinates on the variable's own dims:
+           if there is one, the value goes on that row; if there isn't, add one
+           row for that value
+        3. order: lexsort, order_dim slowest, NaN coordinates last; depends
+           on the data alone, so serial and chunked runs agree
+        4. fill: a variable fills every row matching it on its own dims, so a
+           fewer-dims variable repeats across the dims it drops; NaN elsewhere
 
         Args:
             records: Dictionary mapping variable names to record arrays
@@ -101,46 +108,84 @@ class ParquetBuilder:
             num_vars: Number of variables
             num_dims: Number of dimensions
             order_dim: Dimension to vary slowest in the row order
+            var_constant_dims: Per variable, the dims it does not vary along
+                (empty list: varies along all); None: every variable varies
+                along all
 
         Returns:
             DataFrame with one row per unique coordinate location
+
         """
-        names = list(coordinates)
-        axes = ParquetBuilder._row_axes(num_dims, order_dim)
-        reordered_shape = tuple(len(coordinates[names[dim]]) for dim in axes)
-
-        flat_indices, values = [], []
+        if var_constant_dims is None:
+            var_constant_dims = [[] for _ in range(num_vars)]
+        dim_names = list(coordinates)
+        grid_shape = records["var0"].shape
+        varying_dims, own_values = [], []
+        full_dims_sites = np.zeros(grid_shape, dtype=bool)
+        # 1. project each variable onto its own dims; mark full-dims sites
         for var_idx in range(num_vars):
-            record = np.moveaxis(records[f"var{var_idx}"], axes, range(num_dims))
-            mask = ~np.isnan(record)
-            indices = np.where(mask)
-            flat_indices.append(
-                np.ravel_multi_index(indices, reordered_shape)
-                if indices[0].size
-                else np.empty(0, dtype=np.int64)
+            record = records[f"var{var_idx}"]
+            constant_dims = tuple(var_constant_dims[var_idx])
+            varying_dims.append([d for d in range(num_dims) if d not in constant_dims])
+            own_values.append(
+                np.fmax.reduce(record, axis=constant_dims) if constant_dims else record
             )
-            values.append(record[mask])
+            if not constant_dims:
+                # update to track sites occupied by vars that spread on all dims
+                full_dims_sites |= ~np.isnan(record)
 
-        occupied = np.unique(np.concatenate(flat_indices))
-        unravelled = np.unravel_index(occupied, reordered_shape)
+        # 2. rows: full-dims sites, then one per unmatched fewer-dims value
+        row_indices = np.argwhere(full_dims_sites)  # (n_rows, num_dims) grid indices
+        vars_with_constant_dims = [v for v in range(num_vars) if var_constant_dims[v]]
+        for var_idx in sorted(
+            vars_with_constant_dims, key=lambda v: (len(var_constant_dims[v]), v)
+        ):
+            dims, values = varying_dims[var_idx], own_values[var_idx]
+            # rows with a real coordinate on every dim the variable varies along
+            has_coords = (row_indices[:, dims] >= 0).all(axis=1)
+            # own-grid cells that already have a row, as flat positions in values
+            cells_with_row = np.ravel_multi_index(
+                row_indices[has_coords][:, dims].T, values.shape
+            )
+            # cells holding a value but no row
+            cells_without_row = np.setdiff1d(
+                np.flatnonzero(~np.isnan(values)), cells_with_row
+            )
+            # one new row each: own-dims coords, -1 (NaN) on the dropped dims
+            new_rows = np.full((cells_without_row.size, num_dims), -1, dtype=np.int64)
+            new_rows[:, dims] = np.column_stack(
+                np.unravel_index(cells_without_row, values.shape)
+            )
+            row_indices = np.concatenate([row_indices, new_rows])
 
-        # Coordinate columns. unravelled[position] holds every row's index along
-        # axis `position` of the reordered grid, which is original dimension
-        # axes[position]; indexing that axis's labels turns indices into
-        # coordinate values. The dict is filled in reordered order (split
-        # dimension first), then rebuilt so the columns read x0..xN.
+        # 3. sort: order_dim slowest; -1 replaced by the axis length sorts last
+        sort_keys = np.where(row_indices < 0, np.array(grid_shape), row_indices)
+        sort_order = ParquetBuilder._row_axes(num_dims, order_dim)
+        row_indices = row_indices[
+            np.lexsort([sort_keys[:, d] for d in reversed(sort_order)])
+        ]
+
+        # 4. coordinate columns: index -> coordinate value, -1 -> NaN
         columns = {}
-        for position, dim in enumerate(axes):
-            columns[names[dim]] = coordinates[names[dim]][unravelled[position]]
-        columns = {name: columns[name] for name in names}
-
+        for dim, name in enumerate(dim_names):
+            dim_indices = row_indices[:, dim]  # this dim's grid index, per row
+            # index -> coordinate value; -1 -> NaN (max(.., 0) avoids wrapping)
+            columns[name] = np.where(
+                dim_indices >= 0,
+                coordinates[name][np.maximum(dim_indices, 0)],
+                np.nan,
+            )
+        # 4. value columns: each variable fills every row matching its own dims
         for var_idx in range(num_vars):
-            column = np.full(occupied.size, np.nan)
-            if flat_indices[var_idx].size:
-                rows = np.searchsorted(occupied, flat_indices[var_idx])
-                column[rows] = values[var_idx]
-            columns[f"var{var_idx}"] = column
-
+            dims, values = varying_dims[var_idx], own_values[var_idx]
+            # rows with a real coordinate on every dim the variable varies along
+            has_coords = (row_indices[:, dims] >= 0).all(axis=1)
+            var_column = np.full(len(row_indices), np.nan)  # NaN on other rows
+            # own-dims coords -> value; rows sharing them repeat the same value
+            var_column[has_coords] = values.ravel()[
+                np.ravel_multi_index(row_indices[has_coords][:, dims].T, values.shape)
+            ]
+            columns[f"var{var_idx}"] = var_column
         return pd.DataFrame(columns)
 
     @staticmethod
@@ -164,7 +209,14 @@ class ParquetBuilder:
             return dataframe
         for index, encoding in enumerate(var_encodings):
             for column in (f"var{index}", "record" if index == 0 else None):
-                if column and column in dataframe.columns:
+                if column and column in dataframe.columns and encoding.text_width:
+                    # codes -> pyarrow-backed strings
+                    dataframe[column] = pd.Series(
+                        encoding.to_text(dataframe[column].to_numpy(dtype=float)),
+                        index=dataframe.index,
+                        dtype=encoding.pandas_dtype(),
+                    )
+                elif column and column in dataframe.columns:
                     dataframe[column] = dataframe[column].astype(
                         encoding.pandas_dtype()
                     )

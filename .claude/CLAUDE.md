@@ -58,6 +58,8 @@ GenerateData.generate  ->  generators/   CoordinateGenerator, MultiVarRecordGene
 - `generate()` → `_generate_multi_var_records` → `MultiVarRecordGenerator.generate` for every case. Do not add a separate single-variable routine.
 - `num_vars == 1` changes only the output type: `xr.DataArray` + per-observation DataFrame, versus `xr.Dataset` + one row per coordinate.
 - The grid is always `num_dims`-dimensional. A variable on fewer dims varies along `var_dims_indices[i]` and is pinned to one coordinate on each of `var_constant_dims[i]`; `NetCDFBuilder.build_dataset` squeezes those dims out on write.
+- Parquet drops the pinned coordinate too: `ParquetBuilder.build_multi_var_dataframe` repeats a fewer-dims variable on every row matching its own dims (rows = cells of full-dims variables); an unmatched value gets a row with NaN on the dims it drops. `DatasetDescription._from_parquet` infers dims from that (`_drops`).
+- After changing `ParquetBuilder`, check on a small grid (no unmatched values) that its output equals `xr.open_dataset(nc).to_dataframe()` restricted to rows held by a full-dims variable. Never build the parquet with `to_dataframe()`: it materialises every grid cell.
 - A density is a share of the variable's OWN grid (`prod` of its varying dims): `compute_var_num_obs` scales by `grid_fractions`, and both report paths divide by the own grid.
 
 ### Overlap
@@ -92,6 +94,7 @@ GenerateData.generate  ->  generators/   CoordinateGenerator, MultiVarRecordGene
 - Integers = `lo + floor(u * (hi - lo + 1))` from the uniform draw, never `rng.integers`: a dtype change must not move occupied sites.
 - Packed float: fill code reserved; `scale_factor`/`add_offset` are `float32`, except for `int32` (`float64`).
 - Integer `fill_value` must sit outside `value_range`; the parquet column is nullable (`Int16`).
+- `S<k>` strings: codes through the integer transform, text only on write (`to_text`, `NetCDFBuilder.codes_to_text`, `ParquetBuilder.cast_values`); parquet `string[pyarrow]`. `value_range` with min == max: a constant.
 - `to_stored` runs once (`GenerateData._to_stored` + worker counterpart) before both writers; scale from `VALUE_RANGE`, never from the data.
 
 ### Determinism and the serial/parallel contract
@@ -133,6 +136,7 @@ Every RNG comes from `stream(seed, tag, *index)` (`utils/streams.py`); tags live
 - Keep `environment.yml` and `pyproject.toml` in sync when touching dependencies, and justify new ones.
 - Keep `README.md` current with new features and parameters.
 - Non-expert Python users read this code: prefer clear over clever, and comment any non-obvious design decision.
+- Name a variable for what it holds, in the project's terms (site, own grid, varying/constant dims): `grid_shape` not `shape`, `vars_with_constant_dims` not `fewer`, `row_indices` not `rows`. Boolean masks name their condition (`has_coords`, `full_dims_sites`); a pair of sets names the split (`cells_with_row` / `cells_without_row`). Avoid bare `valid`, `new`, `keys`, `proj`. Longer names that black wraps are fine.
 - Never commit generated data (`.nc`, `.parquet`, `.csv`, …).
 - A module-level import of the package is `import tabray as tr`, used as `tr.<name>` (like `numpy as np`).
 - `docs/`: never track `.pdf` renders (`*.pdf` is in `.gitignore`).

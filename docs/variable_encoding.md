@@ -34,6 +34,28 @@ kinds: Argo stores `TEMP` as a plain `float32` and `CYCLE_NUMBER` as a plain `in
 - `floor` over `hi - lo + 1` bins: rounding over `hi - lo` gives the end bins half width, so the
   extremes appear at half the frequency.
 
+## Strings
+
+`S<k>` draws integer codes through the same transform, so a string variable occupies the same
+sites as an integer one. The codes become text only on write (`VariableEncoding.to_text`):
+base 36, zero-padded to k characters, so every value has exactly k characters in both formats.
+
+- netCDF: `S1` characters along a `string<k>` dimension, `_FillValue = " "`, as Argo stores
+  `PLATFORM_NUMBER`. A vacant site goes in as NaN, which xarray writes as the fill followed by
+  null bytes and reads back as NaN. A string of k spaces would read back as a value.
+- `merge_nc`: strings read back from chunk files are objects, which dask loads whole to find a
+  width; `NetCDFBuilder.fix_text_width` casts them to `S<k>` first, with the same bytes on disk.
+- parquet: pyarrow-backed strings (`string[pyarrow]`), one buffer per column. Python-object
+  strings would cost one object per row in memory.
+- The data `generate()` returns keep the codes in the Dataset; the DataFrame holds the text.
+
+## Constants
+
+`min == max` gives every occupied site the same value: the integer transform maps every draw to
+`lo`, the float transform multiplies by a zero span. A packed constant takes `scale_factor = 1`.
+Parquet description reads a constant as dropping every coordinate (`()`, one site): a value that
+never changes carries no position.
+
 ## Packing
 
 - The fill code is reserved. Mapping the value range onto the full integer range puts the minimum

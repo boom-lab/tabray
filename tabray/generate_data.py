@@ -684,6 +684,7 @@ class GenerateData:
             self.num_vars,
             self.num_dims,
             order_dim=self.dim_split,
+            var_constant_dims=self.var_constant_dims,
         )
         return self._dataframe
 
@@ -1046,6 +1047,7 @@ class GenerateData:
         # reading a chunk and a thread writing the output can deadlock on
         # xarray's netCDF4 lock. The write still streams chunk by chunk.
         encoding = NetCDFBuilder.build_encoding(merged, self.var_encodings)
+        merged = NetCDFBuilder.fix_text_width(merged, self.var_encodings)
         with dask.config.set(scheduler="synchronous"):
             merged[[var_names[0]]].to_netcdf(
                 self.netcdf_filepath,

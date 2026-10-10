@@ -11,9 +11,11 @@ rather than a mode. Two real files, both in this repository:
 Both are normal. ``float64`` everywhere, the default, is also normal.
 """
 
+import re
 from typing import List, Optional, Sequence, Tuple, Union
 
 import numpy as np
+import pandas as pd
 
 
 class VariableEncoding:
@@ -45,6 +47,9 @@ class VariableEncoding:
     #: Integer types a float can be packed into, with the fill code each
     #: reserves.
     INT_FILL = {"int8": -127, "int16": -32767, "int32": -2147483647}
+    #: Digits of a generated string: code -> base 36, zero-padded to k
+    #: characters, so k characters hold 36**k distinct strings.
+    TEXT_BASE = 36
 
     def __init__(
         self,
@@ -56,32 +61,40 @@ class VariableEncoding:
         """Resolve one variable's encoding.
 
         Args:
-            dtype: What the variable holds: ``float64`` or ``float32``
+            dtype: What the variable holds: ``float64``, ``float32``, an
+                integer type, or ``S<k>``: strings of k characters (Argo's
+                ``PLATFORM_NUMBER`` is ``S8``)
             pack: Integer type to compact the values into on disk
                 (``int8``, ``int16``, ``int32``), or None to store them plain
             fill_value: Value marking a vacant site. Defaults to NaN, or to
                 the reserved code when packed. A float may take a sentinel
                 instead, as Argo does with 99999.0.
             value_range: (min, max) the values span, used to derive the
-                packing. Defaults to the generator's own range.
+                packing. Defaults to the generator's own range. ``min ==
+                max`` gives a constant variable. For ``S<k>``, the range of
+                codes: ``(0, n - 1)`` gives n distinct strings.
 
         Raises:
             ValueError: If the dtype or pack type is unknown, or pack is asked
                 for on a type that cannot be packed
         """
         dtype = str(dtype).lower()
-        if dtype not in self.FLOAT_DTYPES and dtype not in self.INT_FILL:
+        # S<k>: k characters per value; None for numeric dtypes
+        self.text_width = int(dtype[1:]) if re.fullmatch(r"s[1-9]\d*", dtype) else None
+        if self.text_width:
+            dtype = f"S{self.text_width}"
+        elif dtype not in self.FLOAT_DTYPES and dtype not in self.INT_FILL:
             raise ValueError(
                 f"Unsupported dtype {dtype!r}. Use one of "
-                f"{list(self.FLOAT_DTYPES) + list(self.INT_FILL)}."
+                f"{list(self.FLOAT_DTYPES) + list(self.INT_FILL)}, or S<k>."
             )
         self.dtype = dtype
 
         if pack is not None:
             pack = str(pack).lower()
-            if dtype in self.INT_FILL:
+            if self.integer or self.text_width:
                 raise ValueError(
-                    f"dtype={dtype!r} already holds integers, so pack={pack!r} "
+                    f"dtype={dtype!r} does not hold floats, so pack={pack!r} "
                     "has nothing to do. Packing compacts float values into an "
                     "integer type."
                 )
@@ -96,6 +109,9 @@ class VariableEncoding:
             self.value_range = tuple(value_range)
         elif self.integer:
             self.value_range = self.INT_VALUE_RANGE
+        elif self.text_width:
+            capacity = self.TEXT_BASE**self.text_width
+            self.value_range = (0, min(self.INT_VALUE_RANGE[1], capacity - 1))
         else:
             self.value_range = self.VALUE_RANGE
         self._validate_range()
@@ -112,6 +128,14 @@ class VariableEncoding:
             )
             self.scale_factor = self.add_offset = None
             self._validate_fill_outside_range()
+        elif self.text_width:
+            if fill_value is not None:
+                raise ValueError(
+                    "A string variable takes no fill_value: a vacant site is "
+                    "blank, as in Argo's character arrays."
+                )
+            self.fill_value = None
+            self.scale_factor = self.add_offset = None
         else:
             self.fill_value = fill_value  # None means NaN
             self.scale_factor = self.add_offset = None
@@ -133,13 +157,21 @@ class VariableEncoding:
         return self.pack if self.packed else self.dtype
 
     def _validate_range(self) -> None:
-        """The range must be ordered, and must fit an integer dtype."""
+        """The range must be ordered, and must fit an integer dtype or k
+        characters. min == max: a constant."""
         lo, hi = self.value_range
-        if hi <= lo:
+        if hi < lo:
             raise ValueError(
-                f"value_range must be (min, max) with max above min, got "
+                f"value_range must be (min, max) with max at least min, got "
                 f"({lo}, {hi})"
             )
+        if self.text_width:
+            capacity = self.TEXT_BASE**self.text_width
+            if lo < 0 or hi >= capacity:
+                raise ValueError(
+                    f"value_range ({lo}, {hi}) does not fit {self.dtype}: "
+                    f"{self.text_width} characters hold codes 0 to {capacity - 1}"
+                )
         if self.integer:
             info = np.iinfo(self.dtype)
             if lo < info.min or hi > info.max:
@@ -174,7 +206,8 @@ class VariableEncoding:
         vmin, vmax = self.value_range
         imax = int(np.iinfo(self.pack).max)
         steps = imax - (self.fill_value + 1)
-        scale = (vmax - vmin) / steps
+        # a constant has no span; any scale decodes it, 1 keeps codes finite
+        scale = (vmax - vmin) / steps or 1.0
         offset = vmax - imax * scale
         # The dtype of scale_factor/add_offset decides what xarray decodes to,
         # so float32 parameters give a float32 array and a quarter of the
@@ -211,7 +244,8 @@ class VariableEncoding:
         """
         lo, hi = self.value_range
 
-        if self.integer:
+        if self.integer or self.text_width:
+            # a string variable holds codes until written: to_text
             occupied = ~np.isnan(values)
             out = values.copy()
             # floor over (hi - lo + 1) bins, not round over (hi - lo): with
@@ -238,8 +272,39 @@ class VariableEncoding:
         out[occupied] = self.add_offset + self.scale_factor * codes
         return out
 
+    def to_text(self, values: np.ndarray, as_bytes: bool = False) -> np.ndarray:
+        """Codes -> strings of ``text_width`` characters; NaN stays NaN.
+
+        - code -> base 36, zero-padded: 0 -> "00", 37 -> "11" for S2
+        - ``as_bytes``: ASCII bytes, the type xarray writes as characters
+
+        Args:
+            values: Codes from to_stored, NaN at vacant sites
+            as_bytes: Return bytes instead of str
+
+        Returns:
+            Object array of the same shape
+        """
+        out = np.full(values.shape, np.nan, dtype=object)
+        occupied = ~np.isnan(values)
+        # few distinct codes: format each once
+        codes, inverse = np.unique(
+            values[occupied].astype(np.int64), return_inverse=True
+        )
+        labels = [
+            np.base_repr(int(code), self.TEXT_BASE).rjust(self.text_width, "0")
+            for code in codes
+        ]
+        if as_bytes:
+            labels = [label.encode("ascii") for label in labels]
+        out[occupied] = np.array(labels, dtype=object)[inverse]
+        return out
+
     def netcdf_encoding(self) -> dict:
         """The per-variable part of xarray's ``encoding``."""
+        if self.text_width:
+            # k characters per value along a string<k> dim, blank when vacant
+            return {"dtype": "S1", "_FillValue": b" "}
         if self.integer:
             return {
                 "dtype": self.storage_dtype,
@@ -261,7 +326,7 @@ class VariableEncoding:
             "_FillValue": np.dtype(self.pack).type(self.fill_value),
         }
 
-    def pandas_dtype(self) -> str:
+    def pandas_dtype(self) -> Union[str, pd.StringDtype]:
         """The column type parquet stores.
 
         A packed variable is stored decoded: scale/offset is a netCDF device
@@ -269,6 +334,9 @@ class VariableEncoding:
         natural type. float32 holds a decoded int16 with room to spare -- the
         quantisation step is hundreds of times coarser than float32's spacing.
         """
+        if self.text_width:
+            # pyarrow-backed, NA when vacant: what read_parquet returns
+            return pd.StringDtype("pyarrow")
         if self.integer:
             # Nullable, so a vacant site is a real null rather than forcing the
             # column to float the way NaN would.
@@ -280,7 +348,9 @@ class VariableEncoding:
     def __repr__(self) -> str:
         if not self.packed:
             fill = "NaN" if self.fill_value is None else self.fill_value
-            span = f", range={self.value_range}" if self.integer else ""
+            span = (
+                f", range={self.value_range}" if self.integer or self.text_width else ""
+            )
             return f"VariableEncoding({self.dtype}{span}, fill={fill})"
         return (
             f"VariableEncoding({self.dtype} -> {self.pack}, "

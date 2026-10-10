@@ -171,7 +171,9 @@ dataarray, dataframe = gen.generate(
 print(dataarray.data_vars)  # ['var0', 'var1', 'var2']
 
 # The DataFrame has one row per site holding at least one variable and one
-# column per variable, NaN where that variable is absent
+# column per variable, NaN where that variable is absent. A variable on fewer
+# dimensions repeats its value on every row matching it on its own dimensions;
+# a value no row matches gets a row with NaN in the dimensions it drops
 print(dataframe.columns)  # ['x0', 'x1', 'x2', 'var0', 'var1', 'var2']
 ```
 
@@ -243,12 +245,16 @@ from tabray.output import DatasetDescription
 
 DatasetDescription.describe_dataset("data.nc")
 DatasetDescription.describe_dataset("parquet_dir", coords=["x0", "x1", "x2"])
+DatasetDescription.describe_dataset("data.nc", reference="temp")  # overlap against temp
 ```
 
-One row per variable: its dimensions, sites (`var_sites`), occupied sites, density, overlap with the first
+One row per variable: its dimensions, sites (`var_sites`), occupied sites, density, overlap with the reference
 variable (`overlap`, and `overlap_reverse` divided by the variable's own sites), coordinates along its dimensions holding no value, and stored dtype. Parquet has no
-axes, so the grid is the coordinate values that appear, and a variable's dimensions are the
-coordinate columns along which it takes more than one value.
+axes, so the grid is the coordinate values that appear. A variable's dimensions are the
+coordinate columns it does not drop: it drops a column that is NaN on one of its rows, or along
+which it repeats (one value per combination of the other columns, on several rows). A variable
+constant along a real dimension therefore reads as not having it.
+The reference is `reference` if given, else the variable with the most occupied sites (first in file order on a tie); its row comes first.
 `notebooks/analyse_dataset.ipynb` generates a small dataset, then describes its netCDF and parquet files separately and compares the two.
 
 ### How the Data Are Generated
@@ -286,11 +292,14 @@ coordinate columns along which it takes more than one value.
 - **max_obs** (int, optional): Maximum number of observations per chunk (default: `None`, serial generation). When `num_obs` exceeds this value, the dataset is split into chunks and generated in parallel (see **Parallel Generation for Large Datasets**).
 - **max_workers** (int, optional): Maximum number of processes running at once in parallel generation (default: the CPU count)
 - **dtype** (str or list, optional): What each variable holds: `float64` (default), `float32`,
-  or an integer type (`int8`, `int16`, `int32`) for a variable of counts, flags or identifiers.
-  One value for all variables, or one per variable.
+  an integer type (`int8`, `int16`, `int32`) for a variable of counts, flags or identifiers, or
+  `S<k>` for strings of k characters (Argo's `PLATFORM_NUMBER` is `S8`). A string is written as
+  characters along a `string<k>` dimension in netCDF, blank when vacant, and as a pyarrow-backed
+  string column in parquet. One value for all variables, or one per variable.
 - **value_range** (tuple or list, optional): The (min, max) a variable spans, inclusive.
   Defaults to `(0, 1)` for floats and `(0, 100)` for integers. One pair for all variables, or
-  one per variable. For a packed float it also sets the packing scale, so a value cannot fall
+  one per variable. `min == max` gives a constant variable. For `S<k>` it is the range of codes:
+  `(0, n - 1)` gives n distinct strings, at most `36**k`. For a packed float it also sets the packing scale, so a value cannot fall
   outside the grid that stores it. For an integer variable the width sets the column's
   **cardinality**: `(0, 8)` is flag-like data, which both formats encode very differently from
   the near-continuous `(0, 50000)`.
