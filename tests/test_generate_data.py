@@ -1,5 +1,8 @@
 """Integration tests for GenerateData class."""
 
+import contextlib
+import io
+
 import pytest
 import numpy as np
 import xarray as xr
@@ -8,6 +11,7 @@ import os
 import tempfile
 import shutil
 from tabray.generate_data import GenerateData
+from tabray.output import DatasetDescription
 
 
 class TestInitialization:
@@ -2021,3 +2025,47 @@ class TestHybridLHSIntegration:
         assert len(x0_used) >= 5, (
             f"At least 5 coordinates in x0 should be used, " f"found {len(x0_used)}"
         )
+
+
+class TestEmptyVariable:
+    """Density 0 for var1 onward: present in both outputs, holding nothing."""
+
+    CONFIG = dict(
+        num_obs=300,
+        num_dims=3,
+        ratio_dims=[3, 2, 1],
+        density=[0.2, 0.1, 0.0],
+        seed=7,
+        num_vars=3,
+        var_dims=[3, 3, [0, 1]],
+    )
+
+    def test_both_outputs(self, tmp_path):
+        with contextlib.redirect_stdout(io.StringIO()):
+            ds, df = GenerateData(**self.CONFIG).generate(
+                netcdf_filepath=str(tmp_path / "nc/t.nc"),
+                parquet_filepath=str(tmp_path / "pq/t"),
+            )
+        # netCDF: own dims, every cell fill
+        assert ds["var2"].dims == ("x0", "x1")
+        assert not ds["var2"].notnull().any()
+        # parquet: a null column, and no row of its own
+        assert df["var2"].isna().all()
+        held = ds["var0"].notnull() | ds["var1"].notnull()
+        assert len(df) == int(held.sum())
+        description = DatasetDescription.describe_dataset(str(tmp_path / "nc/t.nc"))
+        assert description.loc["var2", "var_sites_occupied"] == 0
+        assert description.loc["var2", "overlap"] == 0
+        assert np.isnan(description.loc["var2", "overlap_reverse"])
+
+    def test_density_zero_needs_a_per_variable_list(self):
+        with pytest.raises(ValueError, match="one density per variable"):
+            GenerateData(**{**self.CONFIG, "density": [0.2, 0.0]})
+
+    def test_reference_cannot_be_empty(self):
+        with pytest.raises(ValueError):
+            GenerateData(**{**self.CONFIG, "density": [0.0, 0.1, 0.0]})
+
+    def test_overlap_target_warns(self, capsys):
+        GenerateData(**self.CONFIG, overlap=0.5)
+        assert "Variable 2 is empty" in capsys.readouterr().out

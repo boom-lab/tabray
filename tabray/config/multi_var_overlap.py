@@ -284,5 +284,13 @@ class MultiVarOverlapConfig:
                 min_overlap,
                 num_vars,
             )
+            targets = np.broadcast_to(np.asarray(overlap, dtype=float), (num_vars - 1,))
+            for var_idx in range(1, num_vars):
+                if adjusted_obs[var_idx] == 0 and targets[var_idx - 1] > 0:
+                    print(
+                        f"WARNING: Variable {var_idx} is empty (density 0), so its "
+                        f"overlap target {targets[var_idx - 1]} cannot be met; it "
+                        "will be 0."
+                    )
 
         return overlap, adjusted_obs, fixed_overlap

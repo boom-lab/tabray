@@ -786,6 +786,19 @@ class TestParallelSerialComparison:
                 50,
                 id="mv-2d-gridded",
             ),
+            pytest.param(
+                dict(
+                    num_obs=300,
+                    num_dims=3,
+                    ratio_dims=[3, 2, 1],
+                    density=[0.2, 0.1, 0.0],
+                    seed=7,
+                    num_vars=3,
+                    var_dims=[3, 3, [0, 1]],
+                ),
+                80,
+                id="mv-3d-empty-var",
+            ),
         ],
     )
     def test_parallel_reproduces_serial_exactly(self, temp_dir, params, max_obs):

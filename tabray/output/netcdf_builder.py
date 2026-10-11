@@ -206,6 +206,10 @@ class NetCDFBuilder:
             data_var = dataset[var_name]
             for dim_id in var_constant_dims[var_id]:
                 dim_name = dim_names[dim_id]
+                if not data_var.notnull().any():
+                    # empty variable: no pinned coordinate to find; keep one
+                    data_var = data_var.isel({dim_name: 0}, drop=True)
+                    continue
                 data_var = data_var.dropna(dim=dim_name, how="all")
                 if data_var.sizes.get(dim_name, 0) == 1:
                     data_var = data_var.squeeze(dim_name, drop=True)

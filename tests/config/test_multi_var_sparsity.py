@@ -230,6 +230,25 @@ class TestComputeVarNumObs:
         result = MultiVarSparsityConfig.compute_var_num_obs(sparsities, 10)
         assert all(obs >= 1 for obs in result)
 
+    def test_density_zero_gives_no_observations(self):
+        """Density 0 is an empty variable, not a 1-observation one."""
+        result = MultiVarSparsityConfig.compute_var_num_obs(np.array([0.4, 0.0]), 10)
+        np.testing.assert_array_equal(result, [10, 0])
+
+    def test_two_element_range_cannot_be_empty(self):
+        """[max, 0] with more than two variables empties a random one."""
+        with pytest.raises(ValueError, match="one density per variable"):
+            MultiVarSparsityConfig.from_two_element_list(
+                [0.4, 0.0], 3, np.random.default_rng(0)
+            )
+
+    def test_two_variables_may_end_in_zero(self):
+        """With two variables [max, 0] is the per-variable list."""
+        densities = MultiVarSparsityConfig.from_two_element_list(
+            [0.4, 0.0], 2, np.random.default_rng(0)
+        )
+        np.testing.assert_array_equal(densities, [0.4, 0.0])
+
     def test_density_is_a_share_of_the_own_grid(self):
         """var1 on a quarter of the grid: 0.1 of its own 64 cells, not of 256.
 

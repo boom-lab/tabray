@@ -181,6 +181,10 @@ print(dataframe.columns)  # ['x0', 'x1', 'x2', 'var0', 'var1', 'var2']
 - Scalar (e.g., `0.1`): All variables have the same density
 - 2-element list/tuple `[max, min]` (e.g., `[0.3, 0.1]`): var0 gets max, one other variable gets min, the rest are drawn uniformly from `[min, max]`
 - num_vars-element list/tuple (e.g., `[0.3, 0.2, 0.1]`): Each variable gets its specified density
+- `0.0` in a num_vars-element list (var1 onward): an empty variable. It is written on its own
+  dimensions, every cell fill in netCDF and a null column in parquet, and adds no row. A
+  non-zero overlap target for it warns. The 2-element form cannot end in `0.0` unless
+  `num_vars == 2`.
 
 A density is a share of the variable's **own** grid: the product of the dimensions it varies
 along. On a `[4, 8, 8]` grid, a variable on the last two dimensions at density 0.1 holds

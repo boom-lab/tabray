@@ -12,13 +12,13 @@ import numpy as np
 
 def format_bytes(num_bytes: int | float) -> str:
     """Format a byte count using binary units."""
-    units = ["B", "KiB", "MiB", "GiB"]
+    units = ["B", "KiB", "MiB", "GiB", "TiB"]
     size = float(num_bytes)
     for unit in units:
         if size < 1024 or unit == units[-1]:
             return f"{size:.2f} {unit}"
         size /= 1024
-    return f"{size:.2f} GiB"
+    return f"{size:.2f} TiB"
 
 
 def format_table_value(value: object) -> str:

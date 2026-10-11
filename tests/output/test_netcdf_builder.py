@@ -291,8 +291,8 @@ class TestBuildDataset:
         assert result["var0"].dims == ("x0", "x2")
         assert result["var0"].shape == (3, 5)
 
-    def test_handles_empty_constant_dimension_without_crashing(self):
-        """Should leave empty variables unsqueezed instead of failing."""
+    def test_empty_variable_keeps_its_own_dims(self):
+        """An empty variable drops its constant dims, like any other."""
         records = {
             "var0": np.full((3, 4, 5), np.nan),
         }
@@ -308,7 +308,8 @@ class TestBuildDataset:
             var_constant_dims=[[0]],
         )
 
-        assert result["var0"].sizes["x0"] == 0
+        assert result["var0"].dims == ("x1", "x2")
+        assert not result["var0"].notnull().any()
 
     def test_preserves_data_values(self):
         """Should preserve data values for all variables."""

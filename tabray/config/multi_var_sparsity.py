@@ -56,6 +56,11 @@ class MultiVarSparsityConfig:
             Array of density values, one per variable
         """
         reference_density, min_density = density_list
+        if min_density == 0 and num_vars > 2:
+            raise ValueError(
+                "density [max, 0] would leave a randomly chosen variable empty. "
+                "Give one density per variable, 0.0 for each empty one."
+            )
 
         # var0 takes the maximum and some other variable takes the minimum, so
         # both prescribed values appear; with two variables they are exactly
@@ -93,6 +98,7 @@ class MultiVarSparsityConfig:
         - density_min is var0's coverage bound (every coordinate of every
           axis used), so only var0 is clipped to it; the other variables
           have no coverage requirement and keep the density they asked for
+        - density 0 (var1 onward): an empty variable, written all fill
 
         Args:
             var_densities: Array of density values, var0 first
@@ -148,7 +154,8 @@ class MultiVarSparsityConfig:
         var_num_obs = np.rint(
             (var_densities / max_density) * num_obs * np.asarray(grid_fractions),
         ).astype(int)
-        var_num_obs = np.maximum(var_num_obs, 1)
+        # at least one observation, except density 0: an empty variable
+        var_num_obs = np.where(var_densities == 0, 0, np.maximum(var_num_obs, 1))
         return var_num_obs
 
     @staticmethod

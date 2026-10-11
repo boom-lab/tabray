@@ -102,7 +102,9 @@ class DatasetDescription:
                 proj_var = mask.any(dim=[d for d in mask.dims if d not in common])
                 shared = int((proj_ref & proj_var).sum())
                 overlap = shared / max(int(proj_ref.sum()), 1)
-                overlap_reverse = shared / max(int(proj_var.sum()), 1)
+                var_cells = int(proj_var.sum())
+                # empty variable: 0 / 0
+                overlap_reverse = shared / var_cells if var_cells else np.nan
             unused_coords = sum(
                 int((~mask.any(dim=[o for o in mask.dims if o != d])).sum())
                 for d in mask.dims
@@ -171,7 +173,9 @@ class DatasetDescription:
                 proj_var = held[common].drop_duplicates()
                 shared = int(proj_ref.merge(proj_var, on=common).shape[0].compute())
                 overlap = shared / max(int(proj_ref.shape[0].compute()), 1)
-                overlap_reverse = shared / max(int(proj_var.shape[0].compute()), 1)
+                var_cells = int(proj_var.shape[0].compute())
+                # empty variable: 0 / 0
+                overlap_reverse = shared / var_cells if var_cells else np.nan
             unused_coords = sum(grid[c] - seen[name][c] for c in dims)
             rows[name] = [
                 tuple(dims),

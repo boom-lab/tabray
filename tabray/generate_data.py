@@ -263,6 +263,9 @@ class GenerateData:
             print(f"  Variable constant dimensions: {self.var_constant_dims}")
         print(f"  Variable densities: {self.var_densities}")
         print(f"  Variable observations: {self.var_num_obs}")
+        empty = [f"var{i}" for i, n in enumerate(self.var_num_obs) if n == 0]
+        if empty:
+            print(f"  Empty variables (density 0, written all fill): {empty}")
         print(f"  Overlap target: {self.overlap_target}")
         print(f"  Fixed overlap: {self.fixed_overlap}")
         rule = (
