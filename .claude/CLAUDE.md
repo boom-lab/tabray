@@ -46,6 +46,7 @@ GenerateData.generate  ->  generators/   CoordinateGenerator, MultiVarRecordGene
 - Unusable inputs raise; rounding-level inconsistencies are corrected and printed.
 - Read `num_obs`, `density`, `shape` from post-validation instance attributes, not constructor arguments.
 - Minimum density = `max(shape) / prod(shape)` (`SparsityValidator.compute_min_density`): the longest axis sets it. `density=0.0` raises. Derivation: `docs/explainer.md`, "Minimum density, on any grid".
+- Density `0.0` for var1 onward, in a per-variable list only: an empty variable (`compute_var_num_obs` gives 0; `squeeze_constant_dims` still drops its constant dims).
 - `seed` defaults to `None` in the signature but is required.
 
 ### Naming baked into the data
