@@ -171,7 +171,8 @@ class MultiVarRecordGenerator:
             padded_dim: The axis whose first k cells each line fills under ``padded``
 
         Returns:
-            Tuple of (records dict, actual overlap achieved)
+            Tuple of (records dict, actual overlap achieved); the overlap is
+            None for a chunk (``chunk_id`` given)
         """
         records = {}
         for var_idx in range(num_vars):
@@ -229,14 +230,18 @@ class MultiVarRecordGenerator:
                     )
                 records[var_name][indices] = values
 
+            # A chunk sees only its own strata, so its overlap is chunk-local
+            # and unused; the dataset's overlap is measured from the written
+            # files (DatasetDescription).
+            if chunk_id is not None:
+                return records, None
             report = OverlapCalculator.compute_overlap_report(
                 records,
                 num_vars,
                 num_dims,
                 var_dims_indices,
             )
-            if chunk_id is None:
-                OverlapCalculator.print_overlap_report(report, targets)
+            OverlapCalculator.print_overlap_report(report, targets)
             return records, report["overlap"]
 
         # One variable: the multi-variable branch above returns for every
@@ -254,6 +259,8 @@ class MultiVarRecordGenerator:
             layout,
             padded_dim,
         )
+        if chunk_id is not None:
+            return records, None
         overlap_actual = OverlapCalculator.compute_overlap_report(
             records,
             num_vars,
