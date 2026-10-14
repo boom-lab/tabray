@@ -6,6 +6,7 @@ placement bug shows up here instead of being echoed.
 
 import os
 import warnings
+from itertools import combinations
 from typing import Dict, List, Optional, Tuple, Union
 
 import dask
@@ -140,28 +141,28 @@ class DatasetDescription:
         - a variable's dims, the dims it is defined on (``_infer_dims``)
         - occupied sites: distinct rows over the variable's dims
         """
-        frame = dd.read_parquet(path)
-        names = [c for c in frame.columns if c not in coords]
-        grid = {c: int(frame[c].nunique().compute()) for c in coords}
+        parquet_rows = dd.read_parquet(path)
+        names = [c for c in parquet_rows.columns if c not in coords]
+        grid = {c: int(parquet_rows[c].nunique().compute()) for c in coords}
         var_dims, seen, occupied = {}, {}, {}
         for name in names:
-            held = frame[frame[name].notnull()][coords + [name]]
-            seen[name] = {c: int(held[c].nunique().compute()) for c in coords}
+            var_rows = parquet_rows[parquet_rows[name].notnull()][coords + [name]]
+            seen[name] = {c: int(var_rows[c].nunique().compute()) for c in coords}
             var_dims[name], assumed_constant, ambiguous_dims = (
-                DatasetDescription._infer_dims(frame, held, coords, grid)
+                DatasetDescription._infer_dims(parquet_rows, var_rows, coords, grid)
             )
             DatasetDescription._report_assumptions(
                 name, assumed_constant, ambiguous_dims
             )
             # no dims: one site, like a scalar
             occupied[name] = (
-                len(held[var_dims[name]].drop_duplicates()) if var_dims[name] else 1
+                len(var_rows[var_dims[name]].drop_duplicates()) if var_dims[name] else 1
             )
         ref_name = DatasetDescription._pick_reference(occupied, reference)
-        ref_rows = frame[frame[ref_name].notnull()][coords]
+        ref_rows = parquet_rows[parquet_rows[ref_name].notnull()][coords]
         rows = {}
         for name in [ref_name] + [n for n in names if n != ref_name]:
-            held = frame[frame[name].notnull()][coords]
+            var_rows = parquet_rows[parquet_rows[name].notnull()][coords]
             dims = var_dims[name]
             var_sites_occupied = occupied[name]
             var_sites = int(np.prod([grid[c] for c in dims]))
@@ -173,7 +174,7 @@ class DatasetDescription:
                 overlap = overlap_reverse = np.nan
             else:
                 proj_ref = ref_rows[common].drop_duplicates()
-                proj_var = held[common].drop_duplicates()
+                proj_var = var_rows[common].drop_duplicates()
                 shared = int(proj_ref.merge(proj_var, on=common).shape[0].compute())
                 overlap = shared / max(int(proj_ref.shape[0].compute()), 1)
                 var_cells = int(proj_var.shape[0].compute())
@@ -188,7 +189,7 @@ class DatasetDescription:
                 overlap,
                 overlap_reverse,
                 unused_coords,
-                str(frame[name].dtype),
+                str(parquet_rows[name].dtype),
             ]
         table = pd.DataFrame.from_dict(
             rows,
@@ -200,7 +201,10 @@ class DatasetDescription:
 
     @staticmethod
     def _infer_dims(
-        frame: dd.DataFrame, held: dd.DataFrame, coords: List[str], grid: Dict
+        parquet_rows: dd.DataFrame,
+        var_rows: dd.DataFrame,
+        coords: List[str],
+        grid: Dict,
     ) -> Tuple[List[str], List[str], List[str]]:
         """A variable's dims, from the rows it holds.
 
@@ -213,7 +217,7 @@ class DatasetDescription:
           variable does not vary along that dim.
         - Assumed: the variable is taken as constant along a set of dims when
           both hold, assuming it is not defined on them: it has one value per
-          site and is on every row at each of its sites (``_consistent``);
+          site and is on every row at each of its sites (``_num_sites_if_fit``);
           and some site's value is on several rows with different coordinates
           on those dims, with more than one value overall. A variable that
           varies along them could give the same rows, so the assumption is
@@ -226,8 +230,8 @@ class DatasetDescription:
         dims is tried only if each of its subsets passed.
 
         Args:
-            frame: Every row of the parquet
-            held: The variable's rows, columns ``coords + [name]``
+            parquet_rows: Every row of the parquet
+            var_rows: The variable's rows, columns ``coords + [name]``
             coords: Coordinate columns
             grid: Number of distinct values per coord; a coord of length 1 is
                 kept, as netCDF keeps it
@@ -236,59 +240,52 @@ class DatasetDescription:
             (dims, assumed_constant, ambiguous_dims): the dims left out by
             assumption, and the kept dims the rows would also fit without
         """
-        name = held.columns[-1]
-        has_nan_coord = dask.compute(*[held[c].isnull().any() for c in coords])
-        not_nan_dims = [c for c, has_nan in zip(coords, has_nan_coord) if not has_nan]
+        name = var_rows.columns[-1]
+        has_nan_coord = dask.compute(*[var_rows[c].isnull().any() for c in coords])
+        dims_without_nan = [
+            c for c, has_nan in zip(coords, has_nan_coord) if not has_nan
+        ]
         # distinct rows on the dims no row leaves NaN; more of them than sites
         # on fewer dims means some site's value is on several rows
-        num_held_rows, num_values, num_sites_all_dims = dask.compute(
-            held.shape[0],
-            held[name].nunique(),
-            held[not_nan_dims].drop_duplicates().shape[0],
+        num_var_rows, num_distinct_values, num_sites_on_dims_without_nan = dask.compute(
+            var_rows.shape[0],
+            var_rows[name].nunique(),
+            var_rows[dims_without_nan].drop_duplicates().shape[0],
         )
-        if num_held_rows == 0:  # empty: nothing to infer, density is 0 anyway
-            return not_nan_dims, [], []
-        candidates = [c for c in not_nan_dims if grid[c] > 1]
-        fitting_sets, repeated_sets = [], []
-        frontier = [()]
-        while frontier:
-            larger = []
-            for subset in frontier:
-                start = candidates.index(subset[-1]) + 1 if subset else 0
-                for dim in candidates[start:]:
-                    constant_along = subset + (dim,)
-                    if any(
-                        constant_along[:i] + constant_along[i + 1 :] not in fitting_sets
-                        for i in range(len(constant_along))
-                        if len(constant_along) > 1
-                    ):
-                        continue  # a subset did not fit
-                    candidate_dims = [
-                        c for c in not_nan_dims if c not in constant_along
-                    ]
-                    if not DatasetDescription._consistent(
-                        frame, held, candidate_dims, num_held_rows
-                    ):
-                        continue
-                    fitting_sets.append(constant_along)
-                    larger.append(constant_along)
-                    num_sites = (
-                        int(held[candidate_dims].drop_duplicates().shape[0].compute())
-                        if candidate_dims
-                        else 1
-                    )
-                    if num_sites_all_dims > num_sites and num_values > 1:
-                        repeated_sets.append(constant_along)
-            frontier = larger
-        assumed_constant = max(repeated_sets, key=len, default=())
-        dims = [c for c in not_nan_dims if c not in assumed_constant]
+        if num_var_rows == 0:  # empty: nothing to infer, density is 0 anyway
+            return dims_without_nan, [], []
+        dims_could_be_constant = [c for c in dims_without_nan if grid[c] > 1]
+        # constant along no dim: every dim kept, the sets of size 1 are tried
+        possible_constant_sets, constant_sets_with_repeats = {frozenset()}, []
+        for num_constant_dims in range(1, len(dims_could_be_constant) + 1):
+            for constant_dims in map(
+                frozenset, combinations(dims_could_be_constant, num_constant_dims)
+            ):
+                if any(
+                    constant_dims - {c} not in possible_constant_sets
+                    for c in constant_dims
+                ):
+                    continue  # a subset did not fit
+                num_sites = DatasetDescription._num_sites_if_fit(
+                    parquet_rows,
+                    var_rows,
+                    [c for c in dims_without_nan if c not in constant_dims],
+                    num_var_rows,
+                )
+                if num_sites is None:
+                    continue
+                possible_constant_sets.add(constant_dims)
+                if (
+                    num_sites_on_dims_without_nan > num_sites
+                    and num_distinct_values > 1
+                ):
+                    constant_sets_with_repeats.append(constant_dims)
+        assumed_constant = max(constant_sets_with_repeats, key=len, default=frozenset())
+        dims = [c for c in dims_without_nan if c not in assumed_constant]
         ambiguous_dims = [
-            c
-            for c in dims
-            if tuple(sorted(assumed_constant + (c,), key=candidates.index))
-            in fitting_sets
+            c for c in dims if assumed_constant | {c} in possible_constant_sets
         ]
-        return dims, list(assumed_constant), ambiguous_dims
+        return dims, [c for c in coords if c in assumed_constant], ambiguous_dims
 
     @staticmethod
     def _report_assumptions(
@@ -315,29 +312,39 @@ class DatasetDescription:
             warnings.warn(message, UserWarning, stacklevel=4)
 
     @staticmethod
-    def _consistent(
-        frame: dd.DataFrame,
-        held: dd.DataFrame,
-        candidate_dims: List[str],
-        num_held_rows: int,
-    ) -> bool:
-        """Whether the rows fit a variable on ``candidate_dims`` only.
+    def _num_sites_if_fit(
+        parquet_rows: dd.DataFrame,
+        var_rows: dd.DataFrame,
+        varying_dims: List[str],
+        num_var_rows: int,
+    ) -> Optional[int]:
+        """The variable's number of sites on ``varying_dims``, if its rows fit.
 
-        A site is one combination of coordinates on ``candidate_dims``.
+        A site is one combination of coordinates on ``varying_dims``. The
+        rows fit a variable on those dims only when it has
 
         - one value per site
-        - on every row of the parquet at a site it holds: a variable missing
-          from such a row (held by another variable) varies along the coords
-          that row differs in
+        - a value on every row of the parquet at a site it holds: a variable
+          missing from such a row (held by another variable) varies along the
+          coords that row differs in
+
+        Returns:
+            The number of sites, or None if the rows do not fit
         """
-        name = held.columns[-1]
-        if not candidate_dims:  # a scalar: one value, on every row
-            num_values, num_rows = dask.compute(held[name].nunique(), frame.shape[0])
-            return num_values == 1 and num_rows == num_held_rows
-        sites_held = held[candidate_dims].drop_duplicates()
-        num_sites, num_site_values, num_rows_at_sites = dask.compute(
-            sites_held.shape[0],
-            held[candidate_dims + [name]].drop_duplicates().shape[0],
-            frame[candidate_dims].merge(sites_held, on=candidate_dims).shape[0],
+        name = var_rows.columns[-1]
+        if not varying_dims:  # a scalar: one value, on every row
+            num_values, num_parquet_rows = dask.compute(
+                var_rows[name].nunique(), parquet_rows.shape[0]
+            )
+            return 1 if num_values == 1 and num_parquet_rows == num_var_rows else None
+        occupied_sites = var_rows[varying_dims].drop_duplicates()
+        num_sites, num_site_value_pairs, num_parquet_rows_at_sites = dask.compute(
+            occupied_sites.shape[0],
+            var_rows[varying_dims + [name]].drop_duplicates().shape[0],
+            parquet_rows[varying_dims].merge(occupied_sites, on=varying_dims).shape[0],
         )
-        return num_site_values == num_sites and num_rows_at_sites == num_held_rows
+        fits = (
+            num_site_value_pairs == num_sites
+            and num_parquet_rows_at_sites == num_var_rows
+        )
+        return num_sites if fits else None
