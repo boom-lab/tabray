@@ -463,3 +463,20 @@ class TestStringsEndToEnd:
             DatasetDescription.describe_dataset(serial_nc)[columns],
             DatasetDescription.describe_dataset(serial_pq, coords=keys)[columns],
         )
+
+    def test_saving_again_keeps_codes(self, tmp_path):
+        """A second save casts codes again, not the text the first one wrote."""
+        generator = GenerateData(**self.CONFIG)
+        with contextlib.redirect_stdout(io.StringIO()):
+            _, dataframe = generator.generate(
+                netcdf_filepath=str(tmp_path / "nc/t.nc"),
+                parquet_filepath=str(tmp_path / "pq/t"),
+            )
+        # the returned frame holds codes, as the returned Dataset does
+        assert dataframe["var2"].dtype == np.float64
+        generator.save_to_parquet(str(tmp_path / "again/t"), overwrite=True)
+        first, second = (
+            pd.read_parquet(glob.glob(str(tmp_path / f"{folder}/*.parquet")))
+            for folder in ("pq", "again")
+        )
+        pd.testing.assert_frame_equal(first, second)

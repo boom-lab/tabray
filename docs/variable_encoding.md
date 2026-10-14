@@ -47,7 +47,8 @@ base 36, zero-padded to k characters, so every value has exactly k characters in
   width; `NetCDFBuilder.fix_text_width` casts them to `S<k>` first, with the same bytes on disk.
 - parquet: pyarrow-backed strings (`string[pyarrow]`), one buffer per column. Python-object
   strings would cost one object per row in memory.
-- The data `generate()` returns keep the codes in the Dataset; the DataFrame holds the text.
+- The data `generate()` returns keep the codes, in the Dataset and the DataFrame alike: both
+  writers convert a copy, so saving again (`save_to_parquet`) converts the codes again.
 
 ## Constants
 
