@@ -254,3 +254,15 @@ def test_constant_read_as_varying(tmp_path):
             line_parquet(tmp_path, [7.0] * 6), coords=["x0", "x1", "x2"]
         )
     assert pq.loc["var1", "dims"] == ("x0", "x1", "x2")
+
+
+def test_length_one_coord_kept(tmp_path):
+    """x0 holds one value: kept among the dims, as netCDF keeps it."""
+    path = line_parquet(tmp_path, [7.0, 7.0, 7.0, 4.0, 3.0, 3.0])
+    # x1 numbers the (x0, x1) lines, so var1 keeps one value per line
+    frame = pd.read_parquet(path)
+    frame.assign(x1=2 * frame["x0"] + frame["x1"], x0=0).to_parquet(path)
+    with contextlib.redirect_stdout(io.StringIO()), warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        pq = DatasetDescription.describe_dataset(path, coords=["x0", "x1", "x2"])
+    assert pq.loc["var1", "dims"] == ("x0", "x1")
