@@ -17,6 +17,8 @@ from typing import List, Optional, Sequence, Tuple, Union
 import numpy as np
 import pandas as pd
 
+from tabray.utils.per_variable import spread_per_variable
+
 
 class VariableEncoding:
     """The on-disk representation of one variable.
@@ -399,27 +401,18 @@ class VariableEncoding:
             ValueError: If a sequence has the wrong length
         """
 
-        def spread(value, name, atom=(str, int, float)):
-            if value is None or isinstance(value, atom):
-                return [value] * num_vars
-            values = list(value)
-            if len(values) != num_vars:
-                raise ValueError(
-                    f"{name} must be a single value or one per variable "
-                    f"({num_vars}), got {len(values)}"
-                )
-            return values
-
-        dtypes = spread(dtype, "dtype")
-        packs = spread(pack, "pack")
-        fills = spread(fill_value, "fill_value")
+        dtypes = spread_per_variable(dtype, "dtype", num_vars)
+        packs = spread_per_variable(pack, "pack", num_vars)
+        fills = spread_per_variable(fill_value, "fill_value", num_vars)
         # A bare (min, max) applies to every variable; a sequence of pairs
         # gives one each.
         if value_range is not None and not (
             len(value_range) == 2
             and all(isinstance(v, (int, float)) for v in value_range)
         ):
-            ranges = spread(list(value_range), "value_range", atom=())
+            ranges = spread_per_variable(
+                list(value_range), "value_range", num_vars, single_value_types=()
+            )
         else:
             ranges = [value_range] * num_vars
         return [
