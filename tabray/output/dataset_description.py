@@ -5,8 +5,10 @@ placement bug shows up here instead of being echoed.
 """
 
 import os
-from typing import Dict, List, Optional, Union
+import warnings
+from typing import Dict, List, Optional, Tuple, Union
 
+import dask
 import dask.dataframe as dd
 import numpy as np
 import pandas as pd
@@ -145,12 +147,18 @@ class DatasetDescription:
         for name in names:
             held = frame[frame[name].notnull()][coords + [name]]
             seen[name] = {c: int(held[c].nunique().compute()) for c in coords}
-            var_dims[name] = [
-                c
-                for c in coords
-                if grid[c] == 1 or not DatasetDescription._drops(held, coords, c)
-            ]
-            # a constant drops every coord: one site, like a scalar
+            var_dims[name], ambiguous_coords = DatasetDescription._infer_dims(
+                frame, held, coords, grid
+            )
+            if ambiguous_coords:
+                warnings.warn(
+                    f"{name}: the rows cannot tell whether it varies along "
+                    f"{ambiguous_coords} or drops them (one value per row, or a "
+                    "single value, on every row of its keys); read as varying.",
+                    UserWarning,
+                    stacklevel=3,
+                )
+            # a variable that drops every coord: one site, like a scalar
             occupied[name] = (
                 len(held[var_dims[name]].drop_duplicates()) if var_dims[name] else 1
             )
@@ -196,21 +204,106 @@ class DatasetDescription:
         return table
 
     @staticmethod
-    def _drops(held: dd.DataFrame, coords: List[str], coord: str) -> bool:
-        """Whether a variable drops ``coord``, from the rows it holds.
+    def _infer_dims(
+        frame: dd.DataFrame, held: dd.DataFrame, coords: List[str], grid: Dict
+    ) -> Tuple[List[str], List[str]]:
+        """A variable's dims, from the rows it holds.
 
-        - a row with ``coord`` NaN: the variable has no position along it
-        - repeated: one value per key over the other coords (V == K) and some
-          key on several rows (R > K); K, V = distinct keys, (key, value) pairs
-        - a variable constant along a real dim reads as repeated; a constant
-          drops every coord
+        A variable that drops coords is written on every row matching its own
+        dims (its key), with one value per key: ParquetBuilder does this, and
+        so do Argo-style tables (a profile's latitude on each of its levels).
+
+        1. a held row with NaN on a coord: drops it (an unmatched value)
+        2. a set of further coords the rows allow dropping (``_consistent``)
+           needs evidence: a value seen at several positions along them,
+           and more than one value overall. The largest such set is dropped.
+        3. a coord the rows would also let it drop, without evidence (each
+           value on one row, or a single value overall): both readings give
+           these rows, so it is ambiguous and read as varying
+
+        Consistency is monotone (a variable consistent on some dims is on
+        any larger set), so a set is tried only if each of its subsets passed.
+
+        Args:
+            frame: Every row of the parquet
+            held: The variable's rows, columns ``coords + [name]``
+            coords: Coordinate columns
+            grid: Number of distinct values per coord; a coord of length 1 is
+                kept, as netCDF keeps it
+
+        Returns:
+            (dims, ambiguous_coords): ambiguous coords are among the dims
         """
         name = held.columns[-1]
-        other = [c for c in coords if c != coord]
-        if bool(held[coord].isnull().any().compute()):
-            return True
-        if not other:
-            return False
-        keys = len(held[other].drop_duplicates())
-        values = len(held[other + [name]].drop_duplicates())
-        return values == keys and len(held) > keys
+        has_nan_coord = dask.compute(*[held[c].isnull().any() for c in coords])
+        not_nan_coords = [c for c, has_nan in zip(coords, has_nan_coord) if not has_nan]
+        num_held_rows, num_values, num_positions = dask.compute(
+            held.shape[0],
+            held[name].nunique(),
+            held[not_nan_coords].drop_duplicates().shape[0],
+        )
+        if num_held_rows == 0:  # empty: nothing to infer, density is 0 anyway
+            return not_nan_coords, []
+        droppable = [c for c in not_nan_coords if grid[c] > 1]
+        allowed_drops, evidenced_drops = [], []
+        frontier = [()]
+        while frontier:
+            larger = []
+            for subset in frontier:
+                start = droppable.index(subset[-1]) + 1 if subset else 0
+                for coord in droppable[start:]:
+                    drop = subset + (coord,)
+                    if any(
+                        drop[:i] + drop[i + 1 :] not in allowed_drops
+                        for i in range(len(drop))
+                        if len(drop) > 1
+                    ):
+                        continue  # a subset already failed
+                    key = [c for c in not_nan_coords if c not in drop]
+                    if not DatasetDescription._consistent(
+                        frame, held, key, num_held_rows
+                    ):
+                        continue
+                    allowed_drops.append(drop)
+                    larger.append(drop)
+                    num_keys = (
+                        int(held[key].drop_duplicates().shape[0].compute())
+                        if key
+                        else 1
+                    )
+                    # a value at several positions along the dropped coords
+                    if num_positions > num_keys and num_values > 1:
+                        evidenced_drops.append(drop)
+            frontier = larger
+        dropped = max(evidenced_drops, key=len, default=())
+        dims = [c for c in not_nan_coords if c not in dropped]
+        # a dim the rows would also let it drop, with no evidence either way
+        ambiguous_coords = [
+            c
+            for c in dims
+            if tuple(sorted(dropped + (c,), key=droppable.index)) in allowed_drops
+        ]
+        return dims, ambiguous_coords
+
+    @staticmethod
+    def _consistent(
+        frame: dd.DataFrame, held: dd.DataFrame, key: List[str], num_held_rows: int
+    ) -> bool:
+        """Whether the rows fit a variable on ``key`` only.
+
+        - one value per key
+        - on every row of the parquet with a key it holds: a variable missing
+          from a row of its key (held by another variable) varies along the
+          coords that row differs in
+        """
+        name = held.columns[-1]
+        if not key:  # a scalar: one value, on every row
+            num_values, num_rows = dask.compute(held[name].nunique(), frame.shape[0])
+            return num_values == 1 and num_rows == num_held_rows
+        held_keys = held[key].drop_duplicates()
+        num_keys, num_key_values, num_key_rows = dask.compute(
+            held_keys.shape[0],
+            held[key + [name]].drop_duplicates().shape[0],
+            frame[key].merge(held_keys, on=key).shape[0],
+        )
+        return num_key_values == num_keys and num_key_rows == num_held_rows

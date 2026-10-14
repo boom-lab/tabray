@@ -54,8 +54,9 @@ base 36, zero-padded to k characters, so every value has exactly k characters in
 
 `min == max` gives every occupied site the same value: the integer transform maps every draw to
 `lo`, the float transform multiplies by a zero span. A packed constant takes `scale_factor = 1`.
-Parquet description reads a constant as dropping every coordinate (`()`, one site): a value that
-never changes carries no position.
+Parquet description keeps a constant's dimensions when other variables hold rows it misses. When
+it sits on every row of its keys, a constant on all dimensions and one on fewer give the same rows:
+the description reads it as varying and warns.
 
 ## Packing
 
