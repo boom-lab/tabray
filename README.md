@@ -255,12 +255,13 @@ DatasetDescription.describe_dataset("data.nc", reference="temp")  # overlap agai
 One row per variable: its dimensions, sites (`var_sites`), occupied sites, density, overlap with the reference
 variable (`overlap`, and `overlap_reverse` divided by the variable's own sites), coordinates along its dimensions holding no value, and stored dtype. Parquet has no
 axes, so the grid is the coordinate values that appear. A variable's dimensions are the
-coordinate columns it does not drop. It drops a column that is NaN on one of its rows (a value
-matching no row). It drops columns along which it repeats: it sits on every row sharing its values
-of the other columns, with one value there, on several rows, and holds more than one value overall.
-A variable missing from a row that shares those values varies along the column. When the rows fit
-both readings (each value on one row, or a single value overall), the variable is read as varying
-and a warning names the columns.
+coordinate columns, except those it does not vary along. A column that is NaN on one of the
+variable's rows proves it does not vary along that column. Otherwise the description assumes the
+variable is constant along a column when its value is the same on every row sharing its other
+coordinates, and repeats on several of them; it prints and raises a warning naming the variable
+and the columns, since a variable that varies along them could give the same rows. When the rows
+also fit a constant but nothing repeats (each value on one row, or a single value overall), the
+column is kept, again with a warning.
 The reference is `reference` if given, else the variable with the most occupied sites (first in file order on a tie); its row comes first.
 `notebooks/analyse_dataset.ipynb` generates a small dataset, then describes its netCDF and parquet files separately and compares the two.
 

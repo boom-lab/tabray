@@ -56,7 +56,11 @@ def test_parquet_agrees_with_netcdf(known, tmp_path):
 
 
 def test_parquet_with_repeated_variables_agrees_with_netcdf(tmp_path):
-    """var1 on (x0, x1) repeats along x2, var2 on x0 along x1 and x2."""
+    """var1 on (x0, x1) repeats along x2, var2 on x0 along x1 and x2.
+
+    No row has NaN, so both are assumed constant along the dims they repeat
+    along, with a warning.
+    """
     with contextlib.redirect_stdout(io.StringIO()):
         gen = GenerateData(
             num_obs=400,
@@ -73,10 +77,22 @@ def test_parquet_with_repeated_variables_agrees_with_netcdf(tmp_path):
             netcdf_filepath=str(tmp_path / "d.nc"),
             parquet_filepath=str(tmp_path / "pq" / "d.parquet"),
         )
-    pq = DatasetDescription.describe_dataset(
-        str(tmp_path / "pq" / "d_0.parquet"), coords=["x0", "x1", "x2"]
-    )
+    printed = io.StringIO()
+    with (
+        contextlib.redirect_stdout(printed),
+        warnings.catch_warnings(record=True) as caught,
+    ):
+        warnings.simplefilter("always")
+        pq = DatasetDescription.describe_dataset(
+            str(tmp_path / "pq" / "d_0.parquet"), coords=["x0", "x1", "x2"]
+        )
     pd.testing.assert_frame_equal(gen.description[COLUMNS], pq[COLUMNS])
+    messages = [str(w.message) for w in caught]
+    assert any(m.startswith("var1 is ASSUMED constant along ['x2']") for m in messages)
+    assert any(
+        m.startswith("var2 is ASSUMED constant along ['x1', 'x2']") for m in messages
+    )
+    assert "WARNING: dims of var1 are not certain" in printed.getvalue()
 
 
 def known_parquet(tmp_path):
@@ -163,7 +179,7 @@ def test_serial_and_parallel_describe_the_same_data(tmp_path):
 
 
 def test_constant_full_dims_variable_keeps_its_dims(tmp_path):
-    """A constant holds one value per key, but misses rows of its keys."""
+    """A constant has one value at every site, but misses rows held by var0."""
     with contextlib.redirect_stdout(io.StringIO()):
         gen = GenerateData(
             num_obs=150,
@@ -205,26 +221,35 @@ def line_parquet(tmp_path, var1):
 @pytest.mark.parametrize(
     "var1, dims",
     [
-        # one value on every row of each (x0, x1) line: drops x2
+        # one value on every row at each (x0, x1), 7 on three rows: assumed
+        # constant along x2
         ([7.0, 7.0, 7.0, 4.0, 3.0, 3.0], ("x0", "x1")),
-        # missing from a row of the (0, 0) line: varies along x2
+        # missing from a row at (0, 0): varies along x2
         ([7.0, 7.0, np.nan, 4.0, 3.0, 3.0], ("x0", "x1", "x2")),
     ],
 )
 def test_dims_from_rows(tmp_path, var1, dims):
-    with warnings.catch_warnings():
-        # x2 is distinct on every row, so dropping x0 (or x1) alone also
-        # fits these rows: ambiguous, read as varying
-        warnings.simplefilter("ignore")
-        pq = DatasetDescription.describe_dataset(
-            line_parquet(tmp_path, var1), coords=["x0", "x1", "x2"]
-        )
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        with contextlib.redirect_stdout(io.StringIO()):
+            pq = DatasetDescription.describe_dataset(
+                line_parquet(tmp_path, var1), coords=["x0", "x1", "x2"]
+            )
     assert pq.loc["var1", "dims"] == dims
+    assumed = [
+        str(w.message)
+        for w in caught
+        if str(w.message).startswith("var1 is ASSUMED constant")
+    ]
+    assert bool(assumed) == (dims == ("x0", "x1"))
 
 
-def test_ambiguous_dims_read_as_varying(tmp_path):
-    """One value on every row: a constant on all dims, or a scalar."""
-    with pytest.warns(UserWarning, match="var1: the rows cannot tell"):
+def test_constant_read_as_varying(tmp_path):
+    """One value on every row: fits var1 on any dims, so every dim is kept."""
+    with (
+        pytest.warns(UserWarning, match="var1 is ASSUMED to vary along"),
+        contextlib.redirect_stdout(io.StringIO()),
+    ):
         pq = DatasetDescription.describe_dataset(
             line_parquet(tmp_path, [7.0] * 6), coords=["x0", "x1", "x2"]
         )
