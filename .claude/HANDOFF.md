@@ -36,3 +36,15 @@ Of the serial/parallel workflow plan, **S6** is the last one open.
   `python` is pyenv 3.12.4, which has two bad installs shadowing the working
   tree; a test run there proves nothing about this project.
 - Do not commit unless asked. The user committed the formatting work themselves.
+
+## Bugs found in review (2026-10-13), not yet fixed
+
+- **`DatasetDescription._drops` misses a dropped dim** (`tabray/output/dataset_description.py`,
+  around line 324). It flags a dim as dropped only when some key over the
+  other coords sits on several rows (R > K). When each own-dims cell of a
+  fewer-dims variable matches exactly one row, as always happens at minimum
+  density, the parquet description reports the wrong dims, own grid and
+  density. Reproduced: `GenerateData(num_obs=10, num_dims=2, ratio_dims=1,
+  density=[0.1, 0.1], seed=1, num_vars=2, var_dims=[2, 1])`, then
+  `describe_dataset(parquet, coords=['x0', 'x1'])`. Parquet gives var1 dims
+  `(x0, x1)`, 100 sites, density 0.01; netCDF gives `(x1,)`, 10, 0.1.
