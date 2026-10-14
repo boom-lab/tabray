@@ -1,0 +1,98 @@
+@startuml review_correlated_00_baseline
+' Review unit 00 of 04 -- see docs/review_correlated.md for the series.
+' State AT commit 57f873a, main, where the branch starts.
+' Every number below is from a run of the cases at commit 57f873a.
+' Render: plantuml -tsvg docs/review_correlated_00_baseline.puml
+
+title Unit 00 -- baseline: where values come from when the branch starts (57f873a)
+
+skinparam shadowing false
+skinparam defaultFontName Monospaced
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam activity {
+  BackgroundColor #FCFCFC
+  BorderColor #777777
+  DiamondBackgroundColor #F2F2F2
+  DiamondBorderColor #777777
+}
+skinparam partition {
+  BorderColor #8899AA
+  FontColor #33495E
+}
+skinparam note {
+  BackgroundColor #FFFDF0
+  BorderColor #C8C08A
+}
+
+start
+
+partition "the call" {
+  :GenerateData(num_obs=100, num_dims=3, ratio_dims=[1, 2, 2], seed=77,
+     <b>case S</b>: density=0.4 (one variable)
+     <b>case A</b>: density=[0.4, 0.1], num_vars=2, var_dims=[3, 2], overlap=0.5
+     max_obs=None (serial) or 40 (parallel, 3 chunks, merge_nc=True));
+  note right
+    No data_structure keyword: passing one raises
+    TypeError: GenerateData.~__init~__() got an
+    unexpected keyword argument 'data_structure'
+  end note
+}
+
+partition "GenerateData constructor" {
+  :VariableEncoding.per_variable(dtype, pack, fill_value, num_vars, value_range)
+  nested helper spread(value, name, atom=(str, int, float)):
+  a scalar applies to every variable, a sequence needs one entry each;
+  note right
+    A NumPy scalar is not in atom:
+    fill_value=np.float32(-1.0) raises
+    TypeError: 'numpy.float32' object
+    is not iterable
+  end note
+  :validate and configure
+  shape [4, 8, 8], num_obs 102
+  case A: var_num_obs 102 and 6 (var1 on x1, x2: 0.1 of its own 64 cells);
+}
+
+partition "MultiVarRecordGenerator.generate  (serial, and each chunk on its strata)" {
+  :sites first, then one value per site, on the same stream:
+  var0: RecordGenerator.generate_stratified_indices
+        -> ObservationGenerator.generate_observations = rng.uniform(0, 1)
+           (stream STRATUM, stratum)
+  var1+: generate_multivar_stratified -> rng.uniform(0, 1)
+           (stream VAR, variable, stratum);
+  :indices are GLOBAL here; then the split axis is rebased
+  to the chunk (axis - stratum_start) and the values written;
+}
+
+:to_stored (dtype, pack, value_range) once, then netCDF and parquet;
+
+#FFF9C4:<b>values</b>, case S: 102 cells, independent uniform(0, 1)
+first sites (x0, x1, x2) = (0, 0, 5), (0, 0, 6), (0, 0, 7)
+values 0.181848, 0.157570, 0.710856
+correlation of neighbours along x2 (33 occupied pairs): 0.167
+(white noise; a small sample, so not exactly 0);
+
+#FFF9C4:files: case S ds.nc 14062 B, parquet 5396 B
+case A ds.nc 15729 B, parquet 5978 B, 102 rows
+serial equals parallel in both (netCDF and parquet);
+
+#FFF9C4:compression, case Z: 4 x 20 x 100 x 100 at density 1, pack="int16",
+rewritten with zlib level 1 + shuffle, one x0 step per chunk:
+<b>1.01</b> of the uncompressed size -- white noise does not compress;
+
+stop
+
+legend right
+  |<#C8E6C9> green |= added or changed by THIS unit |
+  |<#FFCDD2> red |= removed by THIS unit |
+  |<#FFE0B2> orange |= single-variable flow touched by THIS unit |
+  |<#FFF9C4> yellow |= generated data or file that changed as a result |
+  | plain | unchanged since the previous unit |
+
+  <b>Unit 00 is the reference</b>, not a change.
+  Every value is an independent uniform draw;
+  nothing makes neighbouring cells alike.
+end legend
+
+@enduml

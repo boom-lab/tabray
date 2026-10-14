@@ -1,0 +1,89 @@
+@startuml review_correlated_04_overall
+' Review unit 04 of 04 -- see docs/review_correlated.md for the series.
+' The whole branch, final (70fa64d) against main (57f873a): +1021/-17.
+' Every number below is from runs of the cases at 57f873a and ca25382
+' (the code at 70fa64d; the last two commits change docs only).
+' Render: plantuml -tsvg docs/review_correlated_04_overall.puml
+
+title Unit 04 -- the whole branch: correlated values, final against main (57f873a..70fa64d)
+
+skinparam shadowing false
+skinparam defaultFontName Monospaced
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam activity {
+  BackgroundColor #FCFCFC
+  BorderColor #777777
+  DiamondBackgroundColor #F2F2F2
+  DiamondBorderColor #777777
+}
+skinparam partition {
+  BorderColor #8899AA
+  FontColor #33495E
+}
+skinparam note {
+  BackgroundColor #FFFDF0
+  BorderColor #C8C08A
+}
+
+start
+
+partition "the call" {
+  #C8E6C9:GenerateData(..., <b>data_structure</b>="uncorrelated" | "correlated",
+                   <b>correlation_length</b>=None | L | [L per dim],
+                   <b>noise</b>=None | n | [n per variable]);
+}
+
+partition "GenerateData constructor" {
+  #C8E6C9:VariableEncoding.per_variable -> utils/per_variable.spread_per_variable
+  (unit 01; NumPy scalars now count as one value);
+  :validate and configure: unchanged;
+  #C8E6C9:CorrelatedField.per_variable -> self.correlated_fields
+  one field per correlated variable, None otherwise (units 02, 03);
+}
+
+partition "MultiVarRecordGenerator.generate" {
+  :sites, then rng.uniform(0, 1) per site: unchanged;
+  #C8E6C9:correlated variable: u' = ndtr( sqrt(1 - noise^2) * S(global indices)
+                                    + noise * ndtri(u) )
+  S = sum of 64 plane waves, stream CORRELATED_FIELD;
+  :rebase to the chunk, write;
+}
+
+:to_stored, netCDF and parquet: unchanged;
+
+#FFF9C4:<b>default output</b>: case S and case A byte-identical to main
+<b>correlated</b>: same sites, smooth values, serial equals parallel
+neighbours along x2, case S / CS: 0.167 / 0.994
+case Z compressed share: 1.01 (main) / 0.854 (correlated, default);
+
+partition "docs (3309cb7) and handoff (70fa64d)" {
+  #C8E6C9:README: usage section and three parameter entries
+  docs/correlated_values.md: method, measured compression, determinism, cost
+  docs/variable_encoding.md: u may be correlated, still uniform
+  .claude/CLAUDE.md: rules and the CORRELATED_FIELD stream row;
+  #C8E6C9:.claude/HANDOFF.md: parquet dims bug found in review
+  (DatasetDescription infers (x0, x1) for a var on (x1,); main now warns
+  that the dims are assumed, but the reported dims are still wrong);
+}
+
+stop
+
+legend right
+  |<#C8E6C9> green |= added or changed by the branch |
+  |<#FFCDD2> red |= removed by the branch |
+  |<#FFE0B2> orange |= single-variable flow touched by the branch |
+  |<#FFF9C4> yellow |= generated data or file that changed as a result |
+  | plain | as on main |
+
+  <b>The commits</b>
+  7eb2025 per-variable rule        +69/-15
+  df6419f CorrelatedField          +471
+  ca25382 GenerateData wiring      +299/-2
+  3309cb7 docs                     +171/-1
+  70fa64d handoff note             +12
+  <b>Size</b>: +1021/-17, over the 400 target
+  (src +493/-16, tests +345, docs +183/-1)
+end legend
+
+@enduml
