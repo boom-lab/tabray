@@ -1,0 +1,114 @@
+@startuml review_correlated_03_wiring
+' Review unit 03 of 04 -- see docs/review_correlated.md for the series.
+' State AFTER commit ca25382 (src +70/-1, tests +229/-1).
+' Every number below is from a run of the cases at commit ca25382.
+' Render: plantuml -tsvg docs/review_correlated_03_wiring.puml
+
+title Unit 03 -- data_structure, correlation_length, noise in GenerateData (df6419f..ca25382)
+
+skinparam shadowing false
+skinparam defaultFontName Monospaced
+skinparam defaultFontSize 12
+skinparam ArrowColor #555555
+skinparam activity {
+  BackgroundColor #FCFCFC
+  BorderColor #777777
+  DiamondBackgroundColor #F2F2F2
+  DiamondBorderColor #777777
+}
+skinparam partition {
+  BorderColor #8899AA
+  FontColor #33495E
+}
+skinparam note {
+  BackgroundColor #FFFDF0
+  BorderColor #C8C08A
+}
+
+start
+
+partition "the call" {
+  #C8E6C9:GenerateData(num_obs=100, num_dims=3, ratio_dims=[1, 2, 2], seed=77,
+     <b>case S, case A</b> as before (default data_structure="uncorrelated")
+     <b>case CS</b>: case S + data_structure="correlated"
+     <b>case CA</b>: case A + data_structure="correlated",
+                 correlation_length=[None, 2, 4], noise=0.1
+     max_obs=None or 40)
+  NEW keywords: data_structure, correlation_length, noise;
+}
+
+partition "GenerateData constructor" {
+  :VariableEncoding.per_variable, validate and configure: unchanged
+  shape [4, 8, 8], num_obs 102, var_num_obs 102 (and 6);
+  #C8E6C9:after _validate_parameters (the varying dims are known):
+  self.correlated_fields = CorrelatedField.per_variable(
+      data_structure, correlation_length, noise, num_vars,
+      self.shape, self.var_dims_indices, seed);
+  #FFF9C4:printed: "Data structure: correlated, correlation length: [None, 2, 4], noise: 0.1"
+  "Correlated values: [CorrelatedField(lengths={'x0': None, 'x1': 2.0, 'x2': 4.0}, noise=0.1),
+                      CorrelatedField(lengths={'x1': 2.0, 'x2': 4.0}, noise=0.1)]"   (case CA)
+  case CS: UserWarning, the default length 10 exceeds x0 (4 cells), x1, x2 (8);
+}
+
+partition "MultiVarRecordGenerator.generate(..., correlated_fields)" {
+  :sites, then rng.uniform(0, 1) per site: unchanged, so no site moves;
+  if (variables) then (several)
+    #C8E6C9:for each variable: indices, values = placed[var]  (GLOBAL indices)
+    values = correlated_fields[var].apply(values, indices)
+    <b>before</b> the stratum_start rebase;
+  else (one)
+    #FFE0B2:generate_without_overlap(..., correlated_fields[0]):
+    observations = field.apply(observations, multi_indices)
+    <b>before</b> the stratum_start rebase;
+  endif
+  :rebase the split axis to the chunk, write the values;
+}
+
+partition "parallel path" {
+  #C8E6C9:_generate_par puts "correlated_fields" (the parent's objects,
+  a few small arrays each) in every chunk's arguments,
+  generate_chunk passes them to MultiVarRecordGenerator.generate:
+  validation runs once, in the parent;
+}
+
+:to_stored, netCDF and parquet: unchanged;
+
+#FFF9C4:<b>case CS</b>: the same 102 sites as case S; new values
+first sites (0, 0, 5), (0, 0, 6), (0, 0, 7): 0.632082, 0.663142, 0.681228
+equal to the unit 02 field at x2 = 5, 6, 7 (noise 0: the uniform draw is not used)
+neighbours along x2 (33 pairs): <b>0.994</b> (case S: 0.167)
+ds.nc 14062 B, parquet 5396 B (float64, uncompressed: same sizes);
+
+#FFF9C4:<b>case CA</b>: var0 and var1 on the same sites as case A
+var0 neighbours along x2: 0.944 (L = 4 cells, noise 0.1)
+var1 (x1, x2): 6 cells, its own field; files 15729 / 5978 B;
+
+:<b>case S, case A</b>: byte-identical to unit 00
+serial equals parallel in all four cases, netCDF and parquet;
+
+#FFF9C4:compression, case Z (4 x 20 x 100 x 100, int16, zlib 1 + shuffle):
+uncorrelated 1.01 / correlated, default 0.854
+correlated, correlation_length=[None, 2, 200, 200], noise=0.01: 0.751;
+
+stop
+
+legend right
+  |<#C8E6C9> green |= added or changed by THIS unit |
+  |<#FFCDD2> red |= removed by THIS unit |
+  |<#FFE0B2> orange |= single-variable flow touched by THIS unit |
+  |<#FFF9C4> yellow |= generated data or file that changed as a result |
+  | plain | unchanged since unit 02 |
+
+  <b>What to review in unit 03</b>
+  * apply runs on GLOBAL indices, before the rebase,
+    in both the multi- and single-variable paths
+  * the uniform draw is still made: sites do not move
+  * the fields travel to the workers as objects
+  * default output byte-identical
+  <b>Tests</b>: GenerateData and validation tests; three
+  correlated cases in test_parallel_reproduces_serial_exactly
+  <b>Size</b>: +299/-2 (src +70/-1)
+  <b>Verified</b>: full suite passes at ca25382.
+end legend
+
+@enduml
