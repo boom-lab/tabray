@@ -1,7 +1,7 @@
 """Tests for data_structure="correlated".
 
-The field replaces each occupied cell's uniform draw by a smooth Gaussian
-field evaluated at the cell's global grid indices. See
+The field replaces each occupied site's uniform draw by a smooth Gaussian
+field evaluated at the site's global grid indices. See
 docs/correlated_values.md.
 """
 
@@ -19,12 +19,12 @@ from tabray.generators import CorrelatedField
 
 
 def full_grid_indices(grid_shape):
-    """Global indices of every cell of a grid, one array per dim."""
+    """Global indices of every site of a grid, one array per dim."""
     return tuple(axis.ravel() for axis in np.indices(grid_shape))
 
 
 def field_on_grid(grid_shape, lengths, seed=0, noise=0.0, varying_dims=None):
-    """The field's values on every cell, shaped like the grid."""
+    """The field's values on every site, shaped like the grid."""
     num_dims = len(grid_shape)
     if varying_dims is None:
         varying_dims = range(num_dims)
@@ -34,7 +34,7 @@ def field_on_grid(grid_shape, lengths, seed=0, noise=0.0, varying_dims=None):
 
 
 def lag_correlation(values, lag, axis):
-    """Correlation between cells ``lag`` apart along ``axis``."""
+    """Correlation between sites ``lag`` apart along ``axis``."""
     first = np.take(values, np.arange(values.shape[axis] - lag), axis=axis)
     second = np.take(values, np.arange(lag, values.shape[axis]), axis=axis)
     return np.corrcoef(first.ravel(), second.ravel())[0, 1]
@@ -68,7 +68,7 @@ class TestFieldStatistics:
     """The field has the autocorrelation and the marginal it promises."""
 
     def test_correlation_at_one_length(self):
-        """Cells L apart: Gaussian correlation e^-1/2, seen through ndtr."""
+        """Sites L apart: Gaussian correlation e^-1/2, seen through ndtr."""
         # ndtr turns a normal correlation rho into (6/pi) arcsin(rho/2)
         expected = 6 / np.pi * np.arcsin(np.exp(-0.5) / 2)
         measured = [
@@ -112,10 +112,10 @@ class TestFieldStatistics:
 
 
 class TestFieldDeterminism:
-    """A cell's value depends only on (seed, variable, global indices, draw)."""
+    """A site's value depends only on (seed, variable, global indices, draw)."""
 
     def test_split_evaluation_is_bit_identical(self):
-        """What a parallel chunk does: evaluate a slice of the cells."""
+        """What a parallel chunk does: evaluate a slice of the sites."""
         indices = full_grid_indices([37, 53])
         uniform = np.random.default_rng(1).uniform(0, 1, indices[0].size)
         field = CorrelatedField(3, 1, 2, [0, 1], [4, 7], noise=0.2)

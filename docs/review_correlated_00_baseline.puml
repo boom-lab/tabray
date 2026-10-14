@@ -51,7 +51,7 @@ partition "GenerateData constructor" {
   end note
   :validate and configure
   shape [4, 8, 8], num_obs 102
-  case A: var_num_obs 102 and 6 (var1 on x1, x2: 0.1 of its own 64 cells);
+  case A: var_num_obs 102 and 6 (var1 on x1, x2: 0.1 of its own 64 sites);
 }
 
 partition "MultiVarRecordGenerator.generate  (serial, and each chunk on its strata)" {
@@ -67,7 +67,7 @@ partition "MultiVarRecordGenerator.generate  (serial, and each chunk on its stra
 
 :to_stored (dtype, pack, value_range) once, then netCDF and parquet;
 
-#FFF9C4:<b>values</b>, case S: 102 cells, independent uniform(0, 1)
+#FFF9C4:<b>values</b>, case S: 102 occupied sites, independent uniform(0, 1)
 first sites (x0, x1, x2) = (0, 0, 5), (0, 0, 6), (0, 0, 7)
 values 0.181848, 0.157570, 0.710856
 correlation of neighbours along x2 (33 occupied pairs): 0.167
@@ -92,7 +92,7 @@ legend right
 
   <b>Unit 00 is the reference</b>, not a change.
   Every value is an independent uniform draw;
-  nothing makes neighbouring cells alike.
+  nothing makes neighbouring sites alike.
 end legend
 
 @enduml
