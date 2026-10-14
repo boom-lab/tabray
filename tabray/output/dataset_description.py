@@ -134,10 +134,10 @@ class DatasetDescription:
     def _from_parquet(
         path: str, coords: List[str], reference: Optional[str] = None
     ) -> pd.DataFrame:
-        """Parquet has no axes, so two things are inferred from the rows.
+        """Parquet stores no axes and no variable dims, so both come from the rows.
 
         - grid: the coordinate values that appear in any row
-        - a variable's dims: the coords it does not drop (``_drops``)
+        - a variable's dims, the dims it is defined on (``_infer_dims``)
         - occupied sites: distinct rows over the variable's dims
         """
         frame = dd.read_parquet(path)
@@ -147,18 +147,13 @@ class DatasetDescription:
         for name in names:
             held = frame[frame[name].notnull()][coords + [name]]
             seen[name] = {c: int(held[c].nunique().compute()) for c in coords}
-            var_dims[name], ambiguous_coords = DatasetDescription._infer_dims(
-                frame, held, coords, grid
+            var_dims[name], assumed_constant, ambiguous_dims = (
+                DatasetDescription._infer_dims(frame, held, coords, grid)
             )
-            if ambiguous_coords:
-                warnings.warn(
-                    f"{name}: the rows cannot tell whether it varies along "
-                    f"{ambiguous_coords} or drops them (one value per row, or a "
-                    "single value, on every row of its keys); read as varying.",
-                    UserWarning,
-                    stacklevel=3,
-                )
-            # a variable that drops every coord: one site, like a scalar
+            DatasetDescription._report_assumptions(
+                name, assumed_constant, ambiguous_dims
+            )
+            # no dims: one site, like a scalar
             occupied[name] = (
                 len(held[var_dims[name]].drop_duplicates()) if var_dims[name] else 1
             )
@@ -206,23 +201,29 @@ class DatasetDescription:
     @staticmethod
     def _infer_dims(
         frame: dd.DataFrame, held: dd.DataFrame, coords: List[str], grid: Dict
-    ) -> Tuple[List[str], List[str]]:
+    ) -> Tuple[List[str], List[str], List[str]]:
         """A variable's dims, from the rows it holds.
 
-        A variable that drops coords is written on every row matching its own
-        dims (its key), with one value per key: ParquetBuilder does this, and
-        so do Argo-style tables (a profile's latitude on each of its levels).
+        Each dim is a column of the table (one of ``coords``). A site of the
+        variable is one combination of coordinates on its own dims. A variable
+        with fewer dims than the table is written, with one value, on every
+        row at each of its sites (ParquetBuilder writes it this way).
 
-        1. a held row with NaN on a coord: drops it (an unmatched value)
-        2. a set of further coords the rows allow dropping (``_consistent``)
-           needs evidence: a value seen at several positions along them,
-           and more than one value overall. The largest such set is dropped.
-        3. a coord the rows would also let it drop, without evidence (each
-           value on one row, or a single value overall): both readings give
-           these rows, so it is ambiguous and read as varying
+        - Certain: a row of the variable with NaN in a dim's column. The
+          variable does not vary along that dim.
+        - Assumed: the variable is taken as constant along a set of dims when
+          both hold, assuming it is not defined on them: it has one value per
+          site and is on every row at each of its sites (``_consistent``);
+          and some site's value is on several rows with different coordinates
+          on those dims, with more than one value overall. A variable that
+          varies along them could give the same rows, so the assumption is
+          reported (``assumed_constant``).
+        - Ambiguous: the rows fit a variable constant along a dim, but no
+          site's value repeats along it, or the variable holds a single value.
+          The dim is kept and reported (``ambiguous_dims``).
 
-        Consistency is monotone (a variable consistent on some dims is on
-        any larger set), so a set is tried only if each of its subsets passed.
+        If the rows fit some dims they fit any larger set of dims, so a set of
+        dims is tried only if each of its subsets passed.
 
         Args:
             frame: Every row of the parquet
@@ -232,78 +233,111 @@ class DatasetDescription:
                 kept, as netCDF keeps it
 
         Returns:
-            (dims, ambiguous_coords): ambiguous coords are among the dims
+            (dims, assumed_constant, ambiguous_dims): the dims left out by
+            assumption, and the kept dims the rows would also fit without
         """
         name = held.columns[-1]
         has_nan_coord = dask.compute(*[held[c].isnull().any() for c in coords])
-        not_nan_coords = [c for c, has_nan in zip(coords, has_nan_coord) if not has_nan]
-        num_held_rows, num_values, num_positions = dask.compute(
+        not_nan_dims = [c for c, has_nan in zip(coords, has_nan_coord) if not has_nan]
+        # distinct rows on the dims no row leaves NaN; more of them than sites
+        # on fewer dims means some site's value is on several rows
+        num_held_rows, num_values, num_sites_all_dims = dask.compute(
             held.shape[0],
             held[name].nunique(),
-            held[not_nan_coords].drop_duplicates().shape[0],
+            held[not_nan_dims].drop_duplicates().shape[0],
         )
         if num_held_rows == 0:  # empty: nothing to infer, density is 0 anyway
-            return not_nan_coords, []
-        droppable = [c for c in not_nan_coords if grid[c] > 1]
-        allowed_drops, evidenced_drops = [], []
+            return not_nan_dims, [], []
+        candidates = [c for c in not_nan_dims if grid[c] > 1]
+        fitting_sets, repeated_sets = [], []
         frontier = [()]
         while frontier:
             larger = []
             for subset in frontier:
-                start = droppable.index(subset[-1]) + 1 if subset else 0
-                for coord in droppable[start:]:
-                    drop = subset + (coord,)
+                start = candidates.index(subset[-1]) + 1 if subset else 0
+                for dim in candidates[start:]:
+                    constant_along = subset + (dim,)
                     if any(
-                        drop[:i] + drop[i + 1 :] not in allowed_drops
-                        for i in range(len(drop))
-                        if len(drop) > 1
+                        constant_along[:i] + constant_along[i + 1 :] not in fitting_sets
+                        for i in range(len(constant_along))
+                        if len(constant_along) > 1
                     ):
-                        continue  # a subset already failed
-                    key = [c for c in not_nan_coords if c not in drop]
+                        continue  # a subset did not fit
+                    candidate_dims = [
+                        c for c in not_nan_dims if c not in constant_along
+                    ]
                     if not DatasetDescription._consistent(
-                        frame, held, key, num_held_rows
+                        frame, held, candidate_dims, num_held_rows
                     ):
                         continue
-                    allowed_drops.append(drop)
-                    larger.append(drop)
-                    num_keys = (
-                        int(held[key].drop_duplicates().shape[0].compute())
-                        if key
+                    fitting_sets.append(constant_along)
+                    larger.append(constant_along)
+                    num_sites = (
+                        int(held[candidate_dims].drop_duplicates().shape[0].compute())
+                        if candidate_dims
                         else 1
                     )
-                    # a value at several positions along the dropped coords
-                    if num_positions > num_keys and num_values > 1:
-                        evidenced_drops.append(drop)
+                    if num_sites_all_dims > num_sites and num_values > 1:
+                        repeated_sets.append(constant_along)
             frontier = larger
-        dropped = max(evidenced_drops, key=len, default=())
-        dims = [c for c in not_nan_coords if c not in dropped]
-        # a dim the rows would also let it drop, with no evidence either way
-        ambiguous_coords = [
+        assumed_constant = max(repeated_sets, key=len, default=())
+        dims = [c for c in not_nan_dims if c not in assumed_constant]
+        ambiguous_dims = [
             c
             for c in dims
-            if tuple(sorted(dropped + (c,), key=droppable.index)) in allowed_drops
+            if tuple(sorted(assumed_constant + (c,), key=candidates.index))
+            in fitting_sets
         ]
-        return dims, ambiguous_coords
+        return dims, list(assumed_constant), ambiguous_dims
+
+    @staticmethod
+    def _report_assumptions(
+        name: str, assumed_constant: List[str], ambiguous_dims: List[str]
+    ) -> None:
+        """Print and warn when a variable's dims are not certain from the rows."""
+        messages = []
+        if assumed_constant:
+            messages.append(
+                f"{name} is ASSUMED constant along {assumed_constant}, so they are "
+                f"not among its dims. Its rows fit this (one value at each site, "
+                f"repeated on every row along {assumed_constant}) but do not prove "
+                f"it: a variable varying along {assumed_constant} could give the "
+                "same rows."
+            )
+        if ambiguous_dims:
+            messages.append(
+                f"{name} is ASSUMED to vary along {ambiguous_dims}. Its rows also "
+                "fit a variable constant along one of them, and nothing in the "
+                "rows tells the two apart."
+            )
+        for message in messages:
+            print(f"WARNING: dims of {name} are not certain. {message}")
+            warnings.warn(message, UserWarning, stacklevel=4)
 
     @staticmethod
     def _consistent(
-        frame: dd.DataFrame, held: dd.DataFrame, key: List[str], num_held_rows: int
+        frame: dd.DataFrame,
+        held: dd.DataFrame,
+        candidate_dims: List[str],
+        num_held_rows: int,
     ) -> bool:
-        """Whether the rows fit a variable on ``key`` only.
+        """Whether the rows fit a variable on ``candidate_dims`` only.
 
-        - one value per key
-        - on every row of the parquet with a key it holds: a variable missing
-          from a row of its key (held by another variable) varies along the
-          coords that row differs in
+        A site is one combination of coordinates on ``candidate_dims``.
+
+        - one value per site
+        - on every row of the parquet at a site it holds: a variable missing
+          from such a row (held by another variable) varies along the coords
+          that row differs in
         """
         name = held.columns[-1]
-        if not key:  # a scalar: one value, on every row
+        if not candidate_dims:  # a scalar: one value, on every row
             num_values, num_rows = dask.compute(held[name].nunique(), frame.shape[0])
             return num_values == 1 and num_rows == num_held_rows
-        held_keys = held[key].drop_duplicates()
-        num_keys, num_key_values, num_key_rows = dask.compute(
-            held_keys.shape[0],
-            held[key + [name]].drop_duplicates().shape[0],
-            frame[key].merge(held_keys, on=key).shape[0],
+        sites_held = held[candidate_dims].drop_duplicates()
+        num_sites, num_site_values, num_rows_at_sites = dask.compute(
+            sites_held.shape[0],
+            held[candidate_dims + [name]].drop_duplicates().shape[0],
+            frame[candidate_dims].merge(sites_held, on=candidate_dims).shape[0],
         )
-        return num_key_values == num_keys and num_key_rows == num_held_rows
+        return num_site_values == num_sites and num_rows_at_sites == num_held_rows
