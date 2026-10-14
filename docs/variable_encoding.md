@@ -28,6 +28,10 @@ kinds: Argo stores `TEMP` as a plain `float32` and `CYCLE_NUMBER` as a plain `in
 
 `lo + floor(u * (hi - lo + 1))`, applied to `ObservationGenerator`'s `uniform(0, 1)` draw.
 
+With `data_structure="correlated"` the draw `u` is replaced by a smooth field before this step.
+The field is still uniform over `(0, 1)` across the grid, only correlated between neighbouring
+cells, so every transform here applies unchanged (`docs/correlated_values.md`).
+
 - Not `rng.integers`: a different RNG method consumes the stream differently, so a dtype change
   would shift every later draw and move the occupied sites. With the transform, dtype changes
   values and leaves placement identical.
