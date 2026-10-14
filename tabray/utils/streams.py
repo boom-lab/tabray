@@ -33,6 +33,7 @@ class Stream:
     CONST_COORD = 5     # choosing a variable's coordinate on a constant dim
     VAR = 10            # per-variable placement, indexed by variable, stratum
     SHARED_OVERLAP = 11 # the shared ordering behind fixed_overlap
+    CORRELATED_FIELD = 12  # smooth value field, indexed by variable
     # fmt: on
 
 
