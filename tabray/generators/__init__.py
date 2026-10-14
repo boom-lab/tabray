@@ -5,6 +5,7 @@ from tabray.generators.observation_generator import ObservationGenerator
 from tabray.generators.record_generator import RecordGenerator
 from tabray.generators.multi_var_record_generator import MultiVarRecordGenerator
 from tabray.generators.overlap_calculator import OverlapCalculator
+from tabray.generators.correlated_field import CorrelatedField
 
 __all__ = [
     "CoordinateGenerator",
@@ -12,4 +13,5 @@ __all__ = [
     "RecordGenerator",
     "MultiVarRecordGenerator",
     "OverlapCalculator",
+    "CorrelatedField",
 ]
