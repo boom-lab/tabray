@@ -29,6 +29,7 @@ from tabray.config import (
 )
 from tabray.generators import (
     CoordinateGenerator,
+    CorrelatedField,
     MultiVarRecordGenerator,
 )
 from tabray.output import (
@@ -63,6 +64,8 @@ class GenerateData:
         var_dims: Dimensions for each variable
         overlap: Overlap between variables (0-1 or 'random')
         fixed_overlap: Whether overlap draws are shared across variables
+        correlated_fields: Smooth value field per variable, None where the
+            values are uncorrelated
     """
 
     def __init__(
@@ -85,6 +88,9 @@ class GenerateData:
         value_range: Union[List, Tuple, None] = None,
         layout: str = "scattered",
         padded_dim: int = None,
+        data_structure: Union[str, List[str]] = "uncorrelated",
+        correlation_length: Union[float, List, None] = None,
+        noise: Union[float, List[float], None] = None,
     ) -> None:
         """Initialize the data generator with validation.
 
@@ -108,6 +114,16 @@ class GenerateData:
             overlap: Overlap between variables (0-1 or 'random', default='random')
             fixed_overlap: Whether overlapping sites should be shared across
                 variables (bool or list of bools, default=False)
+            data_structure: 'uncorrelated' (default), independent values, or
+                'correlated', values that change smoothly from cell to cell
+                (once or one per variable)
+            correlation_length: Correlated values only. In grid cells: one
+                number for every dim, or one entry per dim (a length >= 1,
+                0 for no correlation along it, None for constant along it).
+                Default 10 cells on every dim.
+            noise: Correlated values only. Standard deviation of the white
+                noise added to the smooth field, as a share of the total
+                (0 to 1, default 0); once or one per variable
 
         Raises:
             TypeError: If arguments are not of expected types
@@ -172,6 +188,12 @@ class GenerateData:
                     "value is printed after generation."
                 )
         self.padded_dim = padded_dim
+        # Whether values change smoothly between neighbouring cells. Resolved
+        # into one field per variable once the varying dims are known.
+        self.data_structure = data_structure
+        self.correlation_length = correlation_length
+        self.noise = noise
+        self.correlated_fields = None
         self._resolve_density_input()
 
         self._print_input_config()
@@ -188,6 +210,15 @@ class GenerateData:
 
         # Validate and configure
         self._validate_parameters()
+        self.correlated_fields = CorrelatedField.per_variable(
+            self.data_structure,
+            self.correlation_length,
+            self.noise,
+            self.num_vars,
+            self.shape,
+            self.var_dims_indices,
+            self.seed,
+        )
 
         self._print_updated_config()
 
@@ -247,6 +278,10 @@ class GenerateData:
         print(f"  Fixed overlap: {self.fixed_overlap}")
         print(f"  Layout: {self.layout}, padded dim: {self.padded_dim}")
         print(f"  Variable encodings: {self.var_encodings}")
+        print(
+            f"  Data structure: {self.data_structure}, correlation length: "
+            f"{self.correlation_length}, noise: {self.noise}"
+        )
 
     def _print_updated_config(self) -> None:
         """Print updated configuration after validation."""
@@ -274,6 +309,8 @@ class GenerateData:
             else "max(shape) / prod(shape)"
         )
         print(f"  Minimum density: {self.density_zero:.6g} = {rule}")
+        if any(field is not None for field in self.correlated_fields):
+            print(f"  Correlated values: {self.correlated_fields}")
 
     def _validate_parameters(self) -> None:
         """Validate initialization parameters.
@@ -566,6 +603,7 @@ class GenerateData:
             fixed_overlap=self.fixed_overlap,
             layout=self.layout,
             padded_dim=self.padded_dim,
+            correlated_fields=self.correlated_fields,
         )
 
         self._records = records
@@ -912,6 +950,7 @@ class GenerateData:
                     "var_value_ranges": [e.value_range for e in self.var_encodings],
                     "layout": self.layout,
                     "padded_dim": self.padded_dim,
+                    "correlated_fields": self.correlated_fields,
                 }
                 chunk_args.append(args)
         else:
@@ -956,6 +995,7 @@ class GenerateData:
                     "var_value_ranges": [e.value_range for e in self.var_encodings],
                     "layout": self.layout,
                     "padded_dim": self.padded_dim,
+                    "correlated_fields": self.correlated_fields,
                 }
                 chunk_args.append(args)
 

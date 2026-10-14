@@ -12,7 +12,11 @@ from typing import Dict, List, Tuple, Union, Optional
 import numpy as np
 from numpy.typing import ArrayLike
 
-from tabray.generators import CoordinateGenerator, MultiVarRecordGenerator
+from tabray.generators import (
+    CoordinateGenerator,
+    CorrelatedField,
+    MultiVarRecordGenerator,
+)
 from tabray.output import NetCDFBuilder, ParquetBuilder, VariableEncoding
 from tabray.utils import ChunkUtils
 
@@ -83,6 +87,7 @@ def generate_chunk(
     var_value_ranges: Union[List, None] = None,
     layout: str = "scattered",
     padded_dim: Optional[int] = None,
+    correlated_fields: Optional[List[Optional[CorrelatedField]]] = None,
 ) -> Tuple[int, int, str]:
     """Generate a single chunk of data in parallel.
 
@@ -124,6 +129,11 @@ def generate_chunk(
         var_value_ranges: (min, max) per variable, or one for all
         layout: How the occupied cells are arranged
         padded_dim: The axis whose first k cells each line fills under layout='padded'
+        correlated_fields: The parent's field per variable, None where the
+            values are uncorrelated. Passed as objects (a few small arrays)
+            rather than rebuilt here, so validation runs once, in the parent.
+            They depend only on the seed and the global grid, never on the
+            chunk, so every chunk applies the serial run's fields.
 
     Returns:
         Tuple of (chunk_id, total_observations, parquet_chunk_path)
@@ -193,6 +203,7 @@ def generate_chunk(
             div_points=div_points,  # Pass division points for chunk filtering
             layout=layout,
             padded_dim=padded_dim,
+            correlated_fields=correlated_fields,
         )
 
         # Round to what the encoding can store, before either format is
@@ -285,6 +296,7 @@ def generate_chunk(
             fixed_overlap=fixed_overlap,
             layout=layout,
             padded_dim=padded_dim,
+            correlated_fields=correlated_fields,
         )
 
         for var_idx, encoding in enumerate(var_encodings):

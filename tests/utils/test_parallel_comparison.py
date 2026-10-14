@@ -799,6 +799,51 @@ class TestParallelSerialComparison:
                 80,
                 id="mv-3d-empty-var",
             ),
+            # correlated values: the field is evaluated at global indices
+            pytest.param(
+                dict(
+                    num_obs=300,
+                    num_dims=2,
+                    ratio_dims=1,
+                    density=0.3,
+                    seed=5,
+                    data_structure="correlated",
+                    noise=0.1,
+                ),
+                80,
+                id="corr-sparse-2d-noise",
+            ),
+            pytest.param(
+                dict(
+                    num_obs=500,
+                    num_dims=4,
+                    ratio_dims=[2, 1, 1, 1],
+                    density=0.1,
+                    seed=11,
+                    num_vars=3,
+                    var_dims=[4, 3, 2],
+                    overlap=[0.6, 0.9],
+                    fixed_overlap=[True, True],
+                    data_structure=["correlated", "uncorrelated", "correlated"],
+                    correlation_length=[None, 2, 0, 5],
+                ),
+                120,
+                id="corr-mv-4d-mixed-dims",
+            ),
+            pytest.param(
+                dict(
+                    num_obs=240,
+                    num_dims=3,
+                    ratio_dims=[4, 3, 5],
+                    density=0.4,
+                    seed=8,
+                    layout="padded",
+                    data_structure="correlated",
+                    correlation_length=3,
+                ),
+                60,
+                id="corr-padded-3d",
+            ),
         ],
     )
     def test_parallel_reproduces_serial_exactly(self, temp_dir, params, max_obs):
