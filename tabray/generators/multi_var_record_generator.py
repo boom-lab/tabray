@@ -10,6 +10,7 @@ from tabray.generators.record_generator import RecordGenerator
 from tabray.utils.chunk_utils import ChunkUtils
 from tabray.utils.streams import Stream, stream
 from tabray.generators.overlap_calculator import OverlapCalculator
+from tabray.generators.correlated_field import CorrelatedField
 
 
 class MultiVarRecordGenerator:
@@ -64,6 +65,7 @@ class MultiVarRecordGenerator:
         div_points: Optional[List[int]] = None,
         layout: str = "scattered",
         padded_dim: Optional[int] = None,
+        correlated_field: Optional[CorrelatedField] = None,
     ) -> Dict[str, np.ndarray]:
         """Place the single variable, one stratum at a time.
 
@@ -83,6 +85,8 @@ class MultiVarRecordGenerator:
             div_points: Division points for chunk filtering in parallel mode
             layout: ``scattered`` or ``padded``
             padded_dim: The axis whose first k cells each line fills under ``padded``
+            correlated_field: var0's smooth value field, or None for
+                uncorrelated values
 
         Returns:
             Dictionary with the filled var0 record
@@ -110,6 +114,10 @@ class MultiVarRecordGenerator:
             layout=layout,
             padded_dim=padded_dim,
         )
+        # The field is evaluated at global indices, before the rebase below,
+        # so it does not depend on the chunking.
+        if correlated_field is not None:
+            observations = correlated_field.apply(observations, multi_indices)
         # The record array is chunk-shaped, so rebase the split axis.
         if stratum_start:
             multi_indices = tuple(
@@ -143,6 +151,7 @@ class MultiVarRecordGenerator:
         fixed_overlap: Optional[List[bool]] = None,
         layout: str = "scattered",
         padded_dim: Optional[int] = None,
+        correlated_fields: Optional[List[Optional[CorrelatedField]]] = None,
     ) -> tuple[Dict[str, np.ndarray], float]:
         """Generate multi-variable records with overlap control.
 
@@ -169,6 +178,9 @@ class MultiVarRecordGenerator:
                 only.
             layout: ``scattered`` or ``padded``
             padded_dim: The axis whose first k cells each line fills under ``padded``
+            correlated_fields: One smooth value field per variable, None for
+                an uncorrelated one (CorrelatedField.per_variable). None
+                leaves every variable uncorrelated.
 
         Returns:
             Tuple of (records dict, actual overlap achieved); the overlap is
@@ -223,6 +235,10 @@ class MultiVarRecordGenerator:
                 indices, values = placed[var_name]
                 if values.size == 0:
                     continue
+                # Global indices here, before the rebase below, so the field
+                # does not depend on the chunking.
+                if correlated_fields and correlated_fields[var_idx] is not None:
+                    values = correlated_fields[var_idx].apply(values, indices)
                 if stratum_start:
                     indices = tuple(
                         axis - stratum_start if dim == dim_split else axis
@@ -258,6 +274,7 @@ class MultiVarRecordGenerator:
             div_points,
             layout,
             padded_dim,
+            correlated_fields[0] if correlated_fields else None,
         )
         if chunk_id is not None:
             return records, None
