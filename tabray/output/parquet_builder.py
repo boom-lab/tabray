@@ -203,24 +203,30 @@ class ParquetBuilder:
             var_encodings: One VariableEncoding per variable, or None
 
         Returns:
-            The frame, with value columns cast
+            A new frame with the value columns cast; ``dataframe`` is unchanged
         """
         if not var_encodings:
             return dataframe
+        cast_columns = {}
         for index, encoding in enumerate(var_encodings):
             for column in (f"var{index}", "record" if index == 0 else None):
-                if column and column in dataframe.columns and encoding.text_width:
+                if not column or column not in dataframe.columns:
+                    continue
+                if encoding.text_width:
                     # codes -> pyarrow-backed strings
-                    dataframe[column] = pd.Series(
+                    cast_columns[column] = pd.Series(
                         encoding.to_text(dataframe[column].to_numpy(dtype=float)),
                         index=dataframe.index,
                         dtype=encoding.pandas_dtype(),
                     )
-                elif column and column in dataframe.columns:
-                    dataframe[column] = dataframe[column].astype(
+                else:
+                    cast_columns[column] = dataframe[column].astype(
                         encoding.pandas_dtype()
                     )
-        return dataframe
+        # a new frame, the input untouched: the generated data keep their codes
+        # (as NetCDFBuilder.codes_to_text does), so saving again casts codes
+        # again rather than parsing text back as numbers
+        return dataframe.assign(**cast_columns)
 
     @staticmethod
     def save_to_file(
