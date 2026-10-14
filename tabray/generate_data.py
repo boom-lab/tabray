@@ -831,7 +831,13 @@ class GenerateData:
 
     def _describe(self, source) -> None:
         """Measure the written netCDF and print it; kept as self.description."""
-        self.description = DatasetDescription.describe_dataset(source)
+        # var0 holds the most sites by construction, so the default reference
+        # would pick it too; passed to match the definition of overlap.
+        # A single variable is named "record".
+        reference = "var0" if self.num_vars > 1 else None
+        self.description = DatasetDescription.describe_dataset(
+            source, reference=reference
+        )
         print(f"Written dataset, grid {self.description.attrs['grid']}:")
         print(self.description.to_string())
 
