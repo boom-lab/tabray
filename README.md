@@ -239,6 +239,26 @@ gen = GenerateData(
 dataset, df = gen.generate()
 ```
 
+### Smooth (Correlated) Values
+
+By default every value is drawn independently, which is white noise and does not compress. For
+values that change smoothly from cell to cell, like a real temperature field, add one argument:
+
+```python
+gen = GenerateData(
+    num_obs=20000,
+    num_dims=3,
+    ratio_dims=(1, 2, 2),
+    density=0.9,
+    seed=42,
+    data_structure="correlated",  # smooth values; occupied sites are unchanged
+)
+```
+
+`correlation_length` and `noise` refine the field when needed, e.g.
+`correlation_length=[None, 5, 30]` (constant along `x0`, 5 cells along `x1`, 30 along `x2`) and
+`noise=0.01`. See **Parameters** below.
+
 ### Describing a Dataset
 
 `generate()` ends by printing what it wrote, measured from the netCDF output; the table is kept
@@ -324,6 +344,23 @@ The reference is `reference` if given, else the variable with the most occupied 
   dtypes, the reserved code for integers). One value for all variables, or one per variable.
   Argo files use `99999.0` in a `float32` variable, in preference to NaN; that is expressible
   here. For packed dtypes the fill code is reserved, so no real value can collide with it.
+- **data_structure** (str or list, optional): `"uncorrelated"` (default) draws every value
+  independently, which is white noise. `"correlated"` makes values change smoothly from cell to
+  cell, as temperature or salinity do. This matters for compression: white noise does not
+  compress, and a smooth field does. The occupied sites are the same either way, and the values
+  still spread evenly over `value_range`, so `dtype`, `pack` and `fill_value` work as before. One
+  value for all variables, or one per variable. `docs/correlated_values.md` explains the method.
+- **correlation_length** (float or list, optional): Only with `data_structure="correlated"`. How
+  many grid cells apart two values must be before they stop resembling each other (default: 10
+  cells along every dimension). One number for every dimension, or one entry per dimension: a
+  length of at least 1, `0` for no correlation along that dimension, or `None` for a value that
+  is constant along it. Shared by all correlated variables.
+- **noise** (float or list, optional): Only with `data_structure="correlated"`. The share of
+  white noise added to the smooth field, as a standard deviation from 0 (default, perfectly
+  smooth) to 1 (all noise). Real data carry measurement and model noise, and even a little has a
+  large effect on compression: `0.01` and `0.1` already give very different compressed sizes.
+  One value for all correlated variables, or one per variable (`0` or `None` on an uncorrelated
+  one).
 - (experimental) **layout** (str, optional): How the occupied cells are arranged — `"scattered"` (default,
   uniformly at random) or `"padded"` (each line fills positions `0..k-1` of one axis, as Argo and
   CrocoLake profiles do). One layout for the whole dataset: every variable that varies along the

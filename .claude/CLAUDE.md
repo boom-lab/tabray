@@ -35,7 +35,7 @@ black tabray tests                # config in pyproject.toml, target py312
 GenerateData.__init__  ->  validators/   ParameterValidator, DimensionValidator, SparsityValidator
                        ->  config/       MultiVarSparsityConfig, MultiVarDimensionsConfig, MultiVarOverlapConfig
 GenerateData.generate  ->  generators/   CoordinateGenerator, MultiVarRecordGenerator (-> RecordGenerator,
-                                         ObservationGenerator, OverlapCalculator)
+                                         ObservationGenerator, OverlapCalculator, CorrelatedField)
                        ->  output/       NetCDFBuilder, ParquetBuilder, PathManager, VariableEncoding,
                                          DatasetDescription (measures the written netCDF)
                        ->  workers/      generate_chunk  (parallel path only)
@@ -98,6 +98,16 @@ GenerateData.generate  ->  generators/   CoordinateGenerator, MultiVarRecordGene
 - `S<k>` strings: codes through the integer transform, text only on write (`to_text`, `NetCDFBuilder.codes_to_text`, `ParquetBuilder.cast_values`); parquet `string[pyarrow]`. `value_range` with min == max: a constant.
 - `to_stored` runs once (`GenerateData._to_stored` + worker counterpart) before both writers; scale from `VALUE_RANGE`, never from the data.
 
+### Correlated values
+
+`data_structure` (`"uncorrelated"` default, or `"correlated"`), `correlation_length`, `noise` → `CorrelatedField` (`generators/correlated_field.py`), one per variable or None. Reasons and measurements: `docs/correlated_values.md`.
+
+- Default skips the path entirely; default output must stay byte-identical.
+- The field replaces the uniform draw `u` by `ndtr(smooth field at the cell's GLOBAL indices)`, still uniform(0, 1), before `to_stored`. Applied in `MultiVarRecordGenerator.generate` and `generate_without_overlap` before the `stratum_start` rebase.
+- `u` is still drawn (and feeds `noise`): sites never move between correlated and uncorrelated runs.
+- Lengths in grid cells, per dim: `>= 1`, `0` white, `None` constant; a variable's constant dims get no wavenumber.
+- Bitwise serial = parallel: `_sum_waves` works per cell, one wave at a time, dims in fixed order; no matmul or 2-D reductions. Cosine in float32 after reducing the angle in float64 (7x faster).
+
 ### Determinism and the serial/parallel contract
 
 Every RNG comes from `stream(seed, tag, *index)` (`utils/streams.py`); tags live in the `Stream` class.
@@ -112,6 +122,7 @@ Every RNG comes from `stream(seed, tag, *index)` (`utils/streams.py`); tags live
 | `CONST_COORD` | variable, constant dim | a variable's coordinate on a constant dim |
 | `VAR` | variable, stratum | per-variable placement |
 | `SHARED_OVERLAP` | — | the shared ordering behind `fixed_overlap` |
+| `CORRELATED_FIELD` | variable | the plane waves of a correlated variable |
 
 - No tuple contains a chunk id: serial and workers derive the same generator for the same purpose.
 - Chunks slice the global sorted coordinate axis by index; they never advance a stream.
