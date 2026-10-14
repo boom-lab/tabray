@@ -103,10 +103,10 @@ GenerateData.generate  ->  generators/   CoordinateGenerator, MultiVarRecordGene
 `data_structure` (`"uncorrelated"` default, or `"correlated"`), `correlation_length`, `noise` → `CorrelatedField` (`generators/correlated_field.py`), one per variable or None. Reasons and measurements: `docs/correlated_values.md`.
 
 - Default skips the path entirely; default output must stay byte-identical.
-- The field replaces the uniform draw `u` by `ndtr(smooth field at the cell's GLOBAL indices)`, still uniform(0, 1), before `to_stored`. Applied in `MultiVarRecordGenerator.generate` and `generate_without_overlap` before the `stratum_start` rebase.
-- `u` is still drawn (and feeds `noise`): sites never move between correlated and uncorrelated runs.
-- Lengths in grid cells, per dim: `>= 1`, `0` white, `None` constant; a variable's constant dims get no wavenumber.
-- Bitwise serial = parallel: `_sum_waves` works per cell, one wave at a time, dims in fixed order; no matmul or 2-D reductions. Cosine in float32 after reducing the angle in float64 (7x faster).
+- The field replaces the uniform draw `u` by `ndtr(smooth field at the site's GLOBAL indices)`, still uniform(0, 1), before `to_stored`. Applied in `MultiVarRecordGenerator.generate` and `generate_without_overlap` before the `stratum_start` rebase.
+- Sites are drawn before values on every stream and never depend on them, so correlated and uncorrelated runs occupy the same sites. `u` is still drawn because `noise` uses it and the placement code stays unchanged.
+- Lengths in sites, per dim: `>= 1`, `0` white, `None` constant; a variable's constant dims get no wavenumber.
+- Bitwise serial = parallel: `_sum_waves` works per site, one wave at a time, dims in fixed order; no matmul or 2-D reductions. Cosine in float32 after reducing the angle in float64 (7x faster).
 
 ### Determinism and the serial/parallel contract
 

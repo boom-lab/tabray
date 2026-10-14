@@ -34,8 +34,8 @@ partition "GenerateData: unchanged" {
 
 partition "CorrelatedField(seed, var_idx, num_dims, varying_dims, correlation_length, noise)  (NEW)" {
   #C8E6C9:resolve_lengths(correlation_length, num_dims): one entry per dim
-  None -> 10 cells on every dim; a number -> that length on every dim
-  a list -> one entry per dim: >= 1 cells, 0 (white), None (constant)
+  None -> 10 sites on every dim; a number -> that length on every dim
+  a list -> one entry per dim: >= 1 sites, 0 (white), None (constant)
   0 < L < 1, negative, NaN, inf, non-number, wrong length -> ValueError;
   #C8E6C9:rng = stream(seed, <b>Stream.CORRELATED_FIELD</b> (NEW tag 12), var_idx)
   draws, always all of them and in this order:
@@ -51,15 +51,15 @@ partition "CorrelatedField(seed, var_idx, num_dims, varying_dims, correlation_le
 lengths 10, 10, 10; std of k per dim 0.1005, 0.0939, 0.1014 (target 1/L = 0.1);
 
 partition "apply(uniform, global_indices)  (NEW)" {
-  #C8E6C9:blocks of 16384 cells -> _sum_waves(block):
-  for each of the 64 waves, cell by cell:
+  #C8E6C9:blocks of 16384 occupied sites -> _sum_waves(block):
+  for each of the 64 waves, site by site:
     angle = phi[m] + sum_d k[m, d] * i_d        (float64, dims in fixed order)
     angle -= 2 pi * rint(angle / 2 pi)          (into [-pi, pi])
     total += cos(float32(angle))
   S = total * sqrt(2 / 64);
   note right
     No matrix product or 2-D reduction:
-    a cell's value then comes from the
+    a site's value then comes from the
     same operations whatever the array
     length, so a chunk reproduces the
     serial run bit for bit. float32 cos
@@ -69,10 +69,10 @@ partition "apply(uniform, global_indices)  (NEW)" {
   u' = ndtr(z): uniform over (0, 1) again   (scipy, NEW dependency);
 }
 
-#FFF9C4:the example field on every cell of [4, 8, 8], row x0 = 0, x1 = 0:
+#FFF9C4:the example field on every site of [4, 8, 8], row x0 = 0, x1 = 0:
 x2 = 0..7:  0.392 0.436 0.487 0.540 0.590 0.632 0.663 0.681
 correlation of neighbours along x2: <b>0.994</b> (unit 00 values: 0.167)
-evaluated in two parts (split after a third of the cells): bit-identical;
+evaluated in two parts (split after a third of the sites): bit-identical;
 
 partition "CorrelatedField.per_variable(...)  (NEW, used from unit 03)" {
   #C8E6C9:data_structure, noise: spread_per_variable (unit 01)
@@ -97,7 +97,7 @@ legend right
   <b>What to review in unit 02</b>
   * the draw order (it is part of the data)
   * k per dim: Gaussian, white, constant
-  * _sum_waves: per cell, fixed order, float32 cos
+  * _sum_waves: per site, fixed order, float32 cos
   * noise through ndtri / ndtr
   * per_variable's errors and warning
   <b>Size</b>: +471 (src 354, tests 117: statistics,

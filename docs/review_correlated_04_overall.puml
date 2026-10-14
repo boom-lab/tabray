@@ -1,11 +1,11 @@
 @startuml review_correlated_04_overall
 ' Review unit 04 of 04 -- see docs/review_correlated.md for the series.
-' The whole branch, final (70fa64d) against main (57f873a): +1021/-17.
-' Every number below is from runs of the cases at 57f873a and ca25382
-' (the code at 70fa64d; the last two commits change docs only).
+' The whole branch, final (6f46728) against main (57f873a): +1021/-17.
+' Every number below is from runs of the cases at 57f873a and 2da63d3
+' (the code at 6f46728; the last two commits change docs only).
 ' Render: plantuml -tsvg docs/review_correlated_04_overall.puml
 
-title Unit 04 -- the whole branch: correlated values, final against main (57f873a..70fa64d)
+title Unit 04 -- the whole branch: correlated values, final against main (57f873a..6f46728)
 
 skinparam shadowing false
 skinparam defaultFontName Monospaced
@@ -57,7 +57,7 @@ partition "MultiVarRecordGenerator.generate" {
 neighbours along x2, case S / CS: 0.167 / 0.994
 case Z compressed share: 1.01 (main) / 0.854 (correlated, default);
 
-partition "docs (3309cb7) and handoff (70fa64d)" {
+partition "docs (cab6d74) and handoff (6f46728)" {
   #C8E6C9:README: usage section and three parameter entries
   docs/correlated_values.md: method, measured compression, determinism, cost
   docs/variable_encoding.md: u may be correlated, still uniform
@@ -79,9 +79,9 @@ legend right
   <b>The commits</b>
   7eb2025 per-variable rule        +69/-15
   df6419f CorrelatedField          +471
-  ca25382 GenerateData wiring      +299/-2
-  3309cb7 docs                     +171/-1
-  70fa64d handoff note             +12
+  2da63d3 GenerateData wiring      +299/-2
+  cab6d74 docs                     +171/-1
+  6f46728 handoff note             +12
   <b>Size</b>: +1021/-17, over the 400 target
   (src +493/-16, tests +345, docs +183/-1)
 end legend

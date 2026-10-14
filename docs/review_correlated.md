@@ -45,12 +45,12 @@ rebased onto main `57f873a`. It is now five commits with the same final tree:
 | 00 | `57f873a` | — | baseline: main |
 | 01 | `57f873a 7eb2025` | +69/-15 (src) | the per-variable broadcast rule moves to `utils/per_variable.py`; NumPy scalars count as one value |
 | 02 | `7eb2025 df6419f` | +471 (src +354, tests +117) | `CorrelatedField`, new stream tag, scipy; not wired |
-| 03 | `df6419f ca25382` | +299/-2 (src +70/-1, tests +229/-1) | `data_structure`, `correlation_length`, `noise` in `GenerateData`; applied on global indices before the chunk rebase |
-| — | `ca25382 3309cb7` | +171/-1 (docs) | README, `docs/correlated_values.md`, `docs/variable_encoding.md`, CLAUDE.md |
-| — | `3309cb7 70fa64d` | +12 (docs) | HANDOFF: parquet dims bug found in review |
-| 04 | `57f873a 70fa64d` | +1021/-17 | the whole branch, final against initial |
+| 03 | `df6419f 2da63d3` | +299/-2 (src +70/-1, tests +229/-1) | `data_structure`, `correlation_length`, `noise` in `GenerateData`; applied on global indices before the chunk rebase |
+| — | `2da63d3 cab6d74` | +171/-1 (docs) | README, `docs/correlated_values.md`, `docs/variable_encoding.md`, CLAUDE.md |
+| — | `cab6d74 6f46728` | +12 (docs) | HANDOFF: parquet dims bug found in review |
+| 04 | `57f873a 6f46728` | +1021/-17 | the whole branch, final against initial |
 
-The full test suite passes at 7eb2025, df6419f and ca25382; the last two
+The full test suite passes at 7eb2025, df6419f and 2da63d3; the last two
 commits change no code. Unit 02 is over the 400-line target on its own, and the
 branch is at +1021.
 
@@ -61,7 +61,7 @@ branch is at +1021.
    not iterable`; from 7eb2025 it applies to every variable. The commit
    message says so.
 2. **The default length is longer than every axis of the example.** Case CS
-   warns three times (10 cells on axes of 4 and 8). The default is in cells,
+   warns three times (10 sites on axes of 4 and 8). The default is in sites,
    not a share of the axis, so small grids are nearly constant unless a
    length is given.
 3. **Uncompressed files do not change size.** Cases CS and CA write the same

@@ -115,12 +115,12 @@ class GenerateData:
             fixed_overlap: Whether overlapping sites should be shared across
                 variables (bool or list of bools, default=False)
             data_structure: 'uncorrelated' (default), independent values, or
-                'correlated', values that change smoothly from cell to cell
+                'correlated', values that change smoothly from site to site
                 (once or one per variable)
-            correlation_length: Correlated values only. In grid cells: one
+            correlation_length: Correlated values only. In sites: one
                 number for every dim, or one entry per dim (a length >= 1,
                 0 for no correlation along it, None for constant along it).
-                Default 10 cells on every dim.
+                Default 10 sites on every dim.
             noise: Correlated values only. Standard deviation of the white
                 noise added to the smooth field, as a share of the total
                 (0 to 1, default 0); once or one per variable
@@ -188,7 +188,7 @@ class GenerateData:
                     "value is printed after generation."
                 )
         self.padded_dim = padded_dim
-        # Whether values change smoothly between neighbouring cells. Resolved
+        # Whether values change smoothly between neighbouring sites. Resolved
         # into one field per variable once the varying dims are known.
         self.data_structure = data_structure
         self.correlation_length = correlation_length

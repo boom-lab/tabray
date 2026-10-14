@@ -1,10 +1,10 @@
 @startuml review_correlated_03_wiring
 ' Review unit 03 of 04 -- see docs/review_correlated.md for the series.
-' State AFTER commit ca25382 (src +70/-1, tests +229/-1).
-' Every number below is from a run of the cases at commit ca25382.
+' State AFTER commit 2da63d3 (src +70/-1, tests +229/-1).
+' Every number below is from a run of the cases at commit 2da63d3.
 ' Render: plantuml -tsvg docs/review_correlated_03_wiring.puml
 
-title Unit 03 -- data_structure, correlation_length, noise in GenerateData (df6419f..ca25382)
+title Unit 03 -- data_structure, correlation_length, noise in GenerateData (df6419f..2da63d3)
 
 skinparam shadowing false
 skinparam defaultFontName Monospaced
@@ -47,11 +47,12 @@ partition "GenerateData constructor" {
   #FFF9C4:printed: "Data structure: correlated, correlation length: [None, 2, 4], noise: 0.1"
   "Correlated values: [CorrelatedField(lengths={'x0': None, 'x1': 2.0, 'x2': 4.0}, noise=0.1),
                       CorrelatedField(lengths={'x1': 2.0, 'x2': 4.0}, noise=0.1)]"   (case CA)
-  case CS: UserWarning, the default length 10 exceeds x0 (4 cells), x1, x2 (8);
+  case CS: UserWarning, the default length 10 exceeds x0 (4 sites), x1, x2 (8);
 }
 
 partition "MultiVarRecordGenerator.generate(..., correlated_fields)" {
-  :sites, then rng.uniform(0, 1) per site: unchanged, so no site moves;
+  :sites, then rng.uniform(0, 1) per site: unchanged
+  (the value draw is the last on each stream, so sites never depend on it);
   if (variables) then (several)
     #C8E6C9:for each variable: indices, values = placed[var]  (GLOBAL indices)
     values = correlated_fields[var].apply(values, indices)
@@ -73,15 +74,15 @@ partition "parallel path" {
 
 :to_stored, netCDF and parquet: unchanged;
 
-#FFF9C4:<b>case CS</b>: the same 102 sites as case S; new values
+#FFF9C4:<b>case CS</b>: the same 102 occupied sites as case S; new values
 first sites (0, 0, 5), (0, 0, 6), (0, 0, 7): 0.632082, 0.663142, 0.681228
 equal to the unit 02 field at x2 = 5, 6, 7 (noise 0: the uniform draw is not used)
 neighbours along x2 (33 pairs): <b>0.994</b> (case S: 0.167)
 ds.nc 14062 B, parquet 5396 B (float64, uncompressed: same sizes);
 
 #FFF9C4:<b>case CA</b>: var0 and var1 on the same sites as case A
-var0 neighbours along x2: 0.944 (L = 4 cells, noise 0.1)
-var1 (x1, x2): 6 cells, its own field; files 15729 / 5978 B;
+var0 neighbours along x2: 0.944 (L = 4 sites, noise 0.1)
+var1 (x1, x2): 6 occupied sites, its own field; files 15729 / 5978 B;
 
 :<b>case S, case A</b>: byte-identical to unit 00
 serial equals parallel in all four cases, netCDF and parquet;
@@ -102,13 +103,14 @@ legend right
   <b>What to review in unit 03</b>
   * apply runs on GLOBAL indices, before the rebase,
     in both the multi- and single-variable paths
-  * the uniform draw is still made: sites do not move
+  * the uniform draw is still made: noise uses it,
+    and the placement code stays unchanged
   * the fields travel to the workers as objects
   * default output byte-identical
   <b>Tests</b>: GenerateData and validation tests; three
   correlated cases in test_parallel_reproduces_serial_exactly
   <b>Size</b>: +299/-2 (src +70/-1)
-  <b>Verified</b>: full suite passes at ca25382.
+  <b>Verified</b>: full suite passes at 2da63d3.
 end legend
 
 @enduml
