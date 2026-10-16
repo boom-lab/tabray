@@ -177,7 +177,7 @@ class MultiVarSparsityConfig:
             density: Density specification (scalar, 2-element, or full list),
                 as returned by ParameterValidator.validate_density_refvar
             num_vars: Number of variables
-            num_obs: Total observations for max density variable
+            num_obs: Number of observations of var0
             density_min: Minimum allowable density
             rng: Random number generator
             grid_fractions: Own grid / full grid per variable (default: all 1)
