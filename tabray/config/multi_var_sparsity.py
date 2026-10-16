@@ -13,7 +13,10 @@ class MultiVarSparsityConfig:
 
     This class processes the density parameter which can be:
     - A scalar: all variables get the same density
-    - A 2-element list/tuple: one var gets min, one gets max, rest are random
+    - A 2-element list/tuple, num_vars > 2: [max, min] range; var0 gets max,
+      one other var gets min, the rest are random
+    - A 2-element list/tuple, num_vars == 2: one density per variable, any
+      order
     - A num_vars-element list/tuple: each var gets its corresponding density
 
     """
@@ -41,14 +44,16 @@ class MultiVarSparsityConfig:
     ) -> np.ndarray:
         """Create density array from 2-element list.
 
-        density_list is [max, min]. var0 takes the maximum and one other
-        variable takes the minimum, so both prescribed values are used: with
-        two variables the range is exactly the two densities. Any further
-        variables are drawn uniformly from [min, max].
+        - num_vars > 2: density_list is [max, min]; var0 takes the maximum,
+          one other variable the minimum, the rest are drawn uniformly from
+          [min, max]
+        - num_vars == 2: one density per variable, var0 first, in either
+          order (var1 may take the larger one)
 
         Args:
-            density_list: List with exactly 2 elements [max, min]; the order is
-                checked by ParameterValidator.validate_density_refvar
+            density_list: List with exactly 2 elements, var0's first; for
+                num_vars > 2 the order [max, min] is checked by
+                ParameterValidator.validate_density_refvar
             num_vars: Number of variables
             rng: Random number generator
 

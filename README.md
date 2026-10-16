@@ -179,7 +179,7 @@ print(dataframe.columns)  # ['x0', 'x1', 'x2', 'var0', 'var1', 'var2']
 
 **Density Options for Multiple Variables:**
 - Scalar (e.g., `0.1`): All variables have the same density
-- 2-element list/tuple `[max, min]` (e.g., `[0.3, 0.1]`): var0 gets max, one other variable gets min, the rest are drawn uniformly from `[min, max]`
+- 2-element list/tuple `[max, min]` (e.g., `[0.3, 0.1]`): var0 gets max, one other variable gets min, the rest are drawn uniformly from `[min, max]`. With `num_vars == 2` it is one density per variable instead (see below)
 - num_vars-element list/tuple (e.g., `[0.3, 0.2, 0.1]`): Each variable gets its specified density
 - `0.0` in a num_vars-element list (var1 onward): an empty variable. It is written on its own
   dimensions, every cell fill in netCDF and a null column in parquet, and adds no row. A
@@ -191,7 +191,7 @@ along. On a `[4, 8, 8]` grid, a variable on the last two dimensions at density 0
 `0.1 * 64 = 6` values, not `0.1 * 256`. var0 varies along every dimension, so its own grid is
 the full grid (`docs/explainer_multivar.md`).
 
-var0 is the overlap reference and must hold the most observations; otherwise the constructor raises. The check is on counts, not densities: a variable on fewer dimensions may have a larger density than var0 (a per-profile time at 1.0 next to var0 at 0.24) as long as it holds fewer values. A two-element `[max, min]` range must list the maximum first, since var0 takes it; with two variables, two values are one density per variable.
+var0 is the overlap reference and must hold the most observations; otherwise the constructor raises. The check is on counts, not densities: a variable on fewer dimensions may have a larger density than var0 (a per-profile time at 1.0 next to var0 at 0.24) as long as it holds fewer values. With three or more variables, a two-element density is a `[max, min]` range and must list the maximum first, since var0 takes it. With two variables, the two values are one density per variable, var0 first, in either order: `density=[0.24, 1.0]` gives a var1 on fewer dimensions the larger density, as long as var0 still holds more observations.
 
 **Variable Dimensions Options:**
 - Int (e.g., `2`): Each non-reference variable uses 2 randomly selected dimensions
@@ -298,7 +298,7 @@ The reference is `reference` if given, else the variable with the most occupied 
 - **ratio_dims** (tuple): Tuple with `num_dims` elements defining the relative size of each dimension (all must be positive)
 - **density** (float, list, or tuple, optional): 
   - Float: Fraction of grid points that contain observations, range (0.0, 1.0]
-  - 2-element list/tuple `[max, min]`: var0 gets max, one other variable gets min, the rest are drawn from the range. With two variables it is one density per variable
+  - 2-element list/tuple `[max, min]`: var0 gets max, one other variable gets min, the rest are drawn from the range; the maximum must come first. With `num_vars == 2`: one density per variable, var0 first, in either order
   - num_vars-element list/tuple: Specific density for each variable, var0 first (see **Density Options for Multiple Variables**)
 
   There is a **lower bound**, because a dataset is only generated if every coordinate on every
