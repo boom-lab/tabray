@@ -6,8 +6,6 @@ decodes it at close to memory speed. Real fields change little between
 neighbouring sites, and compression relies on that similarity.
 ``data_structure="correlated"`` replaces the draw at each occupied site with
 a smooth field evaluated at the site's grid indices.
-docs/correlated_values.md explains the design and reports its effect on
-compression.
 """
 
 import warnings
@@ -46,8 +44,7 @@ class CorrelatedField:
     numbers are drawn. It models the small site-to-site variation of real
     measurements and model output: even when it is small next to the
     variable's range, it changes the low bits of every stored value, and
-    those bits do not compress. See docs/correlated_values.md for measured
-    sizes.
+    those bits do not compress.
 
     The value at a site depends only on the seed, the variable, the site's
     global indices and its uniform draw, so serial and parallel runs produce

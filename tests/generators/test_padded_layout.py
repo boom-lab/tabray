@@ -2,8 +2,7 @@
 
 Argo and CrocoLake fill the first k levels of each profile; the generator's
 default scatters its occupancy, which at a fixed density changes compressed
-array size by 2.3x and reverses which format is smaller. See
-docs/layout_plan.md.
+array size by 2.3x and reverses which format is smaller.
 """
 
 import contextlib

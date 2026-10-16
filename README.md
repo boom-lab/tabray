@@ -261,13 +261,13 @@ DatasetDescription.describe_dataset("data.nc", reference="temp")  # overlap agai
 - **value_range** (tuple or list): (min, max) of the values (default: `(0, 1)` for floats, `(0, 100)` for integers); `min == max` gives a constant
 - **pack** (str or list): integer type to pack floats into on disk with `scale_factor`/`add_offset` (default: `None`)
 - **fill_value** (float or list): marks a vacant site (default: NaN for floats, a reserved code for integers)
-- **data_structure** (str or list): `"uncorrelated"` (default) or `"correlated"` (see `docs/correlated_values.md`)
+- **data_structure** (str or list): `"uncorrelated"` (default) or `"correlated"`
 - **correlation_length** (float or list): correlation length in sites, per dimension (default: 10); `0` for none, `None` for constant
 - **noise** (float or list): share of white noise in a correlated field, 0 (default) to 1
-- (experimental) **layout** (str): `"scattered"` (default) or `"padded"`, where each line fills the first k cells of one axis, as profiles do (see `docs/layout_plan.md`)
+- (experimental) **layout** (str): `"scattered"` (default) or `"padded"`, where each line fills the first k cells of one axis, as profiles do
 - (experimental) **padded_dim** (int): the padded axis (default: the last); `overlap` cannot be set with `layout="padded"`
 
-Per-variable parameters take one value for all variables, or a list with one per variable. Encoding details: `docs/variable_encoding.md`.
+Per-variable parameters take one value for all variables, or a list with one per variable.
 
 ## Notebooks
 
