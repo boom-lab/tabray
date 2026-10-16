@@ -317,13 +317,18 @@ class ParquetBuilder:
         if write_metadata is None:
             write_metadata = chunk_id is None
 
-        # Save to parquet (overwrite=False to avoid deleting other chunks)
+        # Save to parquet (overwrite=False to avoid deleting other chunks).
+        # write_index=False: the index is a row counter that restarts in every
+        # chunk, so it holds no information; written, it becomes a column
+        # (__null_dask_index__) that dask loads on every read and that takes
+        # over a third of the file
         ddf.to_parquet(
             dirpath,
             engine="pyarrow",
             name_function=name_function,
             append=False,
             overwrite=False,  # Never overwrite at dask level for chunks
+            write_index=False,
             write_metadata_file=write_metadata,
         )
 
