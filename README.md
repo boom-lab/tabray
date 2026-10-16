@@ -1,17 +1,6 @@
-# tabray - A data sparsity analysis toolset
+# tabray
 
-The goal of this repository is to study the performance of _read_ operations of different data when stored in tabular or array structure. I'll start using netCDF for arrays and parquet for tabular, as they are the most commonly discussed. The number of permutations on how to do this are possibly infinite, so I'm picking a few guided by the following principles:
-
-1. I want to illustrate limit cases: extremely regular ('gridded') data and extremely sparse data;
-2. I want to capture some kind of transition between the two limit cases;
-3. The metric of comparison is the user experience in the form of time to read or manipulate a given amount of observations;
-4. I want to explore both smaller- and larger-than-memory cases.
-
-Notes:
-
-- Points 3 and 4 are related: I'll use read time as the metric for small enough data, and manipulation time (e.g. computing the mean, plotting, or so) for larger-than-memory data
-
-Besides generating data, the package describes any netCDF or parquet dataset: dimensions, density and overlap of each variable. Describing a real dataset gives the parameters to generate a synthetic one like it (see **Describing a Dataset**).
+tabray is a Python Package for generating tabular and array data structures with different topologies. It currently writes to netCDF for arrays and parquet for tabular, but I'd like to add Zarr in the near future. Besides generating data, the package can describe any netCDF or parquet dataset: dimensions, density and overlap of each variable. Describing a real dataset gives the parameters to generate a synthetic one like it (see **Describing a Dataset**).
 
 ## Installation
 
@@ -131,25 +120,17 @@ if __name__ == "__main__":
 ```
 
 **How it works:**
-- The run is split into `ceil(num_obs / max_obs)` chunks along the longest dimension that every variable varies along. The chunk count cannot exceed that dimension's length; a `max_obs` that asks for more chunks raises.
+- The run is split into `ceil(num_obs / max_obs)` chunks along the longest dimension that every variable varies along.
 - Each chunk runs in its own process (`concurrent.futures.ProcessPoolExecutor`). `max_workers` caps the number of processes running at once (default: the CPU count).
-- Every random draw depends on the seed and on the position in the grid, never on the chunk, so the chunks together reproduce the serial output: same coordinates, sites, values and overlap. Overlap targets apply to the whole grid, not to each chunk.
-- `generate()` returns `(None, None)`; the results exist only on disk.
-- A script needs the `if __name__ == "__main__":` guard: the worker processes start by importing it again, and without the guard each would start generating.
-- For NetCDF: one file per chunk (e.g., `data_0.nc`, `data_1.nc`, etc.), which `xr.open_mfdataset` combines. Chunk files keep every dimension so that they concatenate, so a variable defined on fewer dimensions appears on the full grid, NaN outside its constant coordinate.
-- `generate(merge_nc=True)` merges the chunk files into one file, with those constant dimensions removed as in a serial run, and deletes the chunk files. The merge needs more memory than the data size; leave it off for output that does not fit in memory.
+- Every random draw depends on the seed and on the position in the grid, not on the chunk, so the chunks together reproduce the serial output
+- `generate()` returns the dataset and dataframe dask-backed: they read from the written files, and nothing is loaded until it is used
+- For NetCDF: it generates one file per chunk (e.g., `data_0.nc`, `data_1.nc`, etc.), which are merged if `merge_nc=True` (note that this needs more memory).
 - For Parquet: each chunk is written to a scratch directory (`generate(parquet_tmp=...)`), then Dask merges the chunks into one dataset with ~300 MB partitions and deletes the scratch files.
-- Worker logs: off by default. Set `TABRAY_WORKER_LOG=debug` (or `info`) to write one
-  `worker_<id>.log` per chunk into `generate(log_dir=...)`, default `./logs`
-
-**Memory:**
 - `max_obs` refers to the observations of `var0`, the variable with the most observations
 - Each process holds one chunk, so peak memory grows with chunk size times the number of processes running at once
-- Lower `max_obs` (smaller chunks) or `max_workers` (fewer processes) to reduce it
+- Lower `max_obs` (smaller chunks) or `max_workers` (fewer processes) to reduce memory usage
 
 ### Multi-Variable Datasets
-
-Generate datasets with multiple observation variables measured at potentially different points and dimensions:
 
 ```python
 from tabray.generate_data import GenerateData
@@ -172,61 +153,38 @@ dataset, dataframe = gen.generate(
     parquet_filepath="multi_var_data.parquet"
 )
 
-# The result is an xarray.Dataset (not DataArray) with multiple data variables
-print(list(dataset.data_vars))  # ['var0', 'var1', 'var2']
-
-# The DataFrame has one row per site holding at least one variable and one
-# column per variable, NaN where that variable is absent. A variable on fewer
-# dimensions repeats its value on every row matching it on its own dimensions;
-# a value no row matches gets a row with NaN in the dimensions it drops
-print(list(dataframe.columns))  # ['x0', 'x1', 'var0', 'var1', 'var2']
+print(list(dataset.data_vars))   # ['var0', 'var1', 'var2']
+print(list(dataframe.columns))   # ['x0', 'x1', 'var0', 'var1', 'var2']
 ```
 
-**Density Options for Multiple Variables:**
-- Scalar (e.g., `0.1`): All variables have the same density
-- 2-element list/tuple `[max, min]` (e.g., `[0.3, 0.1]`): var0 gets max, one other variable gets min, the rest are drawn uniformly from `[min, max]`. With `num_vars == 2` it is one density per variable instead (see below)
-- num_vars-element list/tuple (e.g., `[0.3, 0.2, 0.1]`): Each variable gets its specified density
-- `0.0` in a num_vars-element list (var1 onward): an empty variable. It is written on its own
-  dimensions, every cell fill in netCDF and a null column in parquet, and adds no row. A
-  non-zero overlap target for it warns. The 2-element form cannot end in `0.0` unless
-  `num_vars == 2`.
+**How it works:**
+- The result is an `xarray.Dataset`, and the DataFrame has one row per site holding at least one variable (NaN where a variable is absent)
+- A variable on fewer dimensions repeats its value on every row matching its own dimensions
+- var0 is the reference: it varies along every dimension and must hold the most observations
+- A density is a share of the variable's own grid (the product of the dimensions it varies along)
 
-A density is a share of the variable's **own** grid: the product of the dimensions it varies
-along. On a `[4, 8, 8]` grid, a variable on the last two dimensions at density 0.1 holds
-`0.1 * 64 = 6` values, not `0.1 * 256`. var0 varies along every dimension, so its own grid is
-the full grid.
+**Density options:**
+- Scalar (e.g., `0.1`): all variables have the same density
+- `[max, min]` (e.g., `[0.3, 0.1]`): var0 gets max, one other variable gets min, the rest are drawn from the range. With two variables: one density per variable
+- One per variable (e.g., `[0.3, 0.2, 0.1]`): `0.0` for var1 onward gives an empty variable
 
-var0 is the overlap reference and must hold the most observations; otherwise the constructor raises. The check is on counts, not densities: a variable on fewer dimensions may have a larger density than var0 (a per-profile time at 1.0 next to var0 at 0.24) as long as it holds fewer values. With three or more variables, a two-element density is a `[max, min]` range and must list the maximum first, since var0 takes it. With two variables, the two values are one density per variable, var0 first, in either order: `density=[0.24, 1.0]` gives a var1 on fewer dimensions the larger density, as long as var0 still holds more observations.
+**Variable dimensions options:**
+- Int (e.g., `2`): each non-reference variable uses 2 randomly selected dimensions
+- List of ints (e.g., `[3, 3, 2]`): number of dimensions per variable, randomly selected
+- List of lists (e.g., `[[0,1,2], [1,2], [0,2]]`): explicit dimensions per variable
+- At least one dimension must be shared by every variable
 
-**Variable Dimensions Options:**
-- Int (e.g., `2`): Each non-reference variable uses 2 randomly selected dimensions
-- List of ints (e.g., `[3, 3, 2]`): Each variable uses the specified number of dimensions (randomly selected)
-- List of lists/tuples (e.g., `[[0,1,2], [1,2], [0,2]]`): Each variable uses explicitly specified dimensions
-
-var0 always uses every dimension: a smaller value for it is replaced by `num_dims`, and a note is printed. At least one dimension must be shared by every variable, otherwise the constructor raises.
-
-**Overlap Control:**
+**Overlap control:**
 
 ```
 overlap_i = |proj(S_0) & proj(S_i)| / |proj(S_0)|
 ```
 
-Share of var0's sites that also carry variable *i*. `S_i`: sites of variable *i*; `proj`:
-projection onto the dimensions the two share.
-
-- `'random'` (default): No constraint, measurements placed independently
-- Float `0.0` to `1.0`: Target overlap for every non-reference variable
-  - `0.0`: No site of var0 carries variable *i*
-  - `0.5`: Half of var0's sites carry variable *i*
-  - `1.0`: Every site of var0 carries variable *i*
-  - Maximum: `|proj(S_i)| / |proj(S_0)|`
-  - Minimum (variable on every dimension): `max(0, n_0 + n_i - N) / n_0` for `N` grid points;
-    a lower target raises
-  - Unreachable targets: the generator warns and density takes precedence
-- List of length `num_vars - 1`: One target per non-reference variable, in
-  `var1`, `var2`, ... order
-- `fixed_overlap` (bool or list of bools, default `False`): Share overlap draws
-  across variables when enabled
+- Share of var0's sites that also carry variable *i*, projected onto the dimensions the two share
+- `'random'` (default): no constraint
+- Float in `[0, 1]`: one target for every non-reference variable; a list sets one per variable
+- Unreachable targets print a warning, and density takes precedence
+- `fixed_overlap=True`: variables draw from one shared ordering of var0's sites, so they also overlap each other
 
 ```python
 # Example: 3 variables with different dimensions and controlled overlap
@@ -247,8 +205,7 @@ dataset, df = gen.generate()
 
 ### Smooth (Correlated) Values
 
-By default every value is drawn independently, which is white noise and does not compress. For
-values that change smoothly from site to site, like a real temperature field, add one argument:
+By default values are white noise. `data_structure="correlated"` makes them change smoothly from site to site:
 
 ```python
 gen = GenerateData(
@@ -257,18 +214,13 @@ gen = GenerateData(
     ratio_dims=(1, 2, 2),
     density=0.9,
     seed=42,
-    data_structure="correlated",  # smooth values; occupied sites are unchanged
+    data_structure="correlated",  # occupied sites are unchanged
+    correlation_length=[None, 5, 30],  # optional: constant along x0, 5 sites along x1, 30 along x2
+    noise=0.01,                   # optional: share of white noise
 )
 ```
 
-`correlation_length` and `noise` refine the field when needed, e.g.
-`correlation_length=[None, 5, 30]` (constant along `x0`, 5 sites along `x1`, 30 along `x2`) and
-`noise=0.01`. See **Parameters** below.
-
 ### Describing a Dataset
-
-`generate()` ends by printing what it wrote, measured from the netCDF output; the table is kept
-as `gen.description`. The same works on any netCDF or parquet dataset:
 
 ```python
 from tabray.output import DatasetDescription
@@ -278,119 +230,44 @@ DatasetDescription.describe_dataset("parquet_dir", coords=["x0", "x1", "x2"])
 DatasetDescription.describe_dataset("data.nc", reference="temp")  # overlap against temp
 ```
 
-One row per variable: its dimensions, sites (`var_sites`), occupied sites, density, overlap with the reference
-variable (`overlap`, and `overlap_reverse` divided by the variable's own sites), coordinates along its dimensions holding no value, and stored dtype. Parquet has no
-axes, so the grid is the coordinate values that appear. A variable's dimensions are the
-coordinate columns, except those it does not vary along. A column that is NaN on one of the
-variable's rows proves it does not vary along that column. Otherwise the description assumes the
-variable is constant along a column when its value is the same on every row sharing its other
-coordinates, and repeats on several of them; it prints and raises a warning naming the variable
-and the columns, since a variable that varies along them could give the same rows. When the rows
-also fit a constant but nothing repeats (each value on one row, or a single value overall), the
-column is kept, again with a warning.
-The reference is `reference` if given, else the variable with the most occupied sites (first in file order on a tie); its row comes first.
-`notebooks/analyse_dataset.ipynb` generates a small dataset, then describes its netCDF and parquet files separately and compares the two.
+- One row per variable: dimensions, sites, occupied sites, density, overlap with the reference, unused coordinates, dtype
+- The reference is `reference` if given, else the variable with the most occupied sites
+- Parquet has no axes: it requires `coords` to be specified, and a variable's dimensions are inferred from its rows (with some assumptions in ambiguous cases)
+- `notebooks/analyse_dataset.ipynb` compares the descriptions of the netCDF and parquet files of one dataset
+- When generating a synthetic dataset, `generate()` prints this description of what it generate and keeps it as `gen.description`
 
 ### How the Data Are Generated
 
-`docs/dataflow.puml` traces a run from parameters to files, and `docs/dataflow_example_*.puml` are worked examples from real runs, with a grid of the filled sites after each generation step; `notebooks/dataflow_examples.ipynb` runs the same calls and plots the datasets. Compile one to PDF with [PlantUML](https://plantuml.com): `plantuml -tpdf docs/dataflow_example_single_var.puml`, or `plantuml -tpdf docs/dataflow*.puml` for all of them.
+- `docs/dataflow.puml` traces a run from parameters to files
+- `docs/dataflow_example_*.puml` are worked examples from real runs; `notebooks/dataflow_examples.ipynb` runs the same calls
+- Render with [PlantUML](https://plantuml.com): `plantuml -tpdf docs/dataflow*.puml`
 
 ### Parameters
 
-- **density** and **sparsity** are both valid, independent ways to specify grid occupancy (`sparsity = 1 - density`). Provide exactly one; if both are passed, `density` takes precedence and a warning is raised.
+- **num_obs** (int): number of observations of var0
+- **num_dims** (int): number of dimensions
+- **ratio_dims** (tuple): relative size of each dimension
+- **density** (float, list, or tuple): share of grid points holding an observation, in (0, 1] (see **Density options**)
+  - Minimum: `max(shape) / prod(shape)`, so every coordinate is used at least once
+- **sparsity** (float, list, or tuple): `1 - density`; give `density` or `sparsity`, not both
+- **seed** (int): random seed, required
+- **max_obs** (int): maximum observations per chunk; below `num_obs` it turns on parallel generation
+- **max_workers** (int): maximum processes running at once (default: the CPU count)
+- **num_vars** (int): number of variables (default: 1)
+- **var_dims** (int or list): dimensions of each variable (see **Variable dimensions options**; default: all)
+- **overlap** (float, list, or `'random'`): overlap target per non-reference variable (see **Overlap control**)
+- **fixed_overlap** (bool or list): share overlap draws across variables (default: `False`)
+- **dtype** (str or list): `float64` (default), `float32`, `int8`, `int16`, `int32`, or `S<k>` for strings of k characters
+- **value_range** (tuple or list): (min, max) of the values (default: `(0, 1)` for floats, `(0, 100)` for integers); `min == max` gives a constant
+- **pack** (str or list): integer type to pack floats into on disk with `scale_factor`/`add_offset` (default: `None`)
+- **fill_value** (float or list): marks a vacant site (default: NaN for floats, a reserved code for integers)
+- **data_structure** (str or list): `"uncorrelated"` (default) or `"correlated"` (see `docs/correlated_values.md`)
+- **correlation_length** (float or list): correlation length in sites, per dimension (default: 10); `0` for none, `None` for constant
+- **noise** (float or list): share of white noise in a correlated field, 0 (default) to 1
+- (experimental) **layout** (str): `"scattered"` (default) or `"padded"`, where each line fills the first k cells of one axis, as profiles do (see `docs/layout_plan.md`)
+- (experimental) **padded_dim** (int): the padded axis (default: the last); `overlap` cannot be set with `layout="padded"`
 
-- **num_obs** (int): Number of observations to generate (must be positive). For multi-variable datasets, this refers to the observations of var0, which must hold the most.
-- **num_dims** (int): Number of dimensions in the coordinate space (must be positive)
-- **ratio_dims** (tuple): Tuple with `num_dims` elements defining the relative size of each dimension (all must be positive)
-- **density** (float, list, or tuple, optional): 
-  - Float: Fraction of grid points that contain observations, range (0.0, 1.0]
-  - 2-element list/tuple `[max, min]`: var0 gets max, one other variable gets min, the rest are drawn from the range; the maximum must come first. With `num_vars == 2`: one density per variable, var0 first, in either order
-  - num_vars-element list/tuple: Specific density for each variable, var0 first (see **Density Options for Multiple Variables**)
-
-  There is a **lower bound**, because a dataset is only generated if every coordinate on every
-  axis is used at least once — an unused coordinate would be stored without describing any data
-  point. Each observation supplies one coordinate per axis, so covering the longest axis takes at
-  least that many observations:
-
-  ```
-  minimum observations = max(shape)        minimum density = max(shape) / prod(shape)
-  ```
-
-  A density below this raises, and so does `density=0.0` (or `sparsity=1.0`): the grid size is
-  `num_obs / density`, so the density must be positive. On a grid of
-  `d` equal axes of size `n` it works out to the familiar `1/n^(d-1)`. Note that it is the
-  **longest** axis that sets the bound, not the shortest, and that axes of length 1 cost nothing:
-  a `50x10x1x1` grid needs the same 50 observations as `50x10`.
-- **sparsity** (float, list, or tuple, optional): Fraction of grid points that are vacant, `sparsity = 1 - density`. Accepts the same float/list/tuple forms as `density` and is converted to `density` internally. Provide either `density` or `sparsity` (not both).
-- **seed** (int): Random seed for reproducibility (non-negative integer). Required.
-- **max_obs** (int, optional): Maximum number of observations per chunk (default: `None`, serial generation). When `num_obs` exceeds this value, the dataset is split into chunks and generated in parallel (see **Parallel Generation for Large Datasets**).
-- **max_workers** (int, optional): Maximum number of processes running at once in parallel generation (default: the CPU count)
-- **dtype** (str or list, optional): What each variable holds: `float64` (default), `float32`,
-  an integer type (`int8`, `int16`, `int32`) for a variable of counts, flags or identifiers, or
-  `S<k>` for strings of k characters (`S8` holds values such as `"0000001A"`). A string is written as
-  characters along a `string<k>` dimension in netCDF, blank when vacant, and as a pyarrow-backed
-  string column in parquet. One value for all variables, or one per variable.
-- **value_range** (tuple or list, optional): The (min, max) a variable spans, inclusive. Defaults
-  to `(0, 1)` for floats and `(0, 100)` for integers. One pair for all variables, or one per
-  variable. `min == max` gives a constant variable. For `S<k>` it bounds the integers drawn before
-  they become text: `(0, n - 1)` gives n distinct strings, at most `36**k`. For a packed float it
-  also sets the packing scale, so a value cannot fall outside the grid that stores it. For an
-  integer variable the width sets the column's **cardinality**: `(0, 8)` is flag-like data, which
-  both formats encode very differently from the near-continuous `(0, 50000)`.
-- **pack** (str or list, optional): Integer type to compact the values into on disk — `int8`,
-  `int16`, `int32` — or `None` (default) to store them plain. Values are carried as
-  `scale_factor * code + add_offset`, the convention GLORYS12 and most reanalysis products use.
-  The scale comes from the value range, not from the data, so parallel chunks agree with a
-  serial run. Parquet stores the decoded type (`float32` for a packed `int16`), because packing
-  is a netCDF device and parquet's idiom is the natural type.
-
-  `dtype` and `pack` are separate because a file holds both kinds. Argo stores `TEMP` as a plain
-  `float32` and `CYCLE_NUMBER` as a plain `int32`, neither packed.
-- **fill_value** (float or list, optional): What marks a vacant site (default: NaN for float
-  dtypes, the reserved code for integers). One value for all variables, or one per variable.
-  Argo files use `99999.0` in a `float32` variable, in preference to NaN; that is expressible
-  here. For packed dtypes the fill code is reserved, so no real value can collide with it.
-- **data_structure** (str or list, optional): `"uncorrelated"` (default) draws every value
-  independently, which is white noise. `"correlated"` makes values change smoothly from site to
-  site, as temperature or salinity do. This matters for compression: white noise does not
-  compress, and a smooth field does. The occupied sites are the same either way, and the values
-  still spread evenly over `value_range`, so `dtype`, `pack` and `fill_value` work as before. One
-  value for all variables, or one per variable. `docs/correlated_values.md` explains the method.
-- **correlation_length** (float or list, optional): Only with `data_structure="correlated"`. How
-  many sites apart two values must be before they stop resembling each other (default: 10
-  sites along every dimension). One number for every dimension, or one entry per dimension: a
-  length of at least 1, `0` for no correlation along that dimension, or `None` for a value that
-  is constant along it. Shared by all correlated variables.
-- **noise** (float or list, optional): Only with `data_structure="correlated"`. The share of
-  white noise added to the smooth field, as a standard deviation from 0 (default, perfectly
-  smooth) to 1 (all noise). Real data carry measurement and model noise, and even a little has a
-  large effect on compression: `0.01` and `0.1` already give very different compressed sizes.
-  One value for all correlated variables, or one per variable (`0` or `None` on an uncorrelated
-  one).
-- (experimental) **layout** (str, optional): How the occupied cells are arranged — `"scattered"` (default,
-  uniformly at random) or `"padded"` (each line fills positions `0..k-1` of one axis, as Argo and
-  CrocoLake profiles do). One layout for the whole dataset: every variable that varies along the
-  padded axis is padded; a variable without that axis is scattered. `density` says how many cells
-  are occupied and nothing about where they sit; compressed with DEFLATE, the arrangement changes
-  array size by 2.3× at a fixed density and reverses which format is smaller (this package writes
-  uncompressed files). `docs/layout_plan.md` has the measurements.
-- (experimental) **padded_dim** (int, optional): The axis whose first k cells each line fills under `layout="padded"`
-  (default: the last dimension). It cannot be the split dimension, so the split is chosen from the
-  remaining axes. `overlap` cannot be set alongside `layout="padded"`: with every line filling
-  its first k cells of the same axis the achieved overlap follows from the densities, so no target can be
-  honoured. Note the minimum density is higher under `padded` — every line needs an observation
-  and one line must run the full length — and the configuration printout states which bound applied.
-- **num_vars** (int, optional): Number of variables in the dataset (default: 1)
-- **var_dims** (int, list, or tuple, optional): 
-  - Int: Number of dimensions for each variable (randomly selected if less than num_dims)
-  - List of ints: Number of dimensions for each variable
-  - List of lists/tuples: Explicit dimension indices for each variable
-  - Default: All variables use all dimensions
-- **overlap** (float, list, or str, optional): Control overlap between variables (default: 'random')
-  - `'random'`: No constraint on overlap
-  - Float [0.0, 1.0]: Target share of var0's sites that also carry each non-reference variable (see **Overlap Control**)
-  - List of length `num_vars - 1`: One overlap target per non-reference variable
-- **fixed_overlap** (bool or list of bools, optional): When `True`, variables draw their overlapping sites from one shared ordering of var0's sites, so they also overlap each other (default: `False`)
+Per-variable parameters take one value for all variables, or a list with one per variable. Encoding details: `docs/variable_encoding.md`.
 
 ## Notebooks
 
@@ -402,15 +279,8 @@ Run them with `notebooks/` as the working directory.
 - `tutorial4.ipynb`: serial and parallel generation of the same dataset, and how to read the chunked output
 - `dataflow_examples.ipynb`: the runs behind `docs/dataflow_example_*.puml`
 - `analyse_dataset.ipynb`: describes the netCDF and parquet files of a generated dataset and compares them
-- `analyse_argo_phy.ipynb`, `analyse_argo_bgc.ipynb`: describe an Argo physical and a biogeochemical profile file and generate synthetic datasets like them; they need a local Argo file (`NC_PATH` in the first cells)
-
+  
 ## Testing
-
-The repository includes a test suite covering all modules.
-
-### Running Tests
-
-After installing the environment with test dependencies, run the test suite:
 
 ```bash
 # Run all tests
