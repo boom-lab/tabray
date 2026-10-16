@@ -27,17 +27,25 @@ skinparam note {
 
 start
 
-partition "GenerateData.__init__  (caller's parameters)" {
+partition "GenerateData.~__init~__  (caller's parameters)" {
   :GenerateData(
     num_obs, num_dims, ratio_dims,
     density or sparsity, seed,
     num_vars, var_dims, overlap, fixed_overlap,
+    dtype, pack, fill_value, value_range,
+    layout, padded_dim,
+    data_structure, correlation_length, noise,
     max_obs, max_workers);
+
+  :<b>VariableEncoding.per_variable</b>(dtype, pack, fill_value, value_range)
+  -> var_encodings, one per variable (default float64 + NaN)
+  layout: "scattered" or "padded", padded_dim defaults to the last dim
+  "padded" with an overlap target raises;
 }
 
 partition "validators/  (shape and counts)" {
   :<b>ParameterValidator</b>
-  num_obs, num_dims, seed, num_vars
+  num_obs, num_dims, seed (required), num_vars
   var_dims  -> per-variable dimension count
   ratio_dims -> array
   density_refvar -> a [max, min] range lists var0's maximum first;
@@ -48,12 +56,14 @@ partition "validators/  (shape and counts)" {
   -> <b>shape</b>, <b>total_grid_points</b>;
 
   :<b>SparsityValidator</b>
-  density_zero = max(shape) / prod(shape)
+  density_zero = max(shape) / prod(shape)                 scattered
+               = (prod(shape)/n_padded + n_padded - 1)
+                 / prod(shape)                            padded
   validate_density_bounds, validate_num_obs_consistency
   -> corrected <b>num_obs</b>, <b>density</b>;
   note right
-    Part-hard, part-soft: unusable input raises,
-    rounding-level input is corrected and printed.
+    Unusable input raises; rounding-level input
+    is corrected and printed.
     Read num_obs / density / shape back from the
     instance, never from the constructor argument.
   end note
@@ -61,11 +71,19 @@ partition "validators/  (shape and counts)" {
 
 partition "config/  (per-variable geometry)" {
   if (num_vars > 1?) then (yes)
-    :<b>MultiVarSparsityConfig</b>   stream DENSITY
-    -> var_densities, var_num_obs;
     :<b>MultiVarDimensionsConfig</b>  streams VAR_DIMS, CONST_COORD
     -> var_dims_indices, var_constant_dims,
        var_constant_coord_indices;
+    :<b>MultiVarSparsityConfig</b>   stream DENSITY
+    a density is a share of the variable's OWN grid
+    (prod of its varying dims):
+    n_i = rint(d_i / d_0 * num_obs * grid_fraction_i)
+    grid_fraction_i = own grid / full grid
+    density 0 (var1 onward) -> n_i = 0, an empty variable
+    -> var_densities, var_num_obs;
+    :<b>ParameterValidator.validate_var_num_obs_refvar</b>
+    var0 must hold the most observations; checked on
+    counts, so a fewer-dims variable may have the larger density;
     :<b>MultiVarOverlapConfig</b>
     -> overlap_target, fixed_overlap, adjusted var_num_obs;
   else (no)
@@ -74,9 +92,15 @@ partition "config/  (per-variable geometry)" {
     no constant dimensions;
   endif
 
-  :<b>dim_split</b> = largest dimension that EVERY variable varies along
+  :<b>dim_split</b> = largest dimension that EVERY variable varies along,
+  excluding the padded axis under layout="padded"
   (overlap is measured on shared dimensions, so a variable
-  constant along the split axis would break per-stratum targets);
+  constant along the split axis would break per-stratum targets,
+  a stratum would hold one cell of each padded line);
+
+  :<b>CorrelatedField.per_variable</b>   stream CORRELATED_FIELD
+  -> correlated_fields: one per variable, None where uncorrelated
+  (the default skips the path);
 
   :_multiprocessing_setup(max_obs)
   NTASKS = ceil(num_obs / max_obs), or 1 when max_obs is None
@@ -112,36 +136,65 @@ if (NTASKS) then (== 1: serial)
     LHS stage (global): n_s = max(shape), stream(seed, LHS),
       every coordinate of every axis used at least once
     apportion(num_obs - n_s) over strata by free sites
-    (layout="padded": no LHS stage; each line fills its
-     first k cells of padded_dim, see Example 5)
+    (layout="padded": generate_padded_indices, no LHS stage,
+     each line fills its first k cells of padded_dim, Example 5)
     per stratum j: rng = stream(seed, STRATUM, j)
       sites  = rng.choice(free ranks) -> _ranks_to_local
       values = rng.uniform(0, 1), drawn after the sites;
 
     while (for each variable i >= 1, each stratum j) is (more)
+      :n_here = counts_i[j] (var_num_obs[i] apportioned over strata)
+      n_here == 0 (empty variable): skip;
       :proj = var0's sites in stratum j, seen through
-      the dimensions var_i varies along;
-      :n_overlap = clip(round(target_i * |proj|), lo, hi)
-      lo = forced by lack of free cells, hi = min(n_here, |proj|)
-      a clipped target warns: density takes precedence;
-      if (fixed_overlap[i]?) then (yes)
-        :draw from one shared permutation of proj
-        stream(seed, SHARED_OVERLAP, j);
-      else (no)
-        :draw from proj with stream(seed, VAR, i, j);
+      the dimensions var_i varies along
+      rng = stream(seed, VAR, i, j);
+      if (overlap target) then (set)
+        if (var_i varies along) then (every dim)
+          :n_overlap from RecordGenerator.stratum_counts:
+          total round(t_i * sum_j p_j), apportioned
+          across strata by largest remainder;
+        else (fewer dims)
+          :n_overlap = clip(round(t_i * |proj|), lo, hi)
+          lo = forced by lack of free cells, hi = min(n_here, |proj|)
+          (p_j depends on where var0 landed, which a
+           worker cannot see for other chunks);
+        endif
+        note right
+          A clipped or unreachable target
+          warns: density takes precedence.
+        end note
+        if (fixed_overlap[i]?) then (yes)
+          :draw from one shared permutation of proj
+          stream(seed, SHARED_OVERLAP, j);
+        else (no)
+          :draw from proj with the VAR rng;
+        endif
+        :remainder drawn from cells held by NEITHER variable,
+        so the achieved overlap is the target, not the
+        target plus accidental coincidences;
+      elseif (layout="padded" and var_i has the padded axis?) then (yes)
+        :<b>_padded_cells</b>: each line fills its first k cells,
+        k from equal weights capped at n_padded;
+      else (overlap="random")
+        :rng.choice over the whole cell space of the
+        variable, ignoring var0;
       endif
-      :remainder drawn from cells held by NEITHER variable,
-      so the achieved overlap is the target rather than the
-      target plus accidental coincidences;
-      :values from the same VAR stream;
+      :values = rng.uniform(0, 1), after the sites;
     endwhile (done)
 
+    :correlated variable: <b>CorrelatedField.apply</b>(values, indices)
+    at GLOBAL indices: u -> ndtr(smooth field), still uniform(0, 1)
+    (before the stratum_start rebase, so chunking moves nothing);
     :scatter into the arrays: records[var_i][indices] = values;
 
     :<b>OverlapCalculator.compute_overlap_report</b>
     overlap = |proj(S0) & proj(Si)| / |proj(S0)|,
     overlap_reverse = ... / |proj(Si)|
     -> overlap_actual, overlap_actual_reverse, printed;
+
+    :<b>GenerateData._to_stored</b>: encoding.to_stored per variable
+    (rounding to dtype / packing grid; integers and string codes),
+    once, before both writers;
   }
 
   partition "output/  (two in-memory stores of the same data)" {
@@ -162,9 +215,9 @@ if (NTASKS) then (== 1: serial)
       loses that dimension instead of storing a NaN slab;
       :<b>ParquetBuilder.build_multi_var_dataframe</b>
       one row per OCCUPIED coordinate of a full-dims variable, one
-      column per variable, NaN where a variable has no value there;
+      column per variable, NaN where a variable has no value there,
       a fewer-dims variable repeats on every row matching its own
-      dims, else gets a row with NaN on the dims it drops;
+      dims, else gets a row with NaN on the dims it drops,
       dim_split slowest;
     endif
   }
@@ -173,12 +226,19 @@ if (NTASKS) then (== 1: serial)
     :<b>PathManager.setup_output_paths(overwrite=True)</b>
     existing .nc / .parquet / _metadata in the target
     directories are deleted;
-    :to_netcdf(path)
-    no encoding is passed, so the file is uncompressed;
-    :dd.from_pandas(df, npartitions=1).to_parquet(engine="pyarrow")
-    no compression keyword is passed, so dask's default,
-    Snappy, applies: each format is written with its
-    library's defaults;
+    :<b>NetCDFBuilder.save_to_file</b>
+    encoding = build_encoding(var_encodings)
+      (empty for default float64: uncompressed, no packing)
+    codes_to_text (S<k> variables), to_netcdf(path, encoding);
+    :<b>ParquetBuilder.save_to_file</b>
+    cast_values (dtype per encoding; S<k> -> string[pyarrow])
+    dd.from_pandas(df, npartitions=1)
+      .to_parquet(engine="pyarrow", write_index=False)
+    dask's default compression, Snappy;
+    :<b>_describe</b> -> <b>DatasetDescription.describe_dataset</b>(nc_path)
+    reads the written netCDF: var_sites, var_sites_occupied,
+    density, overlap, overlap_reverse, unused_coords, dtype
+    -> printed, kept as self.description;
   }
 
   :return (DataArray or Dataset, DataFrame);
@@ -192,7 +252,8 @@ else (> 1: parallel, experimental)
     :<b>ChunkUtils.get_observations_per_chunk</b> (single variable)
     or <b>get_multi_var_observations_per_chunk</b>
     largest-remainder apportionment over chunks
-    -> per-chunk counts; rewrites self.num_obs and self.density;
+    -> per-chunk counts; rewrites self.num_obs and self.density
+    (placement uses the global stratum counts, not these);
     :one plain-value argument dict per chunk
     (nothing pickles GenerateData);
     :ProcessPoolExecutor(spawn,
@@ -207,13 +268,16 @@ else (> 1: parallel, experimental)
     :MultiVarRecordGenerator.generate(task_shape, ...,
        chunk_id, div_points, lhs_shape = GLOBAL shape)
     the chunk generates only ITS strata, and a stratum is a
-    function of (seed, stratum), so it matches serial;
+    function of (seed, stratum), so it matches serial,
+    correlated fields at GLOBAL indices, then the rebase,
+    returns overlap None: a chunk sees only its strata;
+    :encoding.to_stored per variable, before both writers;
     :build_dataarray / build_dataset(squeeze_constant_dims=False)
     chunk files keep every dimension so they can concatenate;
     :DataFrame with order_dim = dim_split, so a chunk's rows
     are exactly the slice serial would emit;
-    :write <b>base_NNN.nc</b> and
-    <b>parquet_tmp/chunk_NNNN.parquet</b>
+    :NetCDFBuilder.save_to_file -> <b>base_<id>.nc</b>
+    ParquetBuilder.save_to_file -> <b>parquet_tmp/chunk_NNNN_0.parquet</b>
     write_metadata=False: workers share the directory and
     _metadata is a single fixed filename;
   }
@@ -221,21 +285,30 @@ else (> 1: parallel, experimental)
   partition "consolidation" {
     :<b>_consolidate_parquet_files</b>
     dd.read_parquet(chunk_*.parquet).repartition("300MB")
-    -> the real parquet output, temporaries deleted;
+    -> ParquetBuilder.save_to_file (no second cast),
+    temporaries deleted;
 
     if (merge_nc?) then (True)
       :<b>_merge_netcdf_files</b>
       open_mfdataset(concat_dim = x{dim_split}), squeeze constant dims,
-      then ONE data variable per to_netcdf call under
-      dask scheduler="synchronous"
+      build_encoding, fix_text_width, then ONE data variable per
+      to_netcdf call under dask scheduler="synchronous"
       (concurrent stores make HDF5 lay the file out in completion
       order, and the read and write sides of xarray's netCDF4
       lock can deadlock);
       :single merged .nc, chunk files deleted;
+      :<b>_describe</b>(merged .nc);
     else (False)
       :chunk .nc files kept: the only option when the
       output is too large to merge;
+      :<b>_describe</b>(chunk files opened together,
+      constant dims squeezed);
     endif
+    note right
+      DatasetDescription.describe_dataset is the
+      only overlap measurement in parallel:
+      workers return overlap None.
+    end note
   }
 
   :return (None, None) -- results exist only on disk;
@@ -252,6 +325,7 @@ legend right
   | CONST_COORD | variable, constant dim | its coordinate on that dim |
   | VAR | variable, stratum | per-variable placement and values |
   | SHARED_OVERLAP | stratum | the shared ordering for fixed_overlap |
+  | CORRELATED_FIELD | variable | the plane waves of a correlated variable |
   No tag carries a chunk id, which is what lets a parallel
   run reproduce the serial data exactly.
 end legend
