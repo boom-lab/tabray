@@ -61,8 +61,15 @@ partition "validate and configure" {
 
 partition "parallel setup (main process)" {
   :<b>ChunkUtils.get_observations_per_chunk</b>
-  apportion 10 over the 2 blocks -> 5, 5
+  apportion 10 over the 2 blocks by grid share -> 5, 5
   printed: "Observations per chunk: [5, 5] (total 10).";
+  note right
+    5, 5 is not what the chunks hold. Placement takes
+    num_obs_global = 10 and the GLOBAL stratum counts
+    (LHS site + fill, below): 1+1, 1+1 | 1+2, 1+2,
+    so chunk 0 holds 4 sites and chunk 1 holds 6.
+    Placement does not use the per-chunk figure.
+  end note
 
   :one argument dict per chunk, plain values only
   ProcessPoolExecutor(spawn, max_workers = min(2, cpu_count));
@@ -108,8 +115,8 @@ partition "each worker: generate_chunk(chunk_id, ...)" {
 
   :write <b>netCDF/ds_0.nc</b> / <b>ds_1.nc</b>
   (squeeze_constant_dims=False: chunks keep every dim)
-  and <b>parquet/tmp/chunk_0000.parquet</b> / <b>chunk_0001.parquet</b>,
-  rows in x0 order;
+  and <b>parquet/tmp/chunk_0000_0.parquet</b> / <b>chunk_0001_0.parquet</b>
+  (write_metadata=False), rows in x0 order;
 }
 
 partition "consolidation (main process)" {
@@ -135,15 +142,14 @@ partition "consolidation (main process)" {
 
 partition "disk, parallel against serial" {
   :parallel                          serial
-  netCDF/ds_0.nc         10508 B    netCDF/ds.nc         10500 B
-  netCDF/ds_1.nc         10508 B
-  parquet/ddf_0.parquet   3388 B    parquet/ddf_0.parquet 3407 B
-  parquet/_metadata       2891 B    parquet/_metadata     2891 B;
+  netCDF/ds_0.nc         10509 B    netCDF/ds.nc         10501 B
+  netCDF/ds_1.nc         10509 B
+  parquet/ddf_0.parquet   2380 B    parquet/ddf_0.parquet 2380 B
+  parquet/_metadata       1995 B    parquet/_metadata     1995 B;
   note right
-    Same 10 rows with the same x0, x1, record values in
-    both parquet outputs. The only column that differs is
-    dask's ~__null_dask_index~__: 0..9 in serial, restarting
-    in each chunk in parallel (0..3, then 0..5).
+    Same 10 rows, same columns x0, x1, record, same
+    values and same file size in both parquet outputs:
+    the index is not written (write_index=False).
   end note
 }
 

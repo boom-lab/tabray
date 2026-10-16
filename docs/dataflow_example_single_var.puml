@@ -152,10 +152,10 @@ partition "two in-memory stores of the same 6 observations" {
 
 partition "disk" {
   :setup_output_paths(overwrite=True) clears both directories;
-  :netCDF/ds.nc                10500 B
-  parquet/ddf_0.parquet         3325 B
-  parquet/_metadata             2891 B
-  parquet/_common_metadata      2387 B;
+  :netCDF/ds.nc                10501 B
+  parquet/ddf_0.parquet         2320 B
+  parquet/_metadata             1995 B
+  parquet/_common_metadata      1626 B;
   note right
     Each writer uses its library's default:
     netCDF uncompressed, parquet Snappy.
