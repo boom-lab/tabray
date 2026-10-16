@@ -5,7 +5,7 @@
 ' Grids: rows x0 (= dim_split), columns x1, index space.
 ' Render: plantuml docs/dataflow_example_parallel.puml
 
-title Example 6 -- the parallel path: two chunks that reproduce the serial data (experimental)
+title Example 6 -- the parallel path: two chunks that reproduce the serial data
 
 skinparam shadowing false
 skinparam defaultFontName Monospaced
