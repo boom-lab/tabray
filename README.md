@@ -194,7 +194,7 @@ print(list(dataframe.columns))  # ['x0', 'x1', 'var0', 'var1', 'var2']
 A density is a share of the variable's **own** grid: the product of the dimensions it varies
 along. On a `[4, 8, 8]` grid, a variable on the last two dimensions at density 0.1 holds
 `0.1 * 64 = 6` values, not `0.1 * 256`. var0 varies along every dimension, so its own grid is
-the full grid (`docs/explainer_multivar.md`).
+the full grid.
 
 var0 is the overlap reference and must hold the most observations; otherwise the constructor raises. The check is on counts, not densities: a variable on fewer dimensions may have a larger density than var0 (a per-profile time at 1.0 next to var0 at 0.24) as long as it holds fewer values. With three or more variables, a two-element density is a `[max, min]` range and must list the maximum first, since var0 takes it. With two variables, the two values are one density per variable, var0 first, in either order: `density=[0.24, 1.0]` gives a var1 on fewer dimensions the larger density, as long as var0 still holds more observations.
 
@@ -320,7 +320,7 @@ The reference is `reference` if given, else the variable with the most occupied 
   `num_obs / density`, so the density must be positive. On a grid of
   `d` equal axes of size `n` it works out to the familiar `1/n^(d-1)`. Note that it is the
   **longest** axis that sets the bound, not the shortest, and that axes of length 1 cost nothing:
-  a `50x10x1x1` grid needs the same 50 observations as `50x10`. `docs/explainer.md` derives this.
+  a `50x10x1x1` grid needs the same 50 observations as `50x10`.
 - **sparsity** (float, list, or tuple, optional): Fraction of grid points that are vacant, `sparsity = 1 - density`. Accepts the same float/list/tuple forms as `density` and is converted to `density` internally. Provide either `density` or `sparsity` (not both).
 - **seed** (int): Random seed for reproducibility (non-negative integer). Required.
 - **max_obs** (int, optional): Maximum number of observations per chunk (default: `None`, serial generation). When `num_obs` exceeds this value, the dataset is split into chunks and generated in parallel (see **Parallel Generation for Large Datasets**).

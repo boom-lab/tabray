@@ -1,6 +1,5 @@
 @startuml dataflow
 ' How a tabray run turns parameters into two files on disk.
-' Terminology: docs/explainer.md, docs/explainer_multivar.md.
 ' Worked examples with grids at each step: docs/dataflow_example_*.puml.
 ' Render: plantuml docs/dataflow.puml
 
