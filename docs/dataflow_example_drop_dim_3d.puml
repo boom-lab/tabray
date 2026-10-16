@@ -151,18 +151,18 @@ partition "two in-memory stores" {
   row with its (x0, x1), all 4 of which var0 holds;
   note right
     DatasetDescription of the written file:
-    |= var |= dims |= var_sites |= occupied |= overlap |= overlap_reverse |= unused_coords |
-    | var0 | (x0, x1, x2) | 27 | 12 | NaN | NaN | 0 |
-    | var1 | (x0, x1) | 9 | 4 | 0.5 | 1.0 | 1 |
+    |= var |= dims |= var_sites |= var_sites_occupied |= density |= overlap |= overlap_reverse |= unused_coords |= dtype |
+    | var0 | (x0, x1, x2) | 27 | 12 | 0.444 | NaN | NaN | 0 | float64 |
+    | var1 | (x0, x1) | 9 | 4 | 0.444 | 0.5 | 1.0 | 1 | float64 |
     var1 never uses x1 = 2: one unused coordinate.
   end note
 }
 
 partition "disk" {
   :netCDF/ds.nc                13681 B
-  parquet/ddf_0.parquet         4500 B
-  parquet/_metadata             3765 B
-  parquet/_common_metadata      3025 B;
+  parquet/ddf_0.parquet         3465 B
+  parquet/_metadata             2869 B
+  parquet/_common_metadata      2264 B;
 }
 
 :return (Dataset, DataFrame);

@@ -195,9 +195,9 @@ partition "two in-memory stores, which differ in shape here" {
 
 partition "disk" {
   :netCDF/ds.nc                13243 B
-  parquet/ddf_0.parquet         3888 B
-  parquet/_metadata             3326 B
-  parquet/_common_metadata      2704 B;
+  parquet/ddf_0.parquet         2878 B
+  parquet/_metadata             2434 B
+  parquet/_common_metadata      1947 B;
 }
 
 :return (Dataset, DataFrame);
