@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Synthetic-data generator that compares **array** storage (netCDF/xarray) against **tabular** storage (parquet/pandas) across grid occupancies, from gridded to maximally sparse. `docs/explainer.md` and `docs/explainer_multivar.md` define the terms the code uses (site, density/sparsity, gridded vs irregular, overlap); read them before changing generation semantics.
+Synthetic-data generator that compares **array** storage (netCDF/xarray) against **tabular** storage (parquet/pandas) across grid occupancies, from gridded to maximally sparse. `docs/explainer.md` and `docs/explainer_multivar.md` define the terms the code uses (site, density/sparsity, gridded vs irregular, overlap); read them before changing generation semantics. They live on branch `docs/explainers` while they are rewritten (`git show docs/explainers:docs/explainer.md`).
 
 Distribution and import package, repository and local conda env: `tabray`.
 
