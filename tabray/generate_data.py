@@ -815,7 +815,11 @@ class GenerateData:
                 unless TABRAY_WORKER_LOG is set to debug or info.
 
         Returns:
-            Tuple of (DataArray/Dataset, DataFrame) containing the generated data
+            Tuple of (DataArray/Dataset, DataFrame) containing the generated
+            data. Serial mode: in memory. Parallel mode: dask-backed objects
+            reading from the written files (the merged netCDF or the chunk
+            files, and the parquet output); the caller closes the
+            DataArray/Dataset.
         """
 
         # Execute generation pipeline for single process
@@ -865,12 +869,30 @@ class GenerateData:
         self._generate_par(log_dir)
         if merge_nc:
             self._merge_netcdf_files()
-            self._describe(self.netcdf_filepath)
+            dataset = xr.open_dataset(self.netcdf_filepath, chunks={})
         else:
-            chunks, _ = self._open_netcdf_chunks()
-            self._describe(chunks)
-            chunks.close()
-        return None, None
+            dataset, _ = self._open_netcdf_chunks()
+        self._describe(dataset)
+        dataframe = self._open_parquet_output()
+        if self.num_vars == 1:
+            # Same type as the serial path; close() on it closes the files.
+            dataarray = dataset["record"]
+            dataarray.set_close(dataset.close)
+            return dataarray, dataframe
+        return dataset, dataframe
+
+    def _open_parquet_output(self) -> dd.DataFrame:
+        """The consolidated parquet output as a lazy dask DataFrame.
+
+        - files named as ParquetBuilder.save_to_file names them:
+          <base>_<partition>.parquet, base "data" when the path is a directory
+        """
+        pq_dir, pq_name = os.path.split(self.parquet_filepath)
+        if pq_name.endswith(".parquet"):
+            pq_name = pq_name[: -len(".parquet")]
+        return dd.read_parquet(
+            os.path.join(pq_dir or ".", f"{pq_name or 'data'}_*.parquet")
+        )
 
     def _describe(self, source) -> None:
         """Measure the written netCDF and print it; kept as self.description."""

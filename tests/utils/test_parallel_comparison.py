@@ -26,6 +26,29 @@ SCENARIO_1C_SHAPE = [10, 5, 6, 8, 2, 4, 5, 3, 3, 7]
 SCENARIO_3C_SHAPE = [3, 5, 6, 9, 2, 4, 5]
 
 
+def assert_returned_equals(result, expected_array, expected_frame):
+    """Parallel generate() returns dask-backed objects equal to the expected.
+
+    - array: values and coordinates (attrs hold per-chunk metadata)
+    - frame: rows sorted by the coordinate columns
+    - closes the returned array, so the files can be deleted
+    """
+    returned_array, returned_frame = result
+    try:
+        assert type(returned_array) is type(expected_array)
+        assert returned_array.chunks, "not dask-backed"
+        assert isinstance(returned_frame, dd.DataFrame)
+        xr.testing.assert_equal(returned_array.load(), expected_array)
+        coord_columns = [col for col in expected_frame.columns if col.startswith("x")]
+        returned_rows = returned_frame.compute()[expected_frame.columns]
+        pd.testing.assert_frame_equal(
+            expected_frame.sort_values(coord_columns).reset_index(drop=True),
+            returned_rows.sort_values(coord_columns).reset_index(drop=True),
+        )
+    finally:
+        returned_array.close()
+
+
 def datasets_are_identical(ds1, ds2, variable="record"):
     """Compare two datasets for structural and data equivalence.
 
@@ -348,8 +371,7 @@ class TestParallelSerialComparison:
             netcdf_filepath=os.path.join(nc_dir, "test.nc"),
             parquet_filepath=os.path.join(pq_dir, "test"),
         )
-        # Parallel mode returns (None, None)
-        assert result == (None, None), "Parallel generation should return (None, None)"
+        assert_returned_equals(result, da_serial, df_serial)
 
         # Load parallel data from disk - chunk files are in nc_dir
         nc_files = sorted(glob.glob(os.path.join(nc_dir, "test_*.nc")))
@@ -419,9 +441,7 @@ class TestParallelSerialComparison:
             parquet_filepath=os.path.join(pq_dir, "test"),
         )
 
-        # Parallel mode returns (None, None)
-
-        assert result == (None, None), "Parallel generation should return (None, None)"
+        assert_returned_equals(result, da_serial, df_serial)
 
         # Load parallel data from disk
         nc_files = sorted(glob.glob(os.path.join(nc_dir, "test_*.nc")))
@@ -496,8 +516,7 @@ class TestParallelSerialComparison:
             parquet_filepath=os.path.join(pq_dir, "test"),
         )
 
-        # Parallel mode returns (None, None)
-        assert result == (None, None), "Parallel generation should return (None, None)"
+        assert_returned_equals(result, da_serial, df_serial)
 
         # Load parallel data from disk
         nc_files = sorted(glob.glob(os.path.join(nc_dir, "test_*.nc")))
@@ -565,9 +584,7 @@ class TestParallelSerialComparison:
             parquet_filepath=os.path.join(pq_dir, "test"),
         )
 
-        # Parallel mode returns (None, None)
-
-        assert result == (None, None), "Parallel generation should return (None, None)"
+        assert_returned_equals(result, da_serial, df_serial)
 
         # Load parallel data from disk
         nc_files = sorted(glob.glob(os.path.join(nc_dir, "test_*.nc")))
@@ -879,7 +896,7 @@ class TestParallelSerialComparison:
             netcdf_filepath=os.path.join(nc_dir, "test.nc"),
             parquet_filepath=os.path.join(pq_dir, "test"),
         )
-        assert result == (None, None)
+        assert_returned_equals(result, da_serial, df_serial)
         # chunks are cut along the longest axis, which need not be x0
         split_name = f"x{gen_parallel.dim_split}"
 
@@ -938,7 +955,7 @@ class TestParallelSerialComparison:
             parquet_filepath=os.path.join(pq_dir, "test"),
             parquet_tmp=os.path.join(pq_dir, "tmp"),
         )
-        assert result == (None, None)
+        assert_returned_equals(result, ds_serial, df_serial)
 
         nc_files = sorted(glob.glob(os.path.join(nc_dir, "test_*.nc")))
         ds_parallel = xr.open_mfdataset(nc_files)
@@ -994,7 +1011,13 @@ class TestParallelSerialComparison:
             parquet_filepath=os.path.join(parallel_pq_dir, "test"),
             parquet_tmp=os.path.join(parallel_pq_dir, "tmp"),
         )
-        assert result == (None, None)
+        assert_returned_equals(
+            result,
+            NetCDFBuilder.squeeze_constant_dims(
+                ds_serial, gen_parallel.var_constant_dims
+            ),
+            df_serial,
+        )
 
         nc_files = sorted(glob.glob(os.path.join(parallel_nc_dir, "test_*.nc")))
         ds_parallel = xr.open_mfdataset(nc_files)
@@ -1168,11 +1191,14 @@ class TestComparisonUtilities:
         os.makedirs(pq_dir, exist_ok=True)
 
         gen = GenerateData(**cfg)
-        assert gen.generate(
+        returned_dataset, returned_frame = gen.generate(
             netcdf_filepath=os.path.join(nc_dir, "test.nc"),
             parquet_filepath=os.path.join(pq_dir, "test"),
             parquet_tmp=os.path.join(pq_dir, "tmp"),
-        ) == (None, None)
+        )
+        assert isinstance(returned_dataset, xr.Dataset)
+        assert isinstance(returned_frame, dd.DataFrame)
+        returned_dataset.close()
 
         nc_files = sorted(glob.glob(os.path.join(nc_dir, "test_*.nc")))
         dataset = xr.open_mfdataset(nc_files)
