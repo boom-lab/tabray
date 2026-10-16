@@ -360,7 +360,9 @@ class GenerateData:
         self.ratio_dims_prod = np.prod(self.ratio_dims)
 
         # Validate density type and get representative value for grid calculation
-        self.density = ParameterValidator.validate_density_refvar(self.density)
+        self.density = ParameterValidator.validate_density_refvar(
+            self.density, self.num_vars
+        )
         density_for_grid = ParameterValidator.validate_density_type(self.density)
 
         # Compute and validate dimensions
@@ -904,7 +906,7 @@ class GenerateData:
 
         if self.num_vars == 1:
             density_for_parallel = (
-                max(self.density)
+                self.density[0]
                 if isinstance(self.density, (list, tuple, np.ndarray))
                 else self.density
             )

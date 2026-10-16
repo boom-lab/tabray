@@ -1066,6 +1066,21 @@ class TestReferenceVariableCounts:
         assert list(gen.shape) == [20, 80]
         np.testing.assert_array_equal(gen.var_num_obs, [400, 20, 10])
 
+    def test_two_variables_per_profile_density_above_var0_is_kept(self):
+        """With two variables, two values are one density each, not a range."""
+        with contextlib.redirect_stdout(io.StringIO()):
+            gen = GenerateData(
+                num_obs=400,
+                num_dims=2,
+                ratio_dims=[1, 4],
+                num_vars=2,
+                density=[0.25, 1.0],
+                var_dims=[2, [0]],
+                seed=42,
+            )
+
+        np.testing.assert_array_equal(gen.var_num_obs, [400, 20])
+
     def test_more_observations_than_var0_raises(self):
         """A variable on fewer dims still cannot outnumber var0.
 

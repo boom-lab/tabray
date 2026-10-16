@@ -195,14 +195,16 @@ class MultiVarSparsityConfig:
             )
         else:
             density_list = list(density)
-            if len(density_list) == 2:
+            # Full list first: with two variables, two values are one density
+            # per variable, not a [max, min] range
+            if len(density_list) == num_vars:
+                var_densities = MultiVarSparsityConfig.from_full_list(density_list)
+            elif len(density_list) == 2:
                 var_densities = MultiVarSparsityConfig.from_two_element_list(
                     density_list,
                     num_vars,
                     rng,
                 )
-            elif len(density_list) == num_vars:
-                var_densities = MultiVarSparsityConfig.from_full_list(density_list)
             else:
                 raise ValueError(
                     f"density list must have 2 or {num_vars} elements, "

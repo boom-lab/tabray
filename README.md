@@ -109,7 +109,7 @@ gen.generate(
 
 # Generate a large multi-variable dataset with parallel processing
 gen_multi = GenerateData(
-    num_obs=30_000_000,     # 30 million observations (for highest density variable)
+    num_obs=30_000_000,     # 30 million observations (of var0)
     num_dims=4,
     ratio_dims=(2.0, 1.5, 1.0, 1.0),
     density=[0.10, 0.05],   # [max, min]: var0 takes the max, the rest are drawn from the range
@@ -138,7 +138,7 @@ gen_multi.generate(
   `worker_<id>.log` per chunk into `generate(log_dir=...)`, default `./logs`
 
 **Memory:**
-- `max_obs` refers to the observations of `var0`, the variable with the highest density
+- `max_obs` refers to the observations of `var0`, the variable with the most observations
 - Each process holds one chunk, so peak memory grows with chunk size times the number of processes running at once
 - Lower `max_obs` (smaller chunks) or `max_workers` (fewer processes) to reduce it
 
@@ -191,7 +191,7 @@ along. On a `[4, 8, 8]` grid, a variable on the last two dimensions at density 0
 `0.1 * 64 = 6` values, not `0.1 * 256`. var0 varies along every dimension, so its own grid is
 the full grid (`docs/explainer_multivar.md`).
 
-var0 is the overlap reference and must hold the most observations; otherwise the constructor raises. The check is on counts, not densities: a variable on fewer dimensions may have a larger density than var0 (a per-profile time at 1.0 next to var0 at 0.24) as long as it holds fewer values. A two-element `[max, min]` range must list the maximum first, since var0 takes it.
+var0 is the overlap reference and must hold the most observations; otherwise the constructor raises. The check is on counts, not densities: a variable on fewer dimensions may have a larger density than var0 (a per-profile time at 1.0 next to var0 at 0.24) as long as it holds fewer values. A two-element `[max, min]` range must list the maximum first, since var0 takes it; with two variables, two values are one density per variable.
 
 **Variable Dimensions Options:**
 - Int (e.g., `2`): Each non-reference variable uses 2 randomly selected dimensions
@@ -293,13 +293,13 @@ The reference is `reference` if given, else the variable with the most occupied 
 
 - **density** and **sparsity** are both valid, independent ways to specify grid occupancy (`sparsity = 1 - density`). Provide exactly one; if both are passed, `density` takes precedence and a warning is raised.
 
-- **num_obs** (int): Number of observations to generate (must be positive). For multi-variable datasets, this refers to the observations in the variable with the highest density.
+- **num_obs** (int): Number of observations to generate (must be positive). For multi-variable datasets, this refers to the observations of var0, which must hold the most.
 - **num_dims** (int): Number of dimensions in the coordinate space (must be positive)
 - **ratio_dims** (tuple): Tuple with `num_dims` elements defining the relative size of each dimension (all must be positive)
 - **density** (float, list, or tuple, optional): 
   - Float: Fraction of grid points that contain observations, range (0.0, 1.0]
-  - 2-element list/tuple `[max, min]`: var0 gets max, one other variable gets min, the rest are drawn from the range
-  - num_vars-element list/tuple: Specific density for each variable, largest first (see **Density Options for Multiple Variables**)
+  - 2-element list/tuple `[max, min]`: var0 gets max, one other variable gets min, the rest are drawn from the range. With two variables it is one density per variable
+  - num_vars-element list/tuple: Specific density for each variable, var0 first (see **Density Options for Multiple Variables**)
 
   There is a **lower bound**, because a dataset is only generated if every coordinate on every
   axis is used at least once — an unused coordinate would be stored without describing any data
