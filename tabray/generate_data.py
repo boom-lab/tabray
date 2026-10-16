@@ -159,7 +159,7 @@ class GenerateData:
         )
 
         # How the occupied cells are arranged, which density says nothing
-        # about. docs/layout_plan.md explains why it matters.
+        # about.
         if layout not in ("scattered", "padded"):
             raise ValueError(f"Unknown layout {layout!r}. Use 'scattered' or 'padded'.")
         self.layout = layout

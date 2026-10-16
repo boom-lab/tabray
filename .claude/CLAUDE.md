@@ -75,7 +75,7 @@ GenerateData.generate  ->  generators/   CoordinateGenerator, MultiVarRecordGene
 
 ### Layout
 
-`layout` (`"scattered"` default, or `"padded"`) and `padded_dim` set where occupied cells sit; `density` sets how many. Reasons and measurements: `docs/layout_plan.md`.
+`layout` (`"scattered"` default, or `"padded"`) and `padded_dim` set where occupied cells sit; `density` sets how many.
 
 - One layout per dataset. var0: `RecordGenerator.generate_padded_indices`; other variables with the padded axis: `MultiVarRecordGenerator._padded_cells` per stratum; a variable without the padded axis stays scattered.
 - A line (one combination of the dims other than split and padded) holds positions `0..k-1` of the padded axis.
@@ -88,7 +88,7 @@ GenerateData.generate  ->  generators/   CoordinateGenerator, MultiVarRecordGene
 
 ### Per-variable encoding
 
-`dtype`, `pack`, `fill_value`, `value_range` → `VariableEncoding` (`output/variable_encoding.py`). Reasons: `docs/variable_encoding.md`.
+`dtype`, `pack`, `fill_value`, `value_range` → `VariableEncoding` (`output/variable_encoding.py`).
 
 - Default `float64` + NaN emits no encoding entry; default output must stay byte-identical.
 - `dtype` = what a variable holds; `pack` = how a float is compacted on disk. Packing an integer dtype raises.
@@ -100,7 +100,7 @@ GenerateData.generate  ->  generators/   CoordinateGenerator, MultiVarRecordGene
 
 ### Correlated values
 
-`data_structure` (`"uncorrelated"` default, or `"correlated"`), `correlation_length`, `noise` → `CorrelatedField` (`generators/correlated_field.py`), one per variable or None. Reasons and measurements: `docs/correlated_values.md`.
+`data_structure` (`"uncorrelated"` default, or `"correlated"`), `correlation_length`, `noise` → `CorrelatedField` (`generators/correlated_field.py`), one per variable or None.
 
 - Default skips the path entirely; default output must stay byte-identical.
 - The field replaces the uniform draw `u` by `ndtr(smooth field at the site's GLOBAL indices)`, still uniform(0, 1), before `to_stored`. Applied in `MultiVarRecordGenerator.generate` and `generate_without_overlap` before the `stratum_start` rebase.

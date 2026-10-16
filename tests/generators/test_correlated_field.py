@@ -1,8 +1,7 @@
 """Tests for data_structure="correlated".
 
 The field replaces each occupied site's uniform draw by a smooth Gaussian
-field evaluated at the site's global grid indices. See
-docs/correlated_values.md.
+field evaluated at the site's global grid indices.
 """
 
 import contextlib
