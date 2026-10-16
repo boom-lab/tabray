@@ -135,7 +135,7 @@ Every RNG comes from `stream(seed, tag, *index)` (`utils/streams.py`); tags live
 - `ProcessPoolExecutor`, spawn context, `min(NTASKS, max_workers or os.cpu_count())` workers, module-level `generate_chunk` with explicit parameters.
 - Scripts need an `if __name__ == "__main__":` guard (spawn re-imports them). README does not mention this yet.
 - Each chunk writes `<base>_<chunk_id>.nc` and a parquet chunk into `parquet_tmp`; `_consolidate_parquet_files` merges them (300MB partitions) and deletes the temporaries.
-- `generate()` returns `(None, None)`; results exist only on disk. Single variable: `self.num_obs` and `self.density` are rewritten from per-chunk counts.
+- `generate()` returns dask-backed objects reading the written files (`_open_netcdf_chunks` or the merged file, `_open_parquet_output`); the caller closes them. Single variable: `self.num_obs` and `self.density` are rewritten from per-chunk counts.
 - Chunk netCDF files keep every dim (`squeeze_constant_dims=False`). Apply `NetCDFBuilder.squeeze_constant_dims` before comparing with serial output.
 - `merge_nc=True` concatenates chunks one variable at a time under a synchronous dask scheduler. Do not change either: see S7 (non-reproducible bytes) and S8 (deadlock) in `.claude/serial_parallel_equivalence_diagnostics.md`.
 - Worker logs: off unless `TABRAY_WORKER_LOG=debug`, then in `generate(log_dir=...)` (default `./logs`).

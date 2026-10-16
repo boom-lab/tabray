@@ -1,8 +1,7 @@
 """Tests comparing serial and parallel workflow outputs.
 
-This module ensures that parallel workflow produces datasets identical to serial
-workflow, except for record variable values which can differ but must have
-identical NaN positions.
+This module ensures that the parallel workflow produces datasets identical to the
+serial workflow: coordinates, sites and values.
 """
 
 import pytest
