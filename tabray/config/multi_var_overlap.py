@@ -130,9 +130,8 @@ class MultiVarOverlapConfig:
             Array of minimum overlaps, one per non-reference variable
         """
         obs = np.asarray(var_num_obs)
-        # var0 is the reference by definition. It is also the largest: its
-        # density is the maximum (validate_density_refvar) and the others'
-        # counts are scaled from it (MultiVarSparsityConfig.compute_var_num_obs).
+        # var0 is the reference by definition. It is also the largest:
+        # ParameterValidator.validate_var_num_obs_refvar checks the counts.
         ref_obs = obs[0]
         other_obs = obs[1:]
 

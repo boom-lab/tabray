@@ -510,6 +510,9 @@ class GenerateData:
                 grid_fractions,
             )
         )
+        # Checked on counts: densities of variables on different dimensions
+        # are shares of different grids and cannot be compared.
+        ParameterValidator.validate_var_num_obs_refvar(self.var_num_obs)
 
         # Setup overlap configuration and adjust observations if needed
         (

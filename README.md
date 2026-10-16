@@ -191,7 +191,7 @@ along. On a `[4, 8, 8]` grid, a variable on the last two dimensions at density 0
 `0.1 * 64 = 6` values, not `0.1 * 256`. var0 varies along every dimension, so its own grid is
 the full grid (`docs/explainer_multivar.md`).
 
-var0 is the overlap reference and must have the largest density, so the largest value comes first; otherwise the constructor raises.
+var0 is the overlap reference and must hold the most observations; otherwise the constructor raises. The check is on counts, not densities: a variable on fewer dimensions may have a larger density than var0 (a per-profile time at 1.0 next to var0 at 0.24) as long as it holds fewer values. A two-element `[max, min]` range must list the maximum first, since var0 takes it.
 
 **Variable Dimensions Options:**
 - Int (e.g., `2`): Each non-reference variable uses 2 randomly selected dimensions
