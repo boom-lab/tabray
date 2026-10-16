@@ -173,9 +173,9 @@ partition "two in-memory stores" {
 
 partition "disk" {
   :netCDF/ds.nc                13251 B
-  parquet/ddf_0.parquet         4583 B
-  parquet/_metadata             3785 B
-  parquet/_common_metadata      3043 B;
+  parquet/ddf_0.parquet         3544 B
+  parquet/_metadata             2889 B
+  parquet/_common_metadata      2282 B;
 }
 
 :return (Dataset, DataFrame);
