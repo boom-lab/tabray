@@ -83,6 +83,26 @@ class TestScenariosParallel:
 
         return dataarray, dataframe
 
+    @staticmethod
+    def check_returned(result, gen: GenerateData):
+        """generate() returns dask-backed objects holding what the files hold."""
+        import dask.dataframe as dd
+
+        returned_array, returned_frame = result
+        try:
+            assert isinstance(returned_array, xr.DataArray)
+            assert returned_array.name == "record"
+            assert returned_array.chunks is not None, "not dask-backed"
+            assert isinstance(returned_frame, dd.DataFrame)
+            dataarray, dataframe = TestScenariosParallel.load_generated_data(gen)
+            xr.testing.assert_equal(returned_array.load(), dataarray)
+            pd.testing.assert_frame_equal(
+                returned_frame.compute().reset_index(drop=True),
+                dataframe.reset_index(drop=True),
+            )
+        finally:
+            returned_array.close()
+
     def test_scenario_1a_parallel(self, temp_dir):
         """Should generate a full 1D array (parallel execution)"""
 
@@ -95,13 +115,12 @@ class TestScenariosParallel:
             max_obs=25,  # Trigger parallel with 4 chunks
         )
 
-        # Parallel generation returns None, None
         result = gen.generate(
             netcdf_filepath=os.path.join(temp_dir, "test_1a_p.nc"),
             parquet_filepath=os.path.join(temp_dir, "test_1a_p.parquet"),
             parquet_tmp=os.path.join(temp_dir, "tmp_1a_p"),
         )
-        assert result == (None, None), "Parallel generation should return (None, None)"
+        self.check_returned(result, gen)
 
         # Load generated data
         dataarray, dataframe = self.load_generated_data(gen)
@@ -156,7 +175,7 @@ class TestScenariosParallel:
             parquet_filepath=os.path.join(temp_dir, "test_1b_p.parquet"),
             parquet_tmp=os.path.join(temp_dir, "tmp_1b_p"),
         )
-        assert result == (None, None)
+        self.check_returned(result, gen)
 
         dataarray, dataframe = self.load_generated_data(gen)
 
@@ -222,7 +241,7 @@ class TestScenariosParallel:
             parquet_filepath=os.path.join(temp_dir, "test_1c_p.parquet"),
             parquet_tmp=os.path.join(temp_dir, "tmp_1c_p"),
         )
-        assert result == (None, None)
+        self.check_returned(result, gen)
 
         dataarray, dataframe = self.load_generated_data(gen)
 
@@ -284,7 +303,7 @@ class TestScenariosParallel:
             parquet_filepath=os.path.join(temp_dir, "test_2b_p.parquet"),
             parquet_tmp=os.path.join(temp_dir, "tmp_2b_p"),
         )
-        assert result == (None, None)
+        self.check_returned(result, gen)
 
         dataarray, dataframe = self.load_generated_data(gen)
 
@@ -338,7 +357,7 @@ class TestScenariosParallel:
             parquet_filepath=os.path.join(temp_dir, "test_2c_p.parquet"),
             parquet_tmp=os.path.join(temp_dir, "tmp_2c_p"),
         )
-        assert result == (None, None)
+        self.check_returned(result, gen)
 
         dataarray, dataframe = self.load_generated_data(gen)
 
@@ -418,7 +437,7 @@ class TestScenariosParallel:
             parquet_filepath=os.path.join(temp_dir, "test_3a_p.parquet"),
             parquet_tmp=os.path.join(temp_dir, "tmp_3a_p"),
         )
-        assert result == (None, None)
+        self.check_returned(result, gen)
 
         dataarray, dataframe = self.load_generated_data(gen)
 
@@ -481,7 +500,7 @@ class TestScenariosParallel:
             parquet_filepath=os.path.join(temp_dir, "test_3b_p.parquet"),
             parquet_tmp=os.path.join(temp_dir, "tmp_3b_p"),
         )
-        assert result == (None, None)
+        self.check_returned(result, gen)
 
         dataarray, dataframe = self.load_generated_data(gen)
 
@@ -539,7 +558,7 @@ class TestScenariosParallel:
             parquet_filepath=os.path.join(temp_dir, "test_3c_p.parquet"),
             parquet_tmp=os.path.join(temp_dir, "tmp_3c_p"),
         )
-        assert result == (None, None)
+        self.check_returned(result, gen)
 
         dataarray, dataframe = self.load_generated_data(gen)
 
@@ -618,11 +637,12 @@ class TestMergedNetCDFIsByteReproducible:
             overlap=[0.5, 0.3],
             max_obs=400,
         )
-        gen.generate(
+        dataset, _ = gen.generate(
             netcdf_filepath=str(out / "nc" / "d.nc"),
             parquet_filepath=str(out / "pq" / "d.parquet"),
             merge_nc=True,
         )
+        dataset.close()
         return out / "nc" / "d.nc"
 
     def test_two_identical_runs_produce_identical_bytes(self, tmp_path):
@@ -653,3 +673,35 @@ class TestMergedNetCDFIsByteReproducible:
             assert "num_obs" in ds.attrs
             assert "density" in ds.attrs
             assert "chunk_id" not in ds.attrs
+
+    def test_single_variable_merged_default_parquet_name(self, tmp_path):
+        """merge_nc=True, single variable, parquet path a directory.
+
+        - returned DataArray named "record", read from the merged file
+        - parquet written as data_<partition>.parquet
+        """
+        import dask.dataframe as dd
+
+        gen = GenerateData(
+            num_obs=200,
+            num_dims=2,
+            ratio_dims=1,
+            density=0.5,
+            seed=3,
+            max_obs=60,
+        )
+        dataarray, dataframe = gen.generate(
+            netcdf_filepath=str(tmp_path / "nc" / "single.nc"),
+            parquet_filepath=str(tmp_path / "pq") + "/",
+            merge_nc=True,
+        )
+        try:
+            assert isinstance(dataarray, xr.DataArray)
+            assert dataarray.name == "record"
+            assert dataarray.encoding["source"].endswith("single.nc")
+            assert isinstance(dataframe, dd.DataFrame)
+            assert glob.glob(str(tmp_path / "pq" / "data_*.parquet"))
+            assert int(dataarray.notnull().sum()) == gen.num_obs
+            assert len(dataframe) == gen.num_obs
+        finally:
+            dataarray.close()

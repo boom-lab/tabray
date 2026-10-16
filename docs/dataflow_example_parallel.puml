@@ -138,7 +138,8 @@ partition "consolidation (main process)" {
   end note
 }
 
-:return (None, None) -- the data exist only on disk;
+:return (dataarray, dataframe) -- dask-backed, read from
+netCDF/ds_0.nc, ds_1.nc and parquet/ddf_*.parquet;
 
 partition "disk, parallel against serial" {
   :parallel                          serial

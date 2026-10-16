@@ -16,6 +16,7 @@
 ### Added
 
 - Parallel generation reproduces the serial output exactly, for one or more variables. `max_workers` caps the number of processes; `generate(merge_nc=True)` merges the chunk netCDF files into one; `generate(log_dir=...)` and `TABRAY_WORKER_LOG` control worker logs.
+- Parallel `generate()` returns a dask-backed dataset (DataArray for one variable) and dask DataFrame, read from the written files, instead of `(None, None)`. The caller closes the dataset.
 - `var_dims` accepts explicit dimension indices (`[[0, 1, 2], [1, 2]]`).
 - Density `0.0` for var1 onward in a per-variable list: an empty variable.
 - Per-variable encoding: `dtype` (`float64`, `float32`, `int8`, `int16`, `int32`, `S<k>` strings), `pack` (integer packing with `scale_factor`/`add_offset`), `fill_value`, `value_range` (`min == max` gives a constant).
