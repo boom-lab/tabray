@@ -1,6 +1,6 @@
 [project]
 name = "tabray"
-version = "0.1.0"
+version = "0.2.0"
 description = "Tools for generating and comparing tabular and array data structures with different topologies"
 authors = [{ name="Enrico Milanese", email="enrico.milanese@whoi.edu" }]
 readme = "README.md"
