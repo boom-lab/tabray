@@ -114,15 +114,15 @@ if __name__ == "__main__":
 
     # Two variables on an 8x8x8 grid, 4 chunks
     gen_multi = GenerateData(
-        num_obs=80,           # observations of var0
+        num_obs=256,          # observations of var0
         num_dims=3,
         ratio_dims=1,
-        density=0.15,
+        density=0.5,
         seed=42,
         num_vars=2,
-        var_dims=3,
-        overlap=0.5,          # half of var0's sites also carry var1
-        max_obs=20,
+        var_dims=2,           # var1 varies along two of the three dimensions
+        overlap=0.5,          # half of var0's sites, projected on var1's dimensions, also carry var1
+        max_obs=64,
     )
     gen_multi.generate(
         netcdf_filepath="multi/data.nc",
