@@ -146,7 +146,7 @@ class TestValidateDensityRefvarDoesNotMutate:
         """Writing index 0 of the result must not change the caller's list."""
         density = [0.5, 0.3]
 
-        result = ParameterValidator.validate_density_refvar(density)
+        result = ParameterValidator.validate_density_refvar(density, 3)
 
         assert result == [0.5, 0.3]
         assert density == [0.5, 0.3], "the caller's list must be left alone"
@@ -154,7 +154,7 @@ class TestValidateDensityRefvarDoesNotMutate:
     def test_tuple_argument_returns_a_list(self):
         density = (0.6, 0.2)
 
-        result = ParameterValidator.validate_density_refvar(density)
+        result = ParameterValidator.validate_density_refvar(density, 3)
 
         assert result == [0.6, 0.2]
         assert density == (0.6, 0.2)
@@ -167,24 +167,32 @@ class TestValidateDensityRefvarDoesNotMutate:
         give every variable the same density without telling the caller.
         """
         with pytest.raises(ValueError, match="must have the largest density"):
-            ParameterValidator.validate_density_refvar([0.3, 0.5])
+            ParameterValidator.validate_density_refvar([0.3, 0.5], 3)
+
+    def test_two_values_for_two_variables_are_not_compared(self):
+        """With two variables, two values are one density each, not a range."""
+        assert ParameterValidator.validate_density_refvar([0.25, 1.0], 2) == [0.25, 1.0]
 
     def test_full_list_with_larger_non_reference_passes(self):
         """A full list is not compared: densities of different own grids differ in meaning."""
         density = [0.24, 1.0, 0.2]
 
-        assert ParameterValidator.validate_density_refvar(density) == [0.24, 1.0, 0.2]
+        assert ParameterValidator.validate_density_refvar(density, 3) == [
+            0.24,
+            1.0,
+            0.2,
+        ]
 
     def test_reference_already_largest_is_untouched(self):
         density = [0.5, 0.3, 0.2]
 
-        result = ParameterValidator.validate_density_refvar(density)
+        result = ParameterValidator.validate_density_refvar(density, 3)
 
         assert result == [0.5, 0.3, 0.2]
         assert density == [0.5, 0.3, 0.2]
 
     def test_scalar_passes_through(self):
-        assert ParameterValidator.validate_density_refvar(0.4) == 0.4
+        assert ParameterValidator.validate_density_refvar(0.4, 3) == 0.4
 
 
 class TestValidateVarNumObsRefvar:

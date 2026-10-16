@@ -221,13 +221,15 @@ class ParameterValidator:
         return ratio_dims
 
     @staticmethod
-    def validate_density_refvar(density: Union[List, Tuple]) -> List:
+    def validate_density_refvar(density: Union[List, Tuple], num_vars: int) -> List:
         """Validate density value when a list is provided.
 
         A two-element list is a ``[max, min]`` range, and var0 takes the
         maximum: its first value must be the larger one. Raises rather than
         reordering: moving the maximum into position 0 would collapse the range
-        to a point and give every variable the same density.
+        to a point and give every variable the same density. With two
+        variables a two-element list is also one density per variable, so it
+        is not compared either.
 
         A full list (one density per variable) is not compared here. Each
         density is a share of the variable's own grid, so densities of
@@ -238,6 +240,7 @@ class ParameterValidator:
 
         Args:
             density: Density input, scalar or sequence. Scalars pass through.
+            num_vars: Number of variables
 
         Returns:
             A new list. The argument is never modified.
@@ -252,7 +255,7 @@ class ParameterValidator:
         # Copy unconditionally -- a list argument must not be written through.
         density = list(density)
 
-        if len(density) == 2 and density[0] < density[1]:
+        if len(density) == 2 and num_vars != 2 and density[0] < density[1]:
             raise ValueError(
                 f"The reference variable takes density[0]={density[0]}, but the "
                 f"largest density given is {density[1]}. A two-element density is "

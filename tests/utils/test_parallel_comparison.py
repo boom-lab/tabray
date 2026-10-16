@@ -661,6 +661,19 @@ class TestParallelSerialComparison:
             ),
             pytest.param(
                 dict(
+                    num_obs=400,
+                    num_dims=2,
+                    ratio_dims=[1, 4],
+                    num_vars=2,
+                    density=[0.25, 1.0],
+                    var_dims=[2, [0]],
+                    seed=42,
+                ),
+                200,
+                id="per-profile-var1-denser-2d",
+            ),
+            pytest.param(
+                dict(
                     num_obs=int(np.prod(SCENARIO_3C_SHAPE)) - 1,
                     num_dims=len(SCENARIO_3C_SHAPE),
                     ratio_dims=SCENARIO_3C_SHAPE,
