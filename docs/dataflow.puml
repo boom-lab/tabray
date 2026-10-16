@@ -296,7 +296,7 @@ else (> 1: parallel)
       order, and the read and write sides of xarray's netCDF4
       lock can deadlock);
       :single merged .nc, chunk files deleted;
-      :<b>_describe</b>(merged .nc);
+      :<b>_describe</b>(merged .nc opened lazily, chunks={});
     else (False)
       :chunk .nc files kept: the only option when the
       output is too large to merge;
@@ -310,7 +310,13 @@ else (> 1: parallel)
     end note
   }
 
-  :return (None, None) -- results exist only on disk;
+  :return (dataset, dataframe) -- dask-backed, read from the files;
+  note right
+    dataset: the merged .nc or the chunk files,
+    "record" DataArray for one variable;
+    dataframe: dd.read_parquet(<base>_*.parquet).
+    The caller closes the dataset.
+  end note
   stop
 endif
 
