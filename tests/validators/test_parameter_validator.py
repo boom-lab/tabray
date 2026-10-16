@@ -55,14 +55,18 @@ class TestValidateDensityType:
         assert result == 1.0
         assert isinstance(result, float)
 
-    def test_valid_list_returns_max(self):
-        """Valid list should return max value."""
-        result = ParameterValidator.validate_density_type([0.2, 0.5, 0.3])
-        assert result == 0.5
+    def test_valid_list_returns_var0_density(self):
+        """A list sizes the grid from var0's density, even when another is larger.
 
-    def test_valid_tuple_returns_max(self):
-        """Valid tuple should return max value."""
-        result = ParameterValidator.validate_density_type((0.1, 0.9))
+        A per-profile variable at 1.0 next to var0 at 0.2 is valid: densities
+        are shares of each variable's own grid.
+        """
+        result = ParameterValidator.validate_density_type([0.2, 0.5, 0.3])
+        assert result == 0.2
+
+    def test_valid_range_returns_maximum(self):
+        """A [max, min] range gives var0 the maximum, its first value."""
+        result = ParameterValidator.validate_density_type((0.9, 0.1))
         assert result == 0.9
 
     def test_zero_raises_value_error(self):
@@ -165,6 +169,12 @@ class TestValidateDensityRefvarDoesNotMutate:
         with pytest.raises(ValueError, match="must have the largest density"):
             ParameterValidator.validate_density_refvar([0.3, 0.5])
 
+    def test_full_list_with_larger_non_reference_passes(self):
+        """A full list is not compared: densities of different own grids differ in meaning."""
+        density = [0.24, 1.0, 0.2]
+
+        assert ParameterValidator.validate_density_refvar(density) == [0.24, 1.0, 0.2]
+
     def test_reference_already_largest_is_untouched(self):
         density = [0.5, 0.3, 0.2]
 
@@ -175,6 +185,17 @@ class TestValidateDensityRefvarDoesNotMutate:
 
     def test_scalar_passes_through(self):
         assert ParameterValidator.validate_density_refvar(0.4) == 0.4
+
+
+class TestValidateVarNumObsRefvar:
+    """var0 must hold the most observations; checked on counts, not densities."""
+
+    def test_reference_with_most_observations_passes(self):
+        ParameterValidator.validate_var_num_obs_refvar(np.array([10252, 20, 10252]))
+
+    def test_variable_with_more_observations_raises(self):
+        with pytest.raises(ValueError, match="var2 holds 30"):
+            ParameterValidator.validate_var_num_obs_refvar(np.array([20, 10, 30]))
 
 
 class TestValidateVarDimsExplicitIndices:

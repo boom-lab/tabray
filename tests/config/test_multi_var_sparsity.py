@@ -212,21 +212,27 @@ class TestComputeVarNumObs:
         np.testing.assert_array_equal(result, [100, 100, 100])
 
     def test_different_sparsities(self):
-        """Different sparsities should scale proportionally."""
-        sparsities = np.array([0.3, 0.6])
+        """Counts scale with density relative to var0's."""
+        sparsities = np.array([0.6, 0.3])
         result = MultiVarSparsityConfig.compute_var_num_obs(sparsities, 100)
-        assert result[1] == 100  # Max gets full num_obs
-        assert result[0] == 50  # Half of max
+        assert result[0] == 100  # var0 gets num_obs
+        assert result[1] == 50  # half of var0's density
 
-    def test_max_sparsity_gets_full_num_obs(self):
-        """Variable with max sparsity should get full num_obs."""
-        sparsities = np.array([0.2, 0.8, 0.5])
-        result = MultiVarSparsityConfig.compute_var_num_obs(sparsities, 200)
-        assert result[1] == 200
+    def test_var0_gets_num_obs_even_when_not_densest(self):
+        """num_obs is var0's, whichever density is largest.
+
+        A per-profile variable at 1.0 on a 20-profile own grid, next to var0 at
+        0.25 on a 20 x 80 grid (400 values): it holds its 20 profiles.
+        """
+        densities = np.array([0.25, 1.0])
+        result = MultiVarSparsityConfig.compute_var_num_obs(
+            densities, 400, grid_fractions=np.array([1.0, 20 / 1600])
+        )
+        np.testing.assert_array_equal(result, [400, 20])
 
     def test_minimum_one_observation_per_variable(self):
         """Each variable should get at least 1 observation."""
-        sparsities = np.array([0.001, 1.0])
+        sparsities = np.array([1.0, 0.001])
         result = MultiVarSparsityConfig.compute_var_num_obs(sparsities, 10)
         assert all(obs >= 1 for obs in result)
 

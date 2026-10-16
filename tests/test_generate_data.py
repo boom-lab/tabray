@@ -1042,6 +1042,50 @@ class TestErrorHandling:
             )
 
 
+class TestReferenceVariableCounts:
+    """var0 must hold the most observations; densities of different own grids may exceed var0's."""
+
+    @staticmethod
+    def _profiles(density):
+        # 20 profiles x 80 levels; var1 and var2 vary along profiles only
+        with contextlib.redirect_stdout(io.StringIO()):
+            return GenerateData(
+                num_obs=400,
+                num_dims=2,
+                ratio_dims=[1, 4],
+                num_vars=3,
+                density=density,
+                var_dims=[2, [0], [0]],
+                seed=42,
+            )
+
+    def test_per_profile_density_above_var0_is_kept(self):
+        """var0 fills a quarter of its grid; a per-profile variable fills every profile."""
+        gen = self._profiles([0.25, 1.0, 0.5])
+
+        assert list(gen.shape) == [20, 80]
+        np.testing.assert_array_equal(gen.var_num_obs, [400, 20, 10])
+
+    def test_more_observations_than_var0_raises(self):
+        """A variable on fewer dims still cannot outnumber var0.
+
+        var0 covers every coordinate of every axis, so a variable on one dim
+        never outnumbers it. On two of three dims it can: on a 10 x 10 x 10
+        grid, var0 at 0.05 holds 50 values and var1 at 1.0 on (x1, x2) 100.
+        """
+        with pytest.raises(ValueError, match="must hold the most observations"):
+            with contextlib.redirect_stdout(io.StringIO()):
+                GenerateData(
+                    num_obs=50,
+                    num_dims=3,
+                    ratio_dims=[1, 1, 1],
+                    num_vars=3,
+                    density=[0.05, 1.0, 0.1],
+                    var_dims=[3, [1, 2], [1, 2]],
+                    seed=42,
+                )
+
+
 class TestScenarios:
     """Tests for specific scenarios whose outcome is known"""
 

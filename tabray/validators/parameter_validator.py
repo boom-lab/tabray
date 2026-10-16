@@ -224,13 +224,17 @@ class ParameterValidator:
     def validate_density_refvar(density: Union[List, Tuple]) -> List:
         """Validate density value when a list is provided.
 
-        The density of the reference variable (position 0) must be the largest,
-        because var0 is the overlap reference and must have the largest number
-        of observations.
+        A two-element list is a ``[max, min]`` range, and var0 takes the
+        maximum: its first value must be the larger one. Raises rather than
+        reordering: moving the maximum into position 0 would collapse the range
+        to a point and give every variable the same density.
 
-        Raises rather than reordering: a two-element list is a ``[max, min]``
-        range, so moving the maximum into position 0 would collapse it to a
-        point and give every variable the same density.
+        A full list (one density per variable) is not compared here. Each
+        density is a share of the variable's own grid, so densities of
+        variables on different dimensions are shares of different totals:
+        a per-profile variable at 1.0 can hold far fewer values than var0 at
+        0.2. That var0 holds the most observations is checked on the counts,
+        by validate_var_num_obs_refvar.
 
         Args:
             density: Density input, scalar or sequence. Scalars pass through.
@@ -239,7 +243,7 @@ class ParameterValidator:
             A new list. The argument is never modified.
 
         Raises:
-            ValueError: If the reference density is not the largest given
+            ValueError: If a [max, min] range does not list the maximum first
         """
 
         if not isinstance(density, (tuple, list)):
@@ -248,16 +252,38 @@ class ParameterValidator:
         # Copy unconditionally -- a list argument must not be written through.
         density = list(density)
 
-        max_density = max(density)
-        if density[0] != max_density:
+        if len(density) == 2 and density[0] < density[1]:
             raise ValueError(
                 f"The reference variable takes density[0]={density[0]}, but the "
-                f"largest density given is {max_density}. var0 is the overlap "
-                "reference and must have the largest density, so list the "
-                "largest value first."
+                f"largest density given is {density[1]}. A two-element density is "
+                "a [max, min] range: var0, the overlap reference, takes the maximum "
+                "and must have the largest density, so list the largest value first."
             )
 
         return density
+
+    @staticmethod
+    def validate_var_num_obs_refvar(var_num_obs: np.ndarray) -> None:
+        """Check that var0 holds the most observations.
+
+        var0 is the overlap reference: every overlap is a share of its sites,
+        and the overlap setup assumes no variable has more.
+
+        Args:
+            var_num_obs: Observations per variable, var0 first
+
+        Raises:
+            ValueError: If a variable holds more observations than var0
+        """
+        var_num_obs = np.asarray(var_num_obs)
+        larger = np.flatnonzero(var_num_obs > var_num_obs[0])
+        if larger.size:
+            raise ValueError(
+                f"var0 holds {var_num_obs[0]} observations, but "
+                + ", ".join(f"var{i} holds {var_num_obs[i]}" for i in larger)
+                + ". var0 is the overlap reference and must hold the most "
+                "observations: raise its density or lower theirs."
+            )
 
     @staticmethod
     def validate_density_type(density: Union[int, float, List, Tuple]) -> float:
@@ -268,35 +294,35 @@ class ParameterValidator:
         where n_i is the number of observations of variable i and prod(shape)
         the number of sites in the full grid.
 
-        The density at the whole grid level is determined as the maximum value
-        of density available across variables (if density is an int, it is the
-        same for all variables)
+        The grid is sized from var0's density: num_obs is var0's count and var0
+        varies along every dimension, so prod(shape) = num_obs / density[0]. A
+        scalar is every variable's density; a [max, min] range gives var0 the
+        maximum, density[0].
 
         Args:
             density: Density value(s) - scalar, 2-element, or num_vars-element
 
         Returns:
-            Representative density value (max if list/tuple) for grid calculation
+            var0's density, for the grid calculation
 
         Raises:
             TypeError: If density is not a valid type
-            ValueError: If density values are not in [0, 1], or the largest is 0
+            ValueError: If var0's density is not in [0, 1], or is 0
 
         """
         if isinstance(density, (float, int)):
             density_for_grid = float(density)
         elif isinstance(density, (list, tuple)):
-            density_for_grid = float(max(density))
+            density_for_grid = float(density[0])
         else:
             raise TypeError(
                 f"density must be a number, list, or tuple, got {type(density)}"
             )
 
-        if not 0.0 <= density_for_grid <= 1.0:
-            raise ValueError(
-                f"density values must be between 0 and 1.0, "
-                f"got max={density_for_grid}"
-            )
+        values = density if isinstance(density, (list, tuple)) else [density]
+        outside = [value for value in values if not 0.0 <= value <= 1.0]
+        if outside:
+            raise ValueError(f"density values must be between 0 and 1.0, got {outside}")
 
         # Grid size is num_obs / density: zero gives an infinite grid.
         if density_for_grid == 0.0:

@@ -132,27 +132,28 @@ class MultiVarSparsityConfig:
     ) -> np.ndarray:
         """Compute number of observations for each variable.
 
-            n_i = rint(d_i / d_max * num_obs * f_i)
+            n_i = rint(d_i / d_0 * num_obs * f_i)
 
         - d_i is a share of the variable's OWN grid: the product of the
           dimensions it varies along
         - f_i = own grid / full grid; 1 for a variable on every dimension
-        - num_obs belongs to the max-density variable, which is var0 and
-          varies along every dimension, so num_obs / d_max is the full grid
+        - num_obs belongs to var0, which varies along every dimension, so
+          num_obs / d_0 is the full grid. d_0 need not be the largest density:
+          a variable on fewer dimensions can fill more of its smaller grid
 
         Args:
-            var_densities: Array of density values
-            num_obs: Total number of observations for max density variable
+            var_densities: Array of density values, var0 first
+            num_obs: Number of observations of var0
             grid_fractions: Own grid / full grid per variable (default: all 1)
 
         Returns:
             Array of observation counts, one per variable
         """
-        max_density = np.max(var_densities)
+        reference_density = var_densities[0]
         if grid_fractions is None:
             grid_fractions = np.ones(len(var_densities))
         var_num_obs = np.rint(
-            (var_densities / max_density) * num_obs * np.asarray(grid_fractions),
+            (var_densities / reference_density) * num_obs * np.asarray(grid_fractions),
         ).astype(int)
         # at least one observation, except density 0: an empty variable
         var_num_obs = np.where(var_densities == 0, 0, np.maximum(var_num_obs, 1))

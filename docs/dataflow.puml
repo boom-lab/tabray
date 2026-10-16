@@ -40,7 +40,7 @@ partition "validators/  (shape and counts)" {
   num_obs, num_dims, seed, num_vars
   var_dims  -> per-variable dimension count
   ratio_dims -> array
-  density_refvar -> var0 forced to the largest density;
+  density_refvar -> a [max, min] range lists var0's maximum first;
 
   :<b>DimensionValidator</b>
   nb_coords_dim1 = (num_obs / (density * prod(ratio_dims))) ** (1/num_dims)

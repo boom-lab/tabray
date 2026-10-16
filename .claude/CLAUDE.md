@@ -65,7 +65,7 @@ GenerateData.generate  ->  generators/   CoordinateGenerator, MultiVarRecordGene
 
 ### Overlap
 
-- `var0` is the reference, placed first, and must be the largest variable (`validate_density_refvar` raises otherwise).
+- `var0` is the reference, placed first, and must hold the most observations (`validate_var_num_obs_refvar` raises otherwise). The check is on counts: a fewer-dims variable may have a larger density than var0. The grid is sized from var0's density, `density[0]`.
 - Overlap (`docs/explainer_multivar.md`): `overlap = |proj(S0) & proj(Si)| / |proj(S0)|`, the targeted quantity; `overlap_reverse` divides by `|proj(Si)|`. Single entry point: `OverlapCalculator.compute_overlap_report`.
 - Placement is per stratum (`generate_multivar_stratified`): overlap cells from var0's footprint in each hyperplane, the rest from cells held by neither. Unreachable target → warning, density wins.
 - Overlap count per stratum:
