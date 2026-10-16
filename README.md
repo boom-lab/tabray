@@ -11,6 +11,8 @@ Notes:
 
 - Points 3 and 4 are related: I'll use read time as the metric for small enough data, and manipulation time (e.g. computing the mean, plotting, or so) for larger-than-memory data
 
+Besides generating data, the package describes any netCDF or parquet dataset: dimensions, density and overlap of each variable. Describing a real dataset gives the parameters to generate a synthetic one like it (see **Describing a Dataset**).
+
 ## Installation
 
 ### Using pip
@@ -63,7 +65,9 @@ print(f"Generated {len(dataframe)} observations")
 print(f"Array shape: {dataarray.shape}")
 ```
 
-### Generate Data Without Saving
+**`generate()` deletes files.** Before writing, it deletes every `.nc`, `.parquet` and `_metadata` file in the netCDF and parquet output directories. Write to directories that hold nothing else you want to keep.
+
+### Default Output Paths
 
 ```python
 from tabray.generate_data import GenerateData
@@ -76,7 +80,8 @@ gen = GenerateData(
     seed=123
 )
 
-# Generate data without saving to disk
+# No paths: writes ./test_nc/test.nc and ./test_parquet/data_*.parquet
+# (after deleting the .nc, .parquet and _metadata files in both directories)
 dataarray, dataframe = gen.generate()
 
 # Access the data
@@ -91,39 +96,38 @@ Setting `max_obs` below `num_obs` splits the grid into chunks and generates each
 ```python
 from tabray.generate_data import GenerateData
 
-# Generate a large single-variable dataset with parallel processing
-gen = GenerateData(
-    num_obs=50_000_000,     # 50 million observations
-    num_dims=3,
-    ratio_dims=(2.0, 1.5, 1.0),
-    density=0.05,
-    seed=42,
-    max_obs=10_000_000      # Split into chunks of 10M observations each
-)
+# Required in a script: each chunk runs in a new process, which imports this file again
+if __name__ == "__main__":
+    # Single variable: 100 observations in 4 chunks of 25
+    gen = GenerateData(
+        num_obs=100,
+        num_dims=1,
+        ratio_dims=1,
+        density=1.0,
+        seed=34,
+        max_obs=25,           # at most 25 observations per chunk
+    )
+    gen.generate(
+        netcdf_filepath="single/data.nc",
+        parquet_filepath="single/data.parquet",
+    )
 
-# Data is automatically split and processed in parallel
-gen.generate(
-    netcdf_filepath="large_data.nc",
-    parquet_filepath="large_data.parquet"
-)
-
-# Generate a large multi-variable dataset with parallel processing
-gen_multi = GenerateData(
-    num_obs=30_000_000,     # 30 million observations (of var0)
-    num_dims=4,
-    ratio_dims=(2.0, 1.5, 1.0, 1.0),
-    density=[0.10, 0.05],   # [max, min]: var0 takes the max, the rest are drawn from the range
-    seed=42,
-    max_obs=10_000_000,
-    num_vars=3,
-    var_dims=[[0,1,2,3], [1,2,3], [0,2,3]],  # var0 always uses every dimension
-    overlap=0.5             # half of var0's sites also carry each other variable
-)
-
-gen_multi.generate(
-    netcdf_filepath="large_multivar_data.nc",
-    parquet_filepath="large_multivar_data.parquet"
-)
+    # Two variables on an 8x8x8 grid, 4 chunks
+    gen_multi = GenerateData(
+        num_obs=80,           # observations of var0
+        num_dims=3,
+        ratio_dims=1,
+        density=0.15,
+        seed=42,
+        num_vars=2,
+        var_dims=3,
+        overlap=0.5,          # half of var0's sites also carry var1
+        max_obs=20,
+    )
+    gen_multi.generate(
+        netcdf_filepath="multi/data.nc",
+        parquet_filepath="multi/data.parquet",
+    )
 ```
 
 **How it works:**
@@ -131,7 +135,8 @@ gen_multi.generate(
 - Each chunk runs in its own process (`concurrent.futures.ProcessPoolExecutor`). `max_workers` caps the number of processes running at once (default: the CPU count).
 - Every random draw depends on the seed and on the position in the grid, never on the chunk, so the chunks together reproduce the serial output: same coordinates, sites, values and overlap. Overlap targets apply to the whole grid, not to each chunk.
 - `generate()` returns `(None, None)`; the results exist only on disk.
-- For NetCDF: one file per chunk (e.g., `large_data_0.nc`, `large_data_1.nc`, etc.), which `xr.open_mfdataset` combines. Chunk files keep every dimension so that they concatenate, so a variable defined on fewer dimensions appears on the full grid, NaN outside its constant coordinate.
+- A script needs the `if __name__ == "__main__":` guard: the worker processes start by importing it again, and without the guard each would start generating.
+- For NetCDF: one file per chunk (e.g., `data_0.nc`, `data_1.nc`, etc.), which `xr.open_mfdataset` combines. Chunk files keep every dimension so that they concatenate, so a variable defined on fewer dimensions appears on the full grid, NaN outside its constant coordinate.
 - `generate(merge_nc=True)` merges the chunk files into one file, with those constant dimensions removed as in a serial run, and deletes the chunk files. The merge needs more memory than the data size; leave it off for output that does not fit in memory.
 - For Parquet: each chunk is written to a scratch directory (`generate(parquet_tmp=...)`), then Dask merges the chunks into one dataset with ~300 MB partitions and deletes the scratch files.
 - Worker logs: off by default. Set `TABRAY_WORKER_LOG=debug` (or `info`) to write one
@@ -149,32 +154,32 @@ Generate datasets with multiple observation variables measured at potentially di
 ```python
 from tabray.generate_data import GenerateData
 
-# Generate a dataset with 3 variables
+# Three variables on a 3x3 grid
 gen = GenerateData(
-    num_obs=1000,
-    num_dims=3,
-    ratio_dims=(1.0, 1.0, 1.0),
-    density=[0.3, 0.1],   # [max, min]: var0 takes 0.3, var1 and var2 are drawn from [0.1, 0.3]
-    seed=42,
-    num_vars=3,           # Number of variables
-    var_dims=3,           # Each variable uses all 3 dimensions
-    overlap=0.5,          # half of var0's sites also carry each other variable
-    fixed_overlap=False   # Share overlap draws only when enabled
+    num_obs=8,
+    num_dims=2,
+    ratio_dims=1,
+    density=8/9,                 # var0 holds 8 of the 9 sites
+    seed=12345,
+    num_vars=3,
+    var_dims=[2, 2, 1],          # var2 varies along one dimension, chosen at random
+    overlap=[1, 1],              # every var0 site also carries var1 and var2
+    fixed_overlap=[True, True],  # var1 and var2 draw from one shared ordering of var0's sites
 )
 
-dataarray, dataframe = gen.generate(
+dataset, dataframe = gen.generate(
     netcdf_filepath="multi_var_data.nc",
     parquet_filepath="multi_var_data.parquet"
 )
 
 # The result is an xarray.Dataset (not DataArray) with multiple data variables
-print(dataarray.data_vars)  # ['var0', 'var1', 'var2']
+print(list(dataset.data_vars))  # ['var0', 'var1', 'var2']
 
 # The DataFrame has one row per site holding at least one variable and one
 # column per variable, NaN where that variable is absent. A variable on fewer
 # dimensions repeats its value on every row matching it on its own dimensions;
 # a value no row matches gets a row with NaN in the dimensions it drops
-print(dataframe.columns)  # ['x0', 'x1', 'x2', 'var0', 'var1', 'var2']
+print(list(dataframe.columns))  # ['x0', 'x1', 'var0', 'var1', 'var2']
 ```
 
 **Density Options for Multiple Variables:**
@@ -226,14 +231,15 @@ projection onto the dimensions the two share.
 ```python
 # Example: 3 variables with different dimensions and controlled overlap
 gen = GenerateData(
-    num_obs=500,
-    num_dims=4,
-    ratio_dims=(1.0, 1.0, 1.0, 1.0),
-    density=0.2,
-    seed=42,
+    num_obs=3,
+    num_dims=2,
+    ratio_dims=1,
+    density=3/9,
+    seed=12345,
     num_vars=3,
-    var_dims=[[0,1,2,3], [1,2,3], [0,3]],  # Different dimensions per variable
-    overlap=0.7  # 70% of var0's sites carry each variable, on shared dimensions
+    var_dims=[2, 2, 1],            # var2 varies along one dimension
+    overlap=[1/3, 1/3],            # one of var0's 3 sites carries each variable, on shared dimensions
+    fixed_overlap=[True, False],   # only var1 draws from the shared ordering
 )
 
 dataset, df = gen.generate()
@@ -386,6 +392,18 @@ The reference is `reference` if given, else the variable with the most occupied 
   - List of length `num_vars - 1`: One overlap target per non-reference variable
 - **fixed_overlap** (bool or list of bools, optional): When `True`, variables draw their overlapping sites from one shared ordering of var0's sites, so they also overlap each other (default: `False`)
 
+## Notebooks
+
+Run them with `notebooks/` as the working directory.
+
+- `tutorial1.ipynb`: one variable on a 3x3 grid: gridded, irregular, and sparse on a grid
+- `tutorial2.ipynb`: the same cases on a 100x100 grid
+- `tutorial3.ipynb`: two and three variables, on two dimensions or fewer, with overlap 1 and below 1
+- `tutorial4.ipynb`: serial and parallel generation of the same dataset, and how to read the chunked output
+- `dataflow_examples.ipynb`: the runs behind `docs/dataflow_example_*.puml`
+- `analyse_dataset.ipynb`: describes the netCDF and parquet files of a generated dataset and compares them
+- `analyse_argo_phy.ipynb`, `analyse_argo_bgc.ipynb`: describe an Argo physical and a biogeochemical profile file and generate synthetic datasets like them; they need a local Argo file (`NC_PATH` in the first cells)
+
 ## Testing
 
 The repository includes a test suite covering all modules.
@@ -408,7 +426,7 @@ pytest --cov=tabray --cov-report=html
 pytest tests/validators/test_parameter_validator.py
 
 # Run specific test class
-pytest tests/generators/test_coordinate_generator.py::TestGenerateDimensionCoords
+pytest tests/generators/test_coordinate_generator.py::TestGenerateAllCoords
 
 # Run tests matching a pattern
 pytest -k "test_2d"
