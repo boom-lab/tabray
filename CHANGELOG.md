@@ -25,6 +25,7 @@
 - `DatasetDescription.describe_dataset`: dimensions, sites, density, overlap and dtype of each variable of any netCDF or parquet dataset. `generate()` prints this description of what it wrote and keeps it as `gen.description`. For parquet, a variable's dimensions are inferred from its rows, and every assumption is printed and warned.
 - Notebooks: tutorial for serial and parallel generation (`tutorial4`), dataset analysis (`analyse_dataset`), and `dataflow_examples`.
 - Docs: `docs/dataflow.puml` and worked examples `docs/dataflow_example_*.puml`.
+- `import tabray as tr`: `tr.GenerateData`, `tr.DatasetDescription`, `tr.__version__`.
 - Dependency: `scipy>=1.10.0`.
 
 ### Fixed
@@ -33,6 +34,7 @@
 
 ### Removed
 
+- Runtime dependencies `jupyterlab` (now the `notebooks` extra: `pip install "tabray[notebooks]"`) and `h5netcdf` (unused).
 - `docs/explainer.md` and `docs/explainer_multivar.md`, moved to branch `docs/explainers` for a rewrite.
 
 ## 0.1.0 (2026-08-07)

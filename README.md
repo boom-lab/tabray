@@ -7,14 +7,16 @@ tabray is a Python Package for generating tabular and array data structures with
 ### Using pip
 
 ```bash
-# Install the package
-pip install -e .
+pip install tabray
 
-# Install with test dependencies
-pip install -e ".[test]"
+# With JupyterLab, to run the notebooks
+pip install "tabray[notebooks]"
+```
 
-# Install with all development dependencies
-pip install -e ".[dev]"
+From a clone of the repository:
+
+```bash
+pip install -e ".[dev]"   # dev: pytest, pytest-cov, pylint, black
 ```
 
 ### Using conda
@@ -234,7 +236,7 @@ DatasetDescription.describe_dataset("data.nc", reference="temp")  # overlap agai
 - The reference is `reference` if given, else the variable with the most occupied sites
 - Parquet has no axes: it requires `coords` to be specified, and a variable's dimensions are inferred from its rows (with some assumptions in ambiguous cases)
 - `notebooks/analyse_dataset.ipynb` compares the descriptions of the netCDF and parquet files of one dataset
-- When generating a synthetic dataset, `generate()` prints this description of what it generate and keeps it as `gen.description`
+- When generating a synthetic dataset, `generate()` prints this description of what it generated and keeps it as `gen.description`
 
 ### How the Data Are Generated
 
